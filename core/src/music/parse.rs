@@ -334,7 +334,7 @@ fn parse_params(mut rest: &str, full_input: &str) -> ParseResult<(Vec<ParamSet>,
 
     while !rest.is_empty() {
         if rest.starts_with('+') {
-            // +name:value or +name:v1:v2:v3
+            // +name:value — single snapshot only (no sequences / automation)
             // Find the end of this param token (next space or + or ^ or end)
             let end = rest[1..].find(|c: char| c.is_whitespace())
                 .map(|p| p + 1)
@@ -342,21 +342,30 @@ fn parse_params(mut rest: &str, full_input: &str) -> ParseResult<(Vec<ParamSet>,
             let token = &rest[..end];
 
             if let Some((name, val_str)) = token[1..].split_once(':') {
-                let values: Result<Vec<f64>, _> = val_str
-                    .split(':')
-                    .map(|s| s.trim().parse::<f64>())
-                    .collect();
-
-                match values {
-                    Ok(vals) if !vals.is_empty() => {
-                        params.push(ParamSet { name: name.to_string(), values: vals });
+                if val_str.contains(':') {
+                    return Err(ParseError::new(
+                        format!(
+                            "param '{name}': sequences unsupported — snapshot only (+{name}:value)"
+                        ),
+                        full_input.len() - rest.len(),
+                        full_input.to_string(),
+                    ));
+                }
+                match val_str.trim().parse::<f64>() {
+                    Ok(value) => {
+                        params.push(ParamSet {
+                            name: name.to_string(),
+                            value,
+                        });
                         rest = rest[end..].trim_start();
                         continue;
                     }
-                    _ => {
+                    Err(_) => {
                         return Err(ParseError::new(
                             format!("invalid param value for '{name}'"),
-                            full_input.len() - rest.len(), full_input.to_string()));
+                            full_input.len() - rest.len(),
+                            full_input.to_string(),
+                        ));
                     }
                 }
             } else {
@@ -1163,9 +1172,9 @@ mod tests {
         if let MusicLine::Music(cmd) = result {
             assert_eq!(cmd.params.len(), 2);
             assert_eq!(cmd.params[0].name, "cutoff");
-            assert_eq!(cmd.params[0].values, vec![0.3]);
+            assert_eq!(cmd.params[0].value, 0.3);
             assert_eq!(cmd.params[1].name, "res");
-            assert_eq!(cmd.params[1].values, vec![0.7]);
+            assert_eq!(cmd.params[1].value, 0.7);
         } else {
             panic!("expected Music");
         }

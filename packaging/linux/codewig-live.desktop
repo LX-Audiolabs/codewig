@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=codewig-live
+GenericName=Bitwig Live Coding
+Comment=Live-coding UI for Bitwig Studio (WIGSCRIPT)
+Exec=codewig-live
+Icon=codewig-live
+Terminal=false
+Categories=AudioVideo;Audio;Music;Development;
+Keywords=bitwig;daw;livecoding;music;wigscript;cliwig;
+StartupNotify=true
+StartupWMClass=codewig-live

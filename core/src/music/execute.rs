@@ -274,12 +274,12 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
         }
     };
 
-    // +params: apply on focused device if any (best-effort)
+    // +params: snapshot on focused device (best-effort; no automation)
     if !cmd.params.is_empty() {
         let sets: Vec<(String, f64)> = cmd
             .params
             .iter()
-            .filter_map(|p| p.values.first().map(|v| (p.name.clone(), *v)))
+            .map(|p| (p.name.clone(), p.value))
             .collect();
         let _ = client.param_set_multi(&sets);
     }

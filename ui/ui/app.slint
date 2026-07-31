@@ -2,7 +2,11 @@ import { LineEdit, Button, VerticalBox, HorizontalBox, TextEdit, ScrollView } fr
 
 export struct RefEntry {
     name: string,
+    /// Short one-liner for the list (right column). Not full syntax.
+    summary: string,
+    /// Inserted on right-click (primary template).
     syntax: string,
+    /// Full help for the detail box (examples live here).
     detail: string,
     tag: string,
 }
@@ -14,37 +18,213 @@ export component AppWindow inherits Window {
     in-out property <string> ref-filter: "";
     in-out property <string> ref-tag: "";
     in-out property <string> help-text: "Click a command to see details. Right-click to insert syntax.";
+    // Filter change → jump list to top (hidden rows used to leave scroll mid-list)
+    changed ref-tag => { ref-list.viewport-y = 0; }
+    changed ref-filter => { ref-list.viewport-y = 0; }
     in-out property <[RefEntry]> refs: [
-        // Track
-        { name: "new track", syntax: "new track(name).device(dev)...", detail: "Create track + device + pattern in one line. Use .mute().clip(start) for beat-synced silent start.", tag: "track" },
-        { name: "t() / track()", syntax: "t(name)", detail: "Reference existing track by name.\nExample: t(kick), t(bass)", tag: "track" },
-        { name: "mute / unmute", syntax: "mute(name1,...)\nunmute(name1,...)", detail: "Mute/unmute tracks by name or index.\n  mute(kick)\n  mute(kick, bass)\n  mute(1,3,5)\n  unmute(kick)", tag: "track" },
-        { name: "play / stop", syntax: "play\nstop", detail: "Start / stop Bitwig transport.", tag: "transport" },
-        { name: "tempo", syntax: "tempo <bpm>", detail: "Set project tempo.\n  tempo 128", tag: "transport" },
-        { name: "s() / scene()", syntax: "s(N).start\ns(N).stop", detail: "Launch / stop scene N.\n  s(1).start\n  s(0).stop", tag: "scene" },
-        { name: "c() / clip()", syntax: "c(t.slot).start\nc(t.s1,t.s2).start\nt(name).c(N).start", detail: "Launch clip(s).\n  c(bass.0).start\n  c(bass.0, kick.1).start\n  t(bass).c(0).start", tag: "clip" },
-        { name: ".clip(start/stop)", syntax: ".clip(start)\n.clip(stop)", detail: "In fluent chain: launch/stop clip.\n  new track(b).device(P).n(\"c e\").clip(start)", tag: "clip" },
-        { name: "n / notes", syntax: "track: n \"pattern\"", detail: "Write MIDI notes via mini-notation.\n  bass: n \"c e g b\"\n  lead: n \"0 2 4 7\"", tag: "notes" },
-        { name: "mini-notation", syntax: "~ [ ] . * / < > ! _ ? @ | (,) { }", detail: "~ rest  [a b] group  * repeat  / slow\n<a b> alternate  ! replicate  _ elongate\n? drop  @ el-N  | choice  (3,8) euclid\n{a,b} polymetric  % ratio  : octave", tag: "notes" },
-        { name: "transpose", syntax: "^N semitones  ^^N scale", detail: "Transpose notes.\n  n \"c e g\" ^2   → D F# A\n  n \"0 2 4\" ^^1  → 1 3 5", tag: "notes" },
-        { name: "chord", syntax: "pad: chord \"C Am F G\"", detail: "Block chords. Roman numerals + scale.\n  chord \"C Am F G\"\n  chord \"i iv v\" (k C minor)\nQualities: m 7 m7 maj7 dim aug sus4 9", tag: "notes" },
-        { name: "d / drums", syntax: "drums: d \"pattern\"\ndrums:kit: d \"pattern\"", detail: "Drum patterns.\n  drums: d \"bd hh sd hh\"\n  drums:909: d \"bd hh sd\"\n  d:808 \"bd cp hh\"", tag: "drum" },
-        { name: "beat()", syntax: "beat(4_) beat(off)\nbeat:16(1,5,11,14)", detail: "Beat shortcuts (16-step grid).\n  4_→0,4,8,12  off→2,6,10,14\n  2_4→0,8  bk2→0,8\n  :16(1,5,11,14)→explicit", tag: "drum" },
-        { name: ".device() / .add()", syntax: ".device(Polymer)\n.add(Delay+)\n.device(layer)", detail: "Insert curated devices only.\n  new track(b).device(Polymer).add(Delay+)\n  new track(drums).device(layer)\nAllowlist: Polymer Polysynth Organ\n  Instrument Layer  Filter Reverb\n  Delay+ Chorus+ Saturator\nAliases: Delay-2→Delay+  Chorus→Chorus+\n  dist→Saturator  layer→Instrument Layer\nDrum pads (v9Kick…): place manually.", tag: "device" },
-        { name: ": params", syntax: "t(name).d(dev): param(val)...", detail: "Set params on selected device.\n  t(bass).d(Polymer): cutoff(0.3) res(0.7)\nDevice must already exist on track.", tag: "device" },
-        { name: "Polymer", syntax: "Polymer / poly", detail: "Insertable. Wavetable synth.", tag: "synth" },
-        { name: "Polysynth", syntax: "Polysynth / psynth", detail: "Insertable. VA polysynth.", tag: "synth" },
-        { name: "Organ", syntax: "Organ", detail: "Insertable. Tonewheel organ.", tag: "synth" },
-        { name: "Instrument Layer", syntax: "layer", detail: "Insertable shell for multi-pad drums.\nAdd v0/v8/v9 pads manually inside Bitwig.", tag: "drum" },
-        { name: "drum MIDI aliases", syntax: "bd hh sd  kick.v9", detail: "For d \"bd hh\" patterns only — MIDI notes.\nNot device.add. Prep pads on track first.\n  bd→36  hh→42  sd→40  cp→39", tag: "drum" },
-        { name: "Delay+", syntax: "Delay+ / Delay-2 / dly2", detail: "Insertable stereo delay.", tag: "fx" },
-        { name: "Reverb", syntax: "Reverb / rev", detail: "Insertable plate reverb.", tag: "fx" },
-        { name: "Filter", syntax: "Filter / filt", detail: "Insertable multi-mode filter.", tag: "fx" },
-        { name: "Chorus+", syntax: "Chorus+ / Chorus / chor", detail: "Insertable chorus.", tag: "fx" },
-        { name: "Saturator", syntax: "Saturator / dist", detail: "Insertable drive (alias Distortion).", tag: "fx" },
-        { name: "k / key", syntax: "k <root> <scale>", detail: "Set key for degrees.\n  k C minor  k D major\nScales: major minor dorian phrygian\n  lydian mixolydian locrian pentatonic blues", tag: "key" },
-        { name: "mode", syntax: "mode cmd | mode music", detail: "Switch REPL mode.", tag: "other" },
-        { name: "> passthrough", syntax: "> <cliwig command>", detail: "Run CLIwig command from music mode.\n  > track list\n  > device add Filter", tag: "other" },
+        {
+            name: "new track",
+            summary: "create track + device + pattern",
+            syntax: "new track(name).device(dev)",
+            detail: "Create track + device + pattern in one line.\nUse .mute().clip(start) for beat-synced silent start.\n\nSyntax:\n  new track(name).device(dev)...\n\nExample:\n  new track(bass).device(Polymer).n(\"c e g\")",
+            tag: "track",
+        },
+        {
+            name: "t() / track()",
+            summary: "reference track by name",
+            syntax: "t(name)",
+            detail: "Reference an existing track by name.\n\nSyntax:\n  t(name)  /  track(name)\n\nExamples:\n  t(kick)\n  t(bass)",
+            tag: "track",
+        },
+        {
+            name: "mute / unmute",
+            summary: "mute or unmute tracks",
+            syntax: "mute(kick)",
+            detail: "Mute/unmute tracks by name or index.\n\nSyntax:\n  mute(name1, ...)\n  unmute(name1, ...)\n\nExamples:\n  mute(kick)\n  mute(kick, bass)\n  mute(1, 3, 5)\n  unmute(kick)",
+            tag: "track",
+        },
+        {
+            name: "play / stop",
+            summary: "transport start / stop",
+            syntax: "play",
+            detail: "Start or stop Bitwig transport.\n\nSyntax:\n  play\n  stop",
+            tag: "transport",
+        },
+        {
+            name: "tempo",
+            summary: "set project tempo",
+            syntax: "tempo 128",
+            detail: "Set project tempo in BPM.\n\nSyntax:\n  tempo <bpm>\n\nExample:\n  tempo 128",
+            tag: "transport",
+        },
+        {
+            name: "s() / scene()",
+            summary: "launch or stop a scene",
+            syntax: "s(1).start",
+            detail: "Launch or stop scene N.\n\nSyntax:\n  s(N).start\n  s(N).stop\n\nExamples:\n  s(1).start\n  s(0).stop",
+            tag: "scene",
+        },
+        {
+            name: "c() / clip()",
+            summary: "launch clip(s)",
+            syntax: "c(bass.0).start",
+            detail: "Launch one or more clips.\n\nSyntax:\n  c(t.slot).start\n  c(t.s1, t.s2).start\n  t(name).c(N).start\n\nExamples:\n  c(bass.0).start\n  c(bass.0, kick.1).start\n  t(bass).c(0).start",
+            tag: "clip",
+        },
+        {
+            name: ".clip(start/stop)",
+            summary: "clip launch in fluent chain",
+            syntax: ".clip(start)",
+            detail: "In a fluent chain: launch or stop the clip.\n\nSyntax:\n  .clip(start)\n  .clip(stop)\n\nExample:\n  new track(b).device(P).n(\"c e\").clip(start)",
+            tag: "clip",
+        },
+        {
+            name: "n / notes",
+            summary: "write MIDI notes",
+            syntax: "bass: n \"c e g b\"",
+            detail: "Write MIDI notes via mini-notation.\n\nSyntax:\n  track: n \"pattern\"\n\nExamples:\n  bass: n \"c e g b\"\n  lead: n \"0 2 4 7\"",
+            tag: "notes",
+        },
+        {
+            name: "mini-notation",
+            summary: "pattern operators & symbols",
+            syntax: "n \"c e g\"",
+            detail: "Mini-notation operators:\n  ~ rest   [a b] group   * repeat   / slow\n  <a b> alternate   ! replicate   _ elongate\n  ? drop   @ el-N   | choice   (3,8) euclid\n  {a,b} polymetric   % ratio   : octave",
+            tag: "notes",
+        },
+        {
+            name: "transpose",
+            summary: "shift notes up/down",
+            syntax: "n \"c e g\" ^2",
+            detail: "Transpose notes by semitones or scale degrees.\n\nSyntax:\n  ^N   semitones\n  ^^N  scale degrees\n\nExamples:\n  n \"c e g\" ^2   → D F# A\n  n \"0 2 4\" ^^1  → 1 3 5",
+            tag: "notes",
+        },
+        {
+            name: "chord",
+            summary: "block chords / progressions",
+            syntax: "pad: chord \"C Am F G\"",
+            detail: "Block chords. Supports Roman numerals + scale.\n\nSyntax:\n  track: chord \"...\"\n\nExamples:\n  chord \"C Am F G\"\n  chord \"i iv v\"   (with k C minor)\n\nQualities: m  7  m7  maj7  dim  aug  sus4  9",
+            tag: "notes",
+        },
+        {
+            name: "d / drums",
+            summary: "drum pattern on a track",
+            syntax: "drums: d \"bd hh sd hh\"",
+            detail: "Write drum patterns (MIDI aliases).\n\nSyntax:\n  drums: d \"pattern\"\n  drums:kit: d \"pattern\"\n\nExamples:\n  drums: d \"bd hh sd hh\"\n  drums:909: d \"bd hh sd\"\n  d:808 \"bd cp hh\"",
+            tag: "drum",
+        },
+        {
+            name: "beat()",
+            summary: "create drum/percussion beat",
+            syntax: "beat(4_)",
+            detail: "Beat shortcuts on a 16-step grid.\n\nSyntax:\n  beat(4_)\n  beat(off)\n  beat:16(1,5,11,14)\n\nShortcuts:\n  4_   → 0,4,8,12\n  off  → 2,6,10,14\n  2_4 / bk2 → 0,8\n  :16(1,5,11,14) → explicit steps",
+            tag: "drum",
+        },
+        {
+            name: ".device() / .add()",
+            summary: "insert instrument or FX",
+            syntax: ".device(Polymer)",
+            detail: "Insert curated devices only (allowlist).\n\nSyntax:\n  .device(Polymer)\n  .add(Delay+)\n  .device(layer)\n\nExamples:\n  new track(b).device(Polymer).add(Delay+)\n  new track(drums).device(layer)\n\nAllowlist:\n  Polymer  Polysynth  Organ  Instrument Layer\n  Filter  Reverb  Delay+  Chorus+  Saturator\n\nAliases:\n  Delay-2 → Delay+   Chorus → Chorus+\n  dist → Saturator   layer → Instrument Layer\n\nDrum pads (v9Kick…): place manually in Bitwig.",
+            tag: "device",
+        },
+        {
+            name: ": params",
+            summary: "snapshot device parameters",
+            syntax: "t(bass).d(Polymer): cutoff(0.3)",
+            detail: "Set params on a device that already exists — one value now (snapshot).\nNo ramps, sequences, or automation. Smooth control stays in Bitwig / hardware.\n\nSyntax:\n  t(name).d(dev): param(val)...\n  track: n \"...\" +param:val\n\nExamples:\n  t(bass).d(Polymer): cutoff(0.3) res(0.7)\n  bass: n \"c e g\" +cutoff:0.3",
+            tag: "device",
+        },
+        {
+            name: "Polymer",
+            summary: "wavetable synth",
+            syntax: "Polymer",
+            detail: "Insertable instrument. Wavetable synth.\n\nAliases: Polymer / poly",
+            tag: "synth",
+        },
+        {
+            name: "Polysynth",
+            summary: "VA polysynth",
+            syntax: "Polysynth",
+            detail: "Insertable instrument. VA polysynth.\n\nAliases: Polysynth / psynth",
+            tag: "synth",
+        },
+        {
+            name: "Organ",
+            summary: "tonewheel organ",
+            syntax: "Organ",
+            detail: "Insertable instrument. Tonewheel organ.",
+            tag: "synth",
+        },
+        {
+            name: "Instrument Layer",
+            summary: "multi-pad drum shell",
+            syntax: "layer",
+            detail: "Insertable shell for multi-pad drums.\nAdd v0/v8/v9 pads manually inside Bitwig.\n\nAlias: layer",
+            tag: "drum",
+        },
+        {
+            name: "drum MIDI aliases",
+            summary: "bd / hh / sd note map",
+            syntax: "bd hh sd",
+            detail: "For d \"bd hh\" patterns only — MIDI note names.\nNot device.add. Prep pads on the track first.\n\nMap:\n  bd → 36   hh → 42   sd → 40   cp → 39",
+            tag: "drum",
+        },
+        {
+            name: "Delay+",
+            summary: "stereo delay FX",
+            syntax: "Delay+",
+            detail: "Insertable stereo delay.\n\nAliases: Delay+ / Delay-2 / dly2",
+            tag: "fx",
+        },
+        {
+            name: "Reverb",
+            summary: "plate reverb FX",
+            syntax: "Reverb",
+            detail: "Insertable plate reverb.\n\nAliases: Reverb / rev",
+            tag: "fx",
+        },
+        {
+            name: "Filter",
+            summary: "multi-mode filter FX",
+            syntax: "Filter",
+            detail: "Insertable multi-mode filter.\n\nAliases: Filter / filt",
+            tag: "fx",
+        },
+        {
+            name: "Chorus+",
+            summary: "chorus FX",
+            syntax: "Chorus+",
+            detail: "Insertable chorus.\n\nAliases: Chorus+ / Chorus / chor",
+            tag: "fx",
+        },
+        {
+            name: "Saturator",
+            summary: "drive / distortion FX",
+            syntax: "Saturator",
+            detail: "Insertable drive (alias Distortion).\n\nAliases: Saturator / dist",
+            tag: "fx",
+        },
+        {
+            name: "k / key",
+            summary: "set key and scale",
+            syntax: "k C minor",
+            detail: "Set key for scale degrees.\n\nSyntax:\n  k <root> <scale>\n\nExamples:\n  k C minor\n  k D major\n\nScales:\n  major minor dorian phrygian\n  lydian mixolydian locrian pentatonic blues",
+            tag: "key",
+        },
+        {
+            name: "mode",
+            summary: "switch REPL mode",
+            syntax: "mode music",
+            detail: "Switch REPL mode.\n\nSyntax:\n  mode cmd\n  mode music",
+            tag: "other",
+        },
+        {
+            name: "> passthrough",
+            summary: "run raw CLIwig command",
+            syntax: "> track list",
+            detail: "Run a CLIwig command from music mode.\n\nSyntax:\n  > <cliwig command>\n\nExamples:\n  > track list\n  > device add Filter",
+            tag: "other",
+        },
     ];
 
     callback send-command();
@@ -68,6 +248,9 @@ export component AppWindow inherits Window {
     title: "codewig-live";
     preferred-width: 1200px;
     preferred-height: 700px;
+    // Allow shrink even when status text is long (disconnected errors)
+    min-width: 720px;
+    min-height: 420px;
     background: bg;
 
     HorizontalBox {
@@ -89,10 +272,14 @@ export component AppWindow inherits Window {
                     color: accent;
                 }
                 Rectangle { horizontal-stretch: 1; }
+                // Long "disconnected (...)" must not lock window min-width
                 Text {
                     text: root.status;
                     color: root.status == "connected" ? connected : disconnected;
                     font-weight: 600;
+                    max-width: 220px;
+                    overflow: elide;
+                    wrap: no-wrap;
                 }
                 Button {
                     text: "Reconnect";
@@ -105,6 +292,7 @@ export component AppWindow inherits Window {
                 background: panel;
                 border-radius: 5px;
                 vertical-stretch: 1;
+                min-height: 120px;
 
                 TextEdit {
                     x: 8px;
@@ -136,106 +324,125 @@ export component AppWindow inherits Window {
             }
         }
 
-        // ── Sidebar ────────────────────────────────────────────
+        // ── Sidebar: fixed width, full height; list + help share remaining space ──
         Rectangle {
-            width: 380px;
+            width: 360px;
+            horizontal-stretch: 0;
+            vertical-stretch: 1;
             background: panel;
             border-radius: 5px;
 
             VerticalBox {
+                width: 100%;
+                height: 100%;
                 padding: 10px;
                 spacing: 6px;
-                alignment: start;
+                // no alignment:start — that packs children to preferred size and
+                // leaves empty dead space under tags instead of growing list/help
 
                 Text {
                     text: "WIGSCRIPT";
                     font-size: 14px;
                     font-weight: 700;
                     color: accent;
+                    vertical-stretch: 0;
                 }
 
                 Text {
                     text: "Click = details · Right-click = insert";
                     font-size: 11px;
                     color: muted;
+                    vertical-stretch: 0;
                 }
 
                 LineEdit {
                     text <=> root.ref-filter;
-                    placeholder-text: "Search syntax...";
+                    placeholder-text: "Search commands...";
                     height: 28px;
                     font-size: 12px;
+                    vertical-stretch: 0;
                 }
 
-                // Tag bar
+                // Tag bar (fixed height; wrap not needed — shorter labels)
                 HorizontalBox {
                     height: 28px;
-                    spacing: 4px;
+                    spacing: 3px;
+                    vertical-stretch: 0;
 
                     tag-all := Rectangle {
-                        height: 24px;
-                        width: 36px;
+                        height: 24px; width: 32px;
                         background: root.ref-tag == "" || root.ref-tag == "all" ? tag-active : tag-bg;
                         border-radius: 4px;
-                        ta0 := TouchArea {
-                            clicked => { root.ref-tag = ""; }
-                        }
-                        Text { x: 8px; y: 4px; text: "all"; font-size: 11px; color: root.ref-tag == "" || root.ref-tag == "all" ? text : muted; }
+                        ta0 := TouchArea { clicked => { root.ref-tag = ""; } }
+                        Text { x: 6px; y: 4px; text: "all"; font-size: 11px; color: root.ref-tag == "" || root.ref-tag == "all" ? text : muted; }
                     }
                     tag-track := Rectangle {
-                        height: 24px; width: 46px;
+                        height: 24px; width: 42px;
                         background: root.ref-tag == "track" ? tag-active : tag-bg; border-radius: 4px;
                         ta1 := TouchArea { clicked => { if root.ref-tag == "track" { root.ref-tag = ""; } else { root.ref-tag = "track"; } } }
-                        Text { x: 6px; y: 4px; text: "track"; font-size: 11px; color: root.ref-tag == "track" ? text : muted; }
+                        Text { x: 5px; y: 4px; text: "track"; font-size: 11px; color: root.ref-tag == "track" ? text : muted; }
                     }
                     tag-transport := Rectangle {
-                        height: 24px; width: 62px;
+                        height: 24px; width: 56px;
                         background: root.ref-tag == "transport" ? tag-active : tag-bg; border-radius: 4px;
                         ta2 := TouchArea { clicked => { if root.ref-tag == "transport" { root.ref-tag = ""; } else { root.ref-tag = "transport"; } } }
-                        Text { x: 4px; y: 4px; text: "transport"; font-size: 11px; color: root.ref-tag == "transport" ? text : muted; }
+                        Text { x: 3px; y: 4px; text: "transport"; font-size: 11px; color: root.ref-tag == "transport" ? text : muted; }
                     }
                     tag-scene := Rectangle {
-                        height: 24px; width: 46px;
+                        height: 24px; width: 42px;
                         background: root.ref-tag == "scene" ? tag-active : tag-bg; border-radius: 4px;
                         ta3 := TouchArea { clicked => { if root.ref-tag == "scene" { root.ref-tag = ""; } else { root.ref-tag = "scene"; } } }
-                        Text { x: 6px; y: 4px; text: "scene"; font-size: 11px; color: root.ref-tag == "scene" ? text : muted; }
+                        Text { x: 5px; y: 4px; text: "scene"; font-size: 11px; color: root.ref-tag == "scene" ? text : muted; }
                     }
                     tag-clip := Rectangle {
-                        height: 24px; width: 36px;
+                        height: 24px; width: 32px;
                         background: root.ref-tag == "clip" ? tag-active : tag-bg; border-radius: 4px;
                         ta4 := TouchArea { clicked => { if root.ref-tag == "clip" { root.ref-tag = ""; } else { root.ref-tag = "clip"; } } }
-                        Text { x: 8px; y: 4px; text: "clip"; font-size: 11px; color: root.ref-tag == "clip" ? text : muted; }
+                        Text { x: 6px; y: 4px; text: "clip"; font-size: 11px; color: root.ref-tag == "clip" ? text : muted; }
                     }
                     tag-notes := Rectangle {
-                        height: 24px; width: 46px;
+                        height: 24px; width: 42px;
                         background: root.ref-tag == "notes" ? tag-active : tag-bg; border-radius: 4px;
                         ta5 := TouchArea { clicked => { if root.ref-tag == "notes" { root.ref-tag = ""; } else { root.ref-tag = "notes"; } } }
-                        Text { x: 6px; y: 4px; text: "notes"; font-size: 11px; color: root.ref-tag == "notes" ? text : muted; }
+                        Text { x: 5px; y: 4px; text: "notes"; font-size: 11px; color: root.ref-tag == "notes" ? text : muted; }
                     }
                     tag-drum := Rectangle {
-                        height: 24px; width: 44px;
+                        height: 24px; width: 40px;
                         background: root.ref-tag == "drum" ? tag-active : tag-bg; border-radius: 4px;
                         ta6 := TouchArea { clicked => { if root.ref-tag == "drum" { root.ref-tag = ""; } else { root.ref-tag = "drum"; } } }
-                        Text { x: 6px; y: 4px; text: "drum"; font-size: 11px; color: root.ref-tag == "drum" ? text : muted; }
+                        Text { x: 5px; y: 4px; text: "drum"; font-size: 11px; color: root.ref-tag == "drum" ? text : muted; }
                     }
                 }
 
-                // Command list (60%)
-                ScrollView {
-                    vertical-stretch: 0.6;
+                // Command list — takes remaining height (scrolls)
+                // visible:false alone still left row height → long empty scroll; collapse height + reset viewport
+                ref-list := ScrollView {
+                    vertical-stretch: 3;
+                    min-height: 100px;
 
                     VerticalBox {
-                        spacing: 2px;
-                        alignment: start;
+                        width: 100%;
+                        spacing: 0px;
+                        alignment: stretch;
 
                         for entry in root.refs: Rectangle {
-                            height: 22px;
-                            visible: (root.ref-filter == "" || entry.name.to-lowercase() == root.ref-filter.to-lowercase())
-                                  && (root.ref-tag == "" || root.ref-tag == "all" || entry.tag == root.ref-tag);
+                            // ponytail: Slint strings have no contains(); exact name match or empty filter
+                            property <bool> shown:
+                                (root.ref-filter == "" || entry.name.to-lowercase() == root.ref-filter.to-lowercase()
+                                  || entry.summary.to-lowercase() == root.ref-filter.to-lowercase()
+                                  || entry.tag.to-lowercase() == root.ref-filter.to-lowercase())
+                                && (root.ref-tag == "" || root.ref-tag == "all" || entry.tag == root.ref-tag);
+                            // collapse layout space when filtered out (not just hide paint)
+                            height: shown ? 30px : 0px;
+                            width: 100%;
+                            visible: shown;
                             background: ta-entry.has-hover ? hover : transparent;
                             border-radius: 3px;
+                            clip: true;
 
                             ta-entry := TouchArea {
+                                width: 100%;
+                                height: 100%;
                                 pointer-event(event) => {
                                     if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
                                         root.show-help(entry.detail);
@@ -246,37 +453,45 @@ export component AppWindow inherits Window {
                                 }
                             }
 
-                            HorizontalBox {
-                                padding-left: 6px;
-                                padding-right: 4px;
-
-                                Text {
-                                    y: 3px;
-                                    text: entry.name;
-                                    font-size: 12px;
-                                    font-weight: 500;
-                                    color: text;
-                                    wrap: no-wrap;
-                                }
-                                Text {
-                                    y: 3px;
-                                    text: entry.syntax;
-                                    font-size: 11px;
-                                    color: muted;
-                                    wrap: no-wrap;
-                                    overflow: elide;
-                                    horizontal-stretch: 1;
-                                }
+                            // name | short summary — syntax/examples only in detail box
+                            Text {
+                                x: 8px;
+                                y: 0px;
+                                width: 128px;
+                                height: 100%;
+                                text: entry.name;
+                                font-size: 12px;
+                                font-weight: 500;
+                                color: text;
+                                wrap: no-wrap;
+                                overflow: elide;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
+                            }
+                            Text {
+                                x: 140px;
+                                y: 0px;
+                                width: parent.width - 148px;
+                                height: 100%;
+                                text: entry.summary;
+                                font-size: 11px;
+                                color: muted;
+                                wrap: no-wrap;
+                                overflow: elide;
+                                vertical-alignment: center;
+                                horizontal-alignment: left;
                             }
                         }
                     }
                 }
 
-                // Help section (40%)
+                // Help / detail — shares remaining height with list
                 Rectangle {
-                    vertical-stretch: 0.4;
+                    vertical-stretch: 2;
+                    min-height: 90px;
                     background: control;
                     border-radius: 4px;
+                    clip: true;
 
                     Text {
                         x: 10px;
@@ -287,6 +502,7 @@ export component AppWindow inherits Window {
                         color: text;
                         font-size: 12px;
                         wrap: word-wrap;
+                        overflow: elide;
                     }
                 }
             }

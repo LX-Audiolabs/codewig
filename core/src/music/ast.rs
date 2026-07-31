@@ -156,11 +156,12 @@ pub enum ClipRef {
     Launch,            // ! (just launch, no pattern)
 }
 
-/// A parameter assignment: `+cutoff:0.3` or `+cutoff:0.2:0.5:0.8`
+/// A parameter assignment: `+cutoff:0.3` — one snapshot via `param.set`.
+/// No sequences, ramps, or clip automation (Controller API limit + product choice).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamSet {
     pub name: String,
-    pub values: Vec<f64>,
+    pub value: f64,
 }
 
 /// Chain command: `!bass Polymer Filter Delay-2`
