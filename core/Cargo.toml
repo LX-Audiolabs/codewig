@@ -1,0 +1,12 @@
+[package]
+name = "cliwig-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLIwig core library — shared between CLI and UI"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+rand = "0.8"

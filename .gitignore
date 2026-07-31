@@ -1,0 +1,28 @@
+# Rust
+target/
+cli/target/
+**/*.rs.bk
+
+# Java / Gradle
+extension/.gradle/
+extension/build/
+extension/out/
+*.class
+*.jar
+!gradle/wrapper/gradle-wrapper.jar
+*.bwextension
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local
+.env
+*.log
+research/

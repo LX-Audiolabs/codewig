@@ -1,0 +1,63 @@
+plugins {
+    id 'java'
+}
+
+group = 'com.cliwig'
+version = '0.1.1'
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+repositories {
+    mavenCentral()
+    maven { url 'https://maven.bitwig.com' }
+}
+
+dependencies {
+    // Provided by Bitwig at runtime
+    compileOnly 'com.bitwig:extension-api:25'
+    // Bundled in the .bwextension
+    implementation 'com.google.code.gson:gson:2.11.0'
+}
+
+jar {
+    archiveBaseName = 'CLIwig'
+    archiveVersion = ''
+    archiveExtension = 'bwextension'
+
+    from {
+        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+    }
+
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    manifest {
+        attributes(
+            'Extension-Class': 'com.cliwig.CliwigExtensionDefinition',
+            'Implementation-Title': 'CLIwig',
+            'Implementation-Version': project.version
+        )
+    }
+}
+
+def bitwigExtensionsDir = {
+    def home = System.getProperty('user.home')
+    def os = System.getProperty('os.name').toLowerCase()
+    if (os.contains('win') || os.contains('mac')) {
+        return "${home}/Documents/Bitwig Studio/Extensions"
+    }
+    return "${home}/Bitwig Studio/Extensions"
+}()
+
+tasks.register('installExtension', Copy) {
+    group = 'install'
+    description = 'Copy CLIwig.bwextension into Bitwig Extensions folder'
+    dependsOn jar
+    from jar.archiveFile
+    into bitwigExtensionsDir
+    doLast {
+        println "Installed → ${bitwigExtensionsDir}"
+    }
+}

@@ -1,0 +1,19 @@
+[package]
+name = "cliwig"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "CLIwig — control Bitwig Studio from the shell"
+readme = "../README.md"
+
+[[bin]]
+name = "cliwig"
+path = "src/main.rs"
+
+[dependencies]
+cliwig-core = { path = "../core" }
+clap = { version = "4", features = ["derive", "env"] }
+clap_complete = "4.6.8"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+shlex = "2.0.1"

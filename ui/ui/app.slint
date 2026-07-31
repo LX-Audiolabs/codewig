@@ -1,0 +1,304 @@
+import { LineEdit, Button, VerticalBox, HorizontalBox, TextEdit, ScrollView } from "std-widgets.slint";
+
+export struct RefEntry {
+    name: string,
+    syntax: string,
+    detail: string,
+    tag: string,
+}
+
+export component AppWindow inherits Window {
+    in-out property <string> status: "disconnected";
+    in-out property <string> output: "";
+    in-out property <string> command: "";
+    in-out property <string> ref-filter: "";
+    in-out property <string> ref-tag: "";
+    in-out property <string> help-text: "Click a command to see details. Right-click to insert syntax.";
+    in-out property <[RefEntry]> refs: [
+        // Track
+        { name: "new track", syntax: "new track(name).device(dev)...", detail: "Create track + device + pattern in one line. Use .mute().clip(start) for beat-synced silent start.", tag: "track" },
+        { name: "t() / track()", syntax: "t(name)", detail: "Reference existing track by name.\nExample: t(kick), t(bass)", tag: "track" },
+        { name: "mute / unmute", syntax: "mute(name1,...)\nunmute(name1,...)", detail: "Mute/unmute tracks by name or index.\n  mute(kick)\n  mute(kick, bass)\n  mute(1,3,5)\n  unmute(kick)", tag: "track" },
+        { name: "play / stop", syntax: "play\nstop", detail: "Start / stop Bitwig transport.", tag: "transport" },
+        { name: "tempo", syntax: "tempo <bpm>", detail: "Set project tempo.\n  tempo 128", tag: "transport" },
+        { name: "s() / scene()", syntax: "s(N).start\ns(N).stop", detail: "Launch / stop scene N.\n  s(1).start\n  s(0).stop", tag: "scene" },
+        { name: "c() / clip()", syntax: "c(t.slot).start\nc(t.s1,t.s2).start\nt(name).c(N).start", detail: "Launch clip(s).\n  c(bass.0).start\n  c(bass.0, kick.1).start\n  t(bass).c(0).start", tag: "clip" },
+        { name: ".clip(start/stop)", syntax: ".clip(start)\n.clip(stop)", detail: "In fluent chain: launch/stop clip.\n  new track(b).device(P).n(\"c e\").clip(start)", tag: "clip" },
+        { name: "n / notes", syntax: "track: n \"pattern\"", detail: "Write MIDI notes via mini-notation.\n  bass: n \"c e g b\"\n  lead: n \"0 2 4 7\"", tag: "notes" },
+        { name: "mini-notation", syntax: "~ [ ] . * / < > ! _ ? @ | (,) { }", detail: "~ rest  [a b] group  * repeat  / slow\n<a b> alternate  ! replicate  _ elongate\n? drop  @ el-N  | choice  (3,8) euclid\n{a,b} polymetric  % ratio  : octave", tag: "notes" },
+        { name: "transpose", syntax: "^N semitones  ^^N scale", detail: "Transpose notes.\n  n \"c e g\" ^2   → D F# A\n  n \"0 2 4\" ^^1  → 1 3 5", tag: "notes" },
+        { name: "chord", syntax: "pad: chord \"C Am F G\"", detail: "Block chords. Roman numerals + scale.\n  chord \"C Am F G\"\n  chord \"i iv v\" (k C minor)\nQualities: m 7 m7 maj7 dim aug sus4 9", tag: "notes" },
+        { name: "d / drums", syntax: "drums: d \"pattern\"\ndrums:kit: d \"pattern\"", detail: "Drum patterns.\n  drums: d \"bd hh sd hh\"\n  drums:909: d \"bd hh sd\"\n  d:808 \"bd cp hh\"", tag: "drum" },
+        { name: "beat()", syntax: "beat(4_) beat(off)\nbeat:16(1,5,11,14)", detail: "Beat shortcuts (16-step grid).\n  4_→0,4,8,12  off→2,6,10,14\n  2_4→0,8  bk2→0,8\n  :16(1,5,11,14)→explicit", tag: "drum" },
+        { name: ".device() / .d() / .add()", syntax: ".device(instr)\n.add(fx1).add(fx2)...", detail: "Add devices in fluent chain.\n  new track(b).device(Polymer).add(Delay-2)\n  new track(k).d(kick.v9)", tag: "device" },
+        { name: ": params", syntax: "t(name).d(dev): param(val)...", detail: "Set device params (native units).\n  t(kick).d(kick.v9): decay(280) punch(45)\n  t(bass).d(Polymer): cutoff(0.3) res(0.7)", tag: "device" },
+        { name: "Polymer", syntax: "Polymer / poly", detail: "Wavetable synth. Params: cutoff res envMod oscMix noise", tag: "synth" },
+        { name: "Polysynth", syntax: "Polysynth / psynth", detail: "VA polysynth. Params: cutoff res envMod detune spread", tag: "synth" },
+        { name: "Organ", syntax: "Organ", detail: "Tonewheel organ. Params: drawbar16 drawbar51 percussion drive rotary", tag: "synth" },
+        { name: "kick.v9 / kick.808", syntax: "kick→v0Kick  kick.v9→v9Kick  kick.808→v8Kick", detail: "Kick drums. Params: decay pitch tone attack", tag: "drum" },
+        { name: "hat.v8 / hat.909", syntax: "hat→v0Hat  hat.v8→v8Hat  hat.909→v9Hat", detail: "Hi-hats. Params: decay tone color", tag: "drum" },
+        { name: "snare.909 / clap.909", syntax: "snare→v8Snare  snare.909→v9Snare\nclap→v8Clap  clap.909→v9Clap", detail: "Snare + Clap. Params: decay pitch tone", tag: "drum" },
+        { name: "Delay-2", syntax: "Delay-2 / dly2", detail: "Stereo delay. timeL timeR feedback mix", tag: "fx" },
+        { name: "Reverb", syntax: "Reverb / rev", detail: "Plate reverb. time damp mix size", tag: "fx" },
+        { name: "Filter", syntax: "Filter / filt", detail: "Multi-mode filter. cutoff res drive mix", tag: "fx" },
+        { name: "Chorus", syntax: "Chorus / chor", detail: "Chorus. rate depth mix spread", tag: "fx" },
+        { name: "Distortion", syntax: "Distortion / dist", detail: "Waveshaper. drive tone mix", tag: "fx" },
+        { name: "Flanger", syntax: "Flanger / flang", detail: "Flanger. rate depth feedback mix", tag: "fx" },
+        { name: "Sweep", syntax: "Sweep", detail: "Filter sweep. cutoff res speed depth", tag: "fx" },
+        { name: "Rotary", syntax: "Rotary / rot", detail: "Rotary speaker. speed balance mix", tag: "fx" },
+        { name: "Freq Shifter", syntax: "Freq Shifter / fshift", detail: "Frequency shifter. freq mix", tag: "fx" },
+        { name: "Pitch Shifter", syntax: "Pitch Shifter / pshift", detail: "Pitch shifter. pitch mix", tag: "fx" },
+        { name: "Arpeggiator", syntax: "Arpeggiator / arp", detail: "Note arp. rate octaves gate", tag: "fx" },
+        { name: "Chords", syntax: "Chords", detail: "Chord generator. spread", tag: "fx" },
+        { name: "Note Echo", syntax: "Note Echo / necho", detail: "Note delay. time feedback repeats", tag: "fx" },
+        { name: "k / key", syntax: "k <root> <scale>", detail: "Set key for degrees.\n  k C minor  k D major\nScales: major minor dorian phrygian\n  lydian mixolydian locrian pentatonic blues", tag: "key" },
+        { name: "mode", syntax: "mode cmd | mode music", detail: "Switch REPL mode.", tag: "other" },
+        { name: "> passthrough", syntax: "> <cliwig command>", detail: "Run CLIwig command from music mode.\n  > track list\n  > device add Filter", tag: "other" },
+    ];
+
+    callback send-command();
+    callback reconnect();
+    callback insert-command(string);
+    callback show-help(string);
+
+    // LX AudioLabs-inspired dark theme
+    out property <color> accent: #ff731a;
+    out property <color> bg: #171717;
+    out property <color> panel: #1c1c1c;
+    out property <color> control: #262626;
+    out property <color> text: #f5f5f5;
+    out property <color> muted: #8c8c99;
+    out property <color> connected: #00bf4d;
+    out property <color> disconnected: #e04545;
+    out property <color> hover: #2a2a2a;
+    out property <color> tag-active: #ff731a;
+    out property <color> tag-bg: #2a2a2a;
+
+    title: "codewig-live";
+    preferred-width: 1200px;
+    preferred-height: 700px;
+    background: bg;
+
+    HorizontalBox {
+        padding: 12px;
+        spacing: 12px;
+
+        // Main area
+        VerticalBox {
+            spacing: 8px;
+            vertical-stretch: 1;
+            horizontal-stretch: 1;
+
+            HorizontalBox {
+                height: 36px;
+                Text {
+                    text: "codewig-live";
+                    font-size: 18px;
+                    font-weight: 700;
+                    color: accent;
+                }
+                Rectangle { horizontal-stretch: 1; }
+                Text {
+                    text: root.status;
+                    color: root.status == "connected" ? connected : disconnected;
+                    font-weight: 600;
+                }
+                Button {
+                    text: "Reconnect";
+                    height: 28px;
+                    clicked => { root.reconnect(); }
+                }
+            }
+
+            Rectangle {
+                background: panel;
+                border-radius: 5px;
+                vertical-stretch: 1;
+
+                TextEdit {
+                    x: 8px;
+                    y: 8px;
+                    width: parent.width - 16px;
+                    height: parent.height - 16px;
+                    text: root.output;
+                    read-only: true;
+                    wrap: word-wrap;
+                    font-size: 12px;
+                }
+            }
+
+            HorizontalBox {
+                height: 32px;
+                LineEdit {
+                    text <=> root.command;
+                    placeholder-text: "♫  bass: n \"c e g\" +cutoff:0.3";
+                    accepted => { root.send-command(); }
+                    horizontal-stretch: 1;
+                    height: 32px;
+                    font-size: 13px;
+                }
+                Button {
+                    text: "Send";
+                    height: 32px;
+                    clicked => { root.send-command(); }
+                }
+            }
+        }
+
+        // ── Sidebar ────────────────────────────────────────────
+        Rectangle {
+            width: 380px;
+            background: panel;
+            border-radius: 5px;
+
+            VerticalBox {
+                padding: 10px;
+                spacing: 6px;
+                alignment: start;
+
+                Text {
+                    text: "WIGSCRIPT";
+                    font-size: 14px;
+                    font-weight: 700;
+                    color: accent;
+                }
+
+                Text {
+                    text: "Click = details · Right-click = insert";
+                    font-size: 11px;
+                    color: muted;
+                }
+
+                LineEdit {
+                    text <=> root.ref-filter;
+                    placeholder-text: "Search syntax...";
+                    height: 28px;
+                    font-size: 12px;
+                }
+
+                // Tag bar
+                HorizontalBox {
+                    height: 28px;
+                    spacing: 4px;
+
+                    tag-all := Rectangle {
+                        height: 24px;
+                        width: 36px;
+                        background: root.ref-tag == "" || root.ref-tag == "all" ? tag-active : tag-bg;
+                        border-radius: 4px;
+                        ta0 := TouchArea {
+                            clicked => { root.ref-tag = ""; }
+                        }
+                        Text { x: 8px; y: 4px; text: "all"; font-size: 11px; color: root.ref-tag == "" || root.ref-tag == "all" ? text : muted; }
+                    }
+                    tag-track := Rectangle {
+                        height: 24px; width: 46px;
+                        background: root.ref-tag == "track" ? tag-active : tag-bg; border-radius: 4px;
+                        ta1 := TouchArea { clicked => { if root.ref-tag == "track" { root.ref-tag = ""; } else { root.ref-tag = "track"; } } }
+                        Text { x: 6px; y: 4px; text: "track"; font-size: 11px; color: root.ref-tag == "track" ? text : muted; }
+                    }
+                    tag-transport := Rectangle {
+                        height: 24px; width: 62px;
+                        background: root.ref-tag == "transport" ? tag-active : tag-bg; border-radius: 4px;
+                        ta2 := TouchArea { clicked => { if root.ref-tag == "transport" { root.ref-tag = ""; } else { root.ref-tag = "transport"; } } }
+                        Text { x: 4px; y: 4px; text: "transport"; font-size: 11px; color: root.ref-tag == "transport" ? text : muted; }
+                    }
+                    tag-scene := Rectangle {
+                        height: 24px; width: 46px;
+                        background: root.ref-tag == "scene" ? tag-active : tag-bg; border-radius: 4px;
+                        ta3 := TouchArea { clicked => { if root.ref-tag == "scene" { root.ref-tag = ""; } else { root.ref-tag = "scene"; } } }
+                        Text { x: 6px; y: 4px; text: "scene"; font-size: 11px; color: root.ref-tag == "scene" ? text : muted; }
+                    }
+                    tag-clip := Rectangle {
+                        height: 24px; width: 36px;
+                        background: root.ref-tag == "clip" ? tag-active : tag-bg; border-radius: 4px;
+                        ta4 := TouchArea { clicked => { if root.ref-tag == "clip" { root.ref-tag = ""; } else { root.ref-tag = "clip"; } } }
+                        Text { x: 8px; y: 4px; text: "clip"; font-size: 11px; color: root.ref-tag == "clip" ? text : muted; }
+                    }
+                    tag-notes := Rectangle {
+                        height: 24px; width: 46px;
+                        background: root.ref-tag == "notes" ? tag-active : tag-bg; border-radius: 4px;
+                        ta5 := TouchArea { clicked => { if root.ref-tag == "notes" { root.ref-tag = ""; } else { root.ref-tag = "notes"; } } }
+                        Text { x: 6px; y: 4px; text: "notes"; font-size: 11px; color: root.ref-tag == "notes" ? text : muted; }
+                    }
+                    tag-drum := Rectangle {
+                        height: 24px; width: 44px;
+                        background: root.ref-tag == "drum" ? tag-active : tag-bg; border-radius: 4px;
+                        ta6 := TouchArea { clicked => { if root.ref-tag == "drum" { root.ref-tag = ""; } else { root.ref-tag = "drum"; } } }
+                        Text { x: 6px; y: 4px; text: "drum"; font-size: 11px; color: root.ref-tag == "drum" ? text : muted; }
+                    }
+                }
+
+                // Command list (60%)
+                ScrollView {
+                    vertical-stretch: 0.6;
+
+                    VerticalBox {
+                        spacing: 2px;
+                        alignment: start;
+
+                        for entry in root.refs: Rectangle {
+                            height: 22px;
+                            visible: (root.ref-filter == "" || entry.name.to-lowercase() == root.ref-filter.to-lowercase())
+                                  && (root.ref-tag == "" || root.ref-tag == "all" || entry.tag == root.ref-tag);
+                            background: ta-entry.has-hover ? hover : transparent;
+                            border-radius: 3px;
+
+                            ta-entry := TouchArea {
+                                pointer-event(event) => {
+                                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                                        root.show-help(entry.detail);
+                                    }
+                                    if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                        root.insert-command(entry.syntax);
+                                    }
+                                }
+                            }
+
+                            HorizontalBox {
+                                padding-left: 6px;
+                                padding-right: 4px;
+
+                                Text {
+                                    y: 3px;
+                                    text: entry.name;
+                                    font-size: 12px;
+                                    font-weight: 500;
+                                    color: text;
+                                    wrap: no-wrap;
+                                }
+                                Text {
+                                    y: 3px;
+                                    text: entry.syntax;
+                                    font-size: 11px;
+                                    color: muted;
+                                    wrap: no-wrap;
+                                    overflow: elide;
+                                    horizontal-stretch: 1;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Help section (40%)
+                Rectangle {
+                    vertical-stretch: 0.4;
+                    background: control;
+                    border-radius: 4px;
+
+                    Text {
+                        x: 10px;
+                        y: 10px;
+                        width: parent.width - 20px;
+                        height: parent.height - 20px;
+                        text: root.help-text;
+                        color: text;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+        }
+    }
+}
