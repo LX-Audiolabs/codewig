@@ -1,5 +1,6 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
+use cliwig_core::music::{execute_line, parse_music_line, MusicLine, MusicSession};
 use cliwig_core::Client;
 use serde_json::{json, Map, Value};
 use std::process::ExitCode;
@@ -90,10 +91,22 @@ enum Commands {
         #[arg(required = true)]
         devices: Vec<String>,
     },
-    /// Run commands from a file or stdin: one per line, single connection.
-    /// Stops at the first error (&&-semantics). `#` starts a comment.
+    /// Run one **WIGSCRIPT** line (same language as codewig-live UI).
     ///
-    /// Example: `cliwig batch < session.cliwig` or `cliwig batch session.cliwig`
+    /// Examples:
+    ///   cliwig eval "mute(kick)"
+    ///   cliwig eval "s(1).start"
+    ///   cliwig eval "new track(bass).device(Polymer).add(Delay+)"
+    ///   cliwig eval "bass: n \"c e g\""
+    #[command(visible_alias = "music")]
+    Eval {
+        /// WIGSCRIPT source (quote it in the shell)
+        line: String,
+    },
+    /// Run lines from a file or stdin. Each line: WIGSCRIPT first, else legacy clap form.
+    /// Stops at the first error. `#` starts a comment.
+    ///
+    /// Example: `cliwig batch session.wig`
     Batch {
         /// Command file (default: stdin)
         file: Option<std::path::PathBuf>,
@@ -309,17 +322,17 @@ fn run_with(
     }
 
     let client = Client::new(host, port, timeout_ms);
+    let mut session = MusicSession::default();
 
-    let result: Option<Value> = if let Commands::Chain {
-        kind,
-        name,
-        at,
-        devices,
-    } = command
-    {
-        Some(run_chain(&client, kind, name, at, devices)?)
-    } else {
-        dispatch(&client, command)?
+    let result: Option<Value> = match command {
+        Commands::Eval { line } => run_one_line(&client, &mut session, &line)?,
+        Commands::Chain {
+            kind,
+            name,
+            at,
+            devices,
+        } => Some(run_chain(&client, kind, name, at, devices)?),
+        other => dispatch(&client, other)?,
     };
 
     match result {
@@ -368,8 +381,9 @@ fn dispatch(client: &Client, command: Commands) -> Result<Option<Value>, Box<dyn
     let (c, fields): CmdSpec = match command {
         Commands::Chain { .. }
         | Commands::Batch { .. }
+        | Commands::Eval { .. }
         | Commands::Completions { .. } => {
-            unreachable!("dispatch does not handle chain, batch or completions")
+            unreachable!("dispatch does not handle chain, batch, eval or completions")
         }
         Commands::Ping => ("ping", Map::new()),
         Commands::Status => ("status", Map::new()),
@@ -531,6 +545,49 @@ fn dispatch(client: &Client, command: Commands) -> Result<Option<Value>, Box<dyn
     Ok(client.send_raw(c, fields)?)
 }
 
+/// One line: WIGSCRIPT if it parses, else legacy `cliwig …` clap form (without binary name).
+fn run_one_line(
+    client: &Client,
+    session: &mut MusicSession,
+    trimmed: &str,
+) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+    match parse_music_line(trimmed) {
+        Ok(MusicLine::Empty) => Ok(None),
+        Ok(MusicLine::PassThrough(cmd)) => {
+            // `> track list` → legacy clap line
+            run_legacy_line(client, &cmd)
+        }
+        Ok(line) => execute_line(client, session, line).map_err(|e| e.into()),
+        Err(_) => run_legacy_line(client, trimmed),
+    }
+}
+
+fn run_legacy_line(
+    client: &Client,
+    trimmed: &str,
+) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+    let words = shlex::split(trimmed).ok_or("unmatched quote")?;
+    let args = std::iter::once("cliwig".to_string()).chain(words);
+    let inner = Cli::try_parse_from(args)?;
+    if matches!(
+        inner.command,
+        Commands::Batch { .. } | Commands::Eval { .. } | Commands::Completions { .. }
+    ) {
+        return Err("nested batch/eval/completions not allowed here".into());
+    }
+    if let Commands::Chain {
+        kind,
+        name,
+        at,
+        devices,
+    } = inner.command
+    {
+        Ok(Some(run_chain(client, kind, name, at, devices)?))
+    } else {
+        Ok(dispatch(client, inner.command)?)
+    }
+}
+
 fn run_batch(
     host: &str,
     port: u16,
@@ -540,6 +597,7 @@ fn run_batch(
     use std::io::{BufRead, BufReader};
 
     let client = Client::new(host, port, timeout_ms);
+    let mut session = MusicSession::default();
     let input: Box<dyn BufRead> = match file {
         Some(path) => Box::new(BufReader::new(std::fs::File::open(path)?)),
         None => Box::new(BufReader::new(std::io::stdin())),
@@ -551,27 +609,9 @@ fn run_batch(
         if trimmed.is_empty() || trimmed.starts_with('#') {
             continue;
         }
-        let words = shlex::split(trimmed)
-            .ok_or_else(|| format!("unmatched quote on line {}", line_no + 1))?;
-        let args = std::iter::once("cliwig".to_string()).chain(words);
-        let inner = Cli::try_parse_from(args)
-            .map_err(|e| format!("line {}: {}", line_no + 1, e))?;
 
-        if matches!(inner.command, Commands::Batch { .. }) {
-            return Err(format!("line {}: nested batch is not allowed", line_no + 1).into());
-        }
-
-        let result: Option<Value> = if let Commands::Chain {
-            kind,
-            name,
-            at,
-            devices,
-        } = inner.command
-        {
-            Some(run_chain(&client, kind, name, at, devices)?)
-        } else {
-            dispatch(&client, inner.command)?
-        };
+        let result = run_one_line(&client, &mut session, trimmed)
+            .map_err(|e| format!("line {}: {e}", line_no + 1))?;
 
         match result {
             Some(value) => println!("{}", serde_json::to_string(&value)?),

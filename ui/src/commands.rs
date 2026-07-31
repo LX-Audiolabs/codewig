@@ -1,23 +1,42 @@
-//! Parser/dispatcher for the REPL input in codewig-live.
+//! Input dispatcher for codewig-live.
 //!
-//! Accepts the same command syntax as `cliwig` so the sidebar commands work
-//! out of the box. A Strudel-style compact syntax will be added later as an
-//! alternative input mode.
+//! **WIGSCRIPT first** (same language as sidebar): `mute(kick)`, `s(1).start`,
+//! `new track(bass).device(Polymer)`, `bass: n "c e g"`, …
+//!
+//! Fallback: legacy flat CLI tokens (`track mute kick`, `play`, …) for old habits
+//! and `> track list` passthrough.
 
+use cliwig_core::music::{execute_line, parse_music_line, MusicLine, MusicSession};
 use cliwig_core::{Client, NoteSpec};
 use serde_json::Value;
 
-pub fn run(client: &Client, input: &str) -> Result<Option<Value>, String> {
+/// Run one input line. `session` holds key/scale across lines.
+pub fn run(
+    client: &Client,
+    session: &mut MusicSession,
+    input: &str,
+) -> Result<Option<Value>, String> {
     let trimmed = input.trim();
     if trimmed.is_empty() {
         return Ok(None);
     }
 
-    let words = shlex::split(trimmed).ok_or_else(|| "unmatched quote in command".to_string())?;
+    match parse_music_line(trimmed) {
+        Ok(MusicLine::Empty) => Ok(None),
+        Ok(MusicLine::PassThrough(cmd)) => legacy_cli(client, &cmd),
+        Ok(line) => execute_line(client, session, line),
+        // Not WIGSCRIPT → legacy flat commands (same words as `cliwig` without binary name)
+        Err(_) => legacy_cli(client, trimmed),
+    }
+}
+
+// ── Legacy CLI-token path (compat) ─────────────────────────────────
+
+fn legacy_cli(client: &Client, input: &str) -> Result<Option<Value>, String> {
+    let words = shlex::split(input).ok_or_else(|| "unmatched quote in command".to_string())?;
     if words.is_empty() {
         return Ok(None);
     }
-
     dispatch(client, &words)
 }
 
@@ -35,7 +54,11 @@ fn dispatch(client: &Client, words: &[String]) -> Result<Option<Value>, String> 
         "device" => dispatch_device(client, args),
         "param" => dispatch_param(client, args),
         "clip" => dispatch_clip(client, args),
-        _ => Err(format!("unknown command: {head}")),
+        _ => Err(format!(
+            "unknown command: {head}\n\
+             WIGSCRIPT: mute(kick) | s(1).start | new track(b).device(Polymer) | bass: n \"c e g\"\n\
+             legacy: play | track list | clip launch <t> <slot>"
+        )),
     }
 }
 
@@ -50,7 +73,7 @@ fn dispatch_set<'a>(
             ensure_no_more(args)?;
             client.set_tempo(bpm).map_err(|e| e.to_string())
         }
-        _ => Err(format!("set: unknown target '{target}'")),
+        _ => Err(format!("set: unknown target '{target}' (or use WIGSCRIPT: tempo 128)")),
     }
 }
 
@@ -96,27 +119,10 @@ fn dispatch_track<'a>(
             ensure_no_more(args)?;
             client.track_delete(&r#ref).map_err(|e| e.to_string())
         }
-        "move" => {
-            let r#ref = next_string(&mut args, "ref")?;
-            let mut before: Option<String> = None;
-            let mut after: Option<String> = None;
-            let mut to: Option<i32> = None;
-            while let Some(tok) = args.next() {
-                match tok {
-                    "--before" => before = Some(next_string(&mut args, "before")?),
-                    "--after" => after = Some(next_string(&mut args, "after")?),
-                    "--to" => to = Some(next_parse(&mut args, "to")?),
-                    _ => return Err(format!("track move: unexpected '{tok}'")),
-                }
-            }
-            client
-                .track_move(&r#ref, before.as_deref(), after.as_deref(), to)
-                .map_err(|e| e.to_string())
-        }
         "mute" => {
             let (refs, off) = collect_refs_with_flag(args)?;
             if refs.is_empty() {
-                return Err("track mute: need at least one ref".into());
+                return Err("track mute: need ref (or WIGSCRIPT: mute(kick))".into());
             }
             client.track_mute(&refs, !off).map_err(|e| e.to_string())
         }
@@ -194,19 +200,14 @@ fn dispatch_param<'a>(
                     _ => return Err(format!("param set: unexpected '{tok}'")),
                 }
             }
-
             if !sets.is_empty() {
-                if name.is_some() || id.is_some() || value.is_some() {
-                    return Err("param set: --set cannot be combined with --name/--id/--value".into());
-                }
                 return client.param_set_multi(&sets).map_err(|e| e.to_string());
             }
-
             let v = value.ok_or("param set: missing --value")?;
             match (name, id) {
                 (Some(n), None) => client.param_set_name_value(&n, v).map_err(|e| e.to_string()),
                 (None, Some(i)) => client.param_set_id_value(&i, v).map_err(|e| e.to_string()),
-                _ => Err("param set: need --name or --id (or --set pairs)".into()),
+                _ => Err("param set: need --name or --id".into()),
             }
         }
         _ => Err(format!("param: unknown action '{action}'")),
@@ -260,7 +261,7 @@ fn dispatch_clip<'a>(
                 notes.push(parse_note(spec)?);
             }
             if notes.is_empty() {
-                return Err("clip note: need at least one note".into());
+                return Err("clip note: need notes (or WIGSCRIPT: bass: n \"c e g\")".into());
             }
             client
                 .clip_set_notes(&track, slot, &notes)
@@ -338,9 +339,6 @@ fn parse_name_eq_value(s: &str) -> Result<(String, f64), String> {
         .split_once('=')
         .ok_or_else(|| format!("expected name=value, got '{s}'"))?;
     let val: f64 = v.parse().map_err(|_| format!("bad value in '{s}'"))?;
-    if !(0.0..=1.0).contains(&val) {
-        return Err(format!("value must be 0..1, got {val}"));
-    }
     Ok((n.trim().to_string(), val))
 }
 
@@ -353,28 +351,13 @@ fn parse_note(s: &str) -> Result<NoteSpec, String> {
         .trim()
         .parse()
         .map_err(|_| format!("bad step in '{s}'"))?;
-    if step < 0 {
-        return Err(format!("step must be >= 0, got {step}"));
-    }
     let key = parse_key(parts[1])?;
     let vel: i32 = match parts.get(2) {
-        Some(v) => {
-            let v: i32 = v.trim().parse().map_err(|_| format!("bad vel in '{s}'"))?;
-            if !(1..=127).contains(&v) {
-                return Err(format!("vel must be 1..127, got {v}"));
-            }
-            v
-        }
+        Some(v) => v.trim().parse().map_err(|_| format!("bad vel in '{s}'"))?,
         None => 100,
     };
     let dur: f64 = match parts.get(3) {
-        Some(d) => {
-            let d: f64 = d.trim().parse().map_err(|_| format!("bad dur in '{s}'"))?;
-            if d <= 0.0 {
-                return Err(format!("dur must be > 0, got {d}"));
-            }
-            d
-        }
+        Some(d) => d.trim().parse().map_err(|_| format!("bad dur in '{s}'"))?,
         None => 1.0,
     };
     Ok(NoteSpec { step, key, vel, dur })
@@ -388,39 +371,5 @@ fn parse_key(s: &str) -> Result<i32, String> {
         }
         return Ok(n);
     }
-    let bytes = s.as_bytes();
-    if bytes.is_empty() {
-        return Err("empty key".into());
-    }
-    let base = match bytes[0].to_ascii_uppercase() {
-        b'C' => 0,
-        b'D' => 2,
-        b'E' => 4,
-        b'F' => 5,
-        b'G' => 7,
-        b'A' => 9,
-        b'B' => 11,
-        _ => return Err(format!("bad note name '{s}'")),
-    };
-    let mut idx = 1;
-    let mut semitone = base;
-    if idx < bytes.len() && bytes[idx] == b'#' {
-        semitone += 1;
-        idx += 1;
-    } else if idx < bytes.len() && (bytes[idx] == b'b' || bytes[idx] == b'B') {
-        semitone -= 1;
-        idx += 1;
-    }
-    let octave_str = &s[idx..];
-    if octave_str.is_empty() {
-        return Err(format!("missing octave in '{s}'"));
-    }
-    let octave: i32 = octave_str
-        .parse()
-        .map_err(|_| format!("bad octave in '{s}'"))?;
-    let midi = (octave + 2) * 12 + semitone;
-    if !(0..=127).contains(&midi) {
-        return Err(format!("note '{s}' out of MIDI range ({midi})"));
-    }
-    Ok(midi)
+    cliwig_core::music::note_to_midi(s).map_err(|e| e)
 }

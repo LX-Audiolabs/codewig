@@ -33,6 +33,13 @@ pub fn expand_music_line(
     scale: Option<&Scale>,
     steps_per_bar: u32,
 ) -> Result<(Vec<NoteSpec>, u32), ExpandError> {
+    // Chord action uses chord tokens, not mini-notation
+    if matches!(cmd.action, MusicAction::Chord) {
+        let notes = expand_chord(&cmd.pattern, scale, steps_per_bar, 0)?;
+        let steps = notes.iter().map(|n| n.step).max().unwrap_or(0) as u32 + 1;
+        return Ok((notes, steps.max(1)));
+    }
+
     let pattern = super::parse::parse_mini_pattern(&cmd.pattern)
         .map_err(|e| ExpandError { msg: e.to_string() })?;
 

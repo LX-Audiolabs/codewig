@@ -68,7 +68,10 @@ public final class DeviceService {
         final UUID uuid = DeviceCatalog.resolve(deviceName);
         if (uuid == null) {
             throw new IllegalArgumentException(
-                    "unknown device '" + deviceName + "' (try Polymer, Polysynth, Dynamics, EQ+, … or a UUID)");
+                    "unknown / non-curated device '" + deviceName
+                            + "' — allowlist: Polymer, Polysynth, Organ, Instrument Layer, "
+                            + "Filter, Reverb, Delay+, Chorus+, Saturator (or raw UUID). "
+                            + "Drum pads / extra FX: place manually in Bitwig.");
         }
         cursorTrack.endOfDeviceChainInsertionPoint().insertBitwigDevice(uuid);
         final JsonObject result = new JsonObject();
