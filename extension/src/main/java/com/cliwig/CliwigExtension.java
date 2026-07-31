@@ -54,7 +54,7 @@ public class CliwigExtension extends ControllerExtension {
         listenPort = requestedPort;
 
         transportService = new TransportService(host);
-        trackService = new TrackService(host);
+        trackService = new TrackService(host, transportService);
         deviceService = new DeviceService(host, trackService.getCursorTrack());
         paramService = new ParamService(trackService.getCursorTrack(), deviceService.getCursorDevice());
         // Launcher cursor clip follows the selected slot — used for note editing

@@ -38,9 +38,9 @@ export component AppWindow inherits Window {
         },
         {
             name: "mute / unmute",
-            summary: "mute or unmute tracks",
-            syntax: "mute(kick)",
-            detail: "Mute/unmute tracks by name or index.\n\nSyntax:\n  mute(name1, ...)\n  unmute(name1, ...)\n\nExamples:\n  mute(kick)\n  mute(kick, bass)\n  mute(1, 3, 5)\n  unmute(kick)",
+            summary: "mute tracks (timed optional)",
+            syntax: "mute(kick) 4 @bar",
+            detail: "Mute/unmute tracks by name or index.\nOptional: N bars auto-invert, @bar = next bar.\n\nSyntax:\n  mute(name1, ...)\n  mute(name) N\n  mute(name) @bar\n  mute(name) N @bar\n  unmute(...)\n\nExamples:\n  mute(kick)           // now\n  mute(kick) 4         // mute now, unmute after 4 bars\n  mute(kick) @bar      // mute at next bar\n  mute(kick) 8 @bar    // mute next bar, hold 8 bars, unmute\n  unmute(bass) @bar\n  mute(1, 3, 5)",
             tag: "track",
         },
         {

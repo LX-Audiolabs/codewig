@@ -95,8 +95,13 @@ fn track_ref(r: &TrackRef) -> String {
 }
 
 fn mute(client: &Client, cmd: &MuteCmd, on: bool) -> Result<Option<Value>, String> {
+    use super::ast::MuteQuantize;
     let refs: Vec<String> = cmd.refs.iter().map(track_ref).collect();
-    map(client.track_mute(&refs, on))
+    let q = match cmd.quantize {
+        MuteQuantize::Now => None,
+        MuteQuantize::Bar => Some("bar"),
+    };
+    map(client.track_mute_timed(&refs, on, cmd.bars, q))
 }
 
 fn scene(client: &Client, cmd: &SceneCmd) -> Result<Option<Value>, String> {

@@ -965,14 +965,23 @@ fn parse_param_cmd(input: &str) -> ParseResult<MusicLine> {
     Ok(MusicLine::Param(ParamCmd { track: track_name, device: dev, params }))
 }
 
-/// Parse `mute(kick)` or `mute(kick, bass)` or `mute(1,3,5)`
+/// Parse `mute(kick)` / `mute(kick) 4` / `mute(kick) @bar` / `mute(kick) 4 @bar`
 fn parse_mute_cmd(rest: &str, unmute: bool, full_input: &str) -> ParseResult<MusicLine> {
-    let rest = rest.trim();
-    let closing = rest.find(')').ok_or_else(||
-        ParseError::new("expected ')' after mute/unmute args", full_input.len() - rest.len(), full_input.to_string()))?;
-    let args_str = &rest[..closing];
+    use super::ast::MuteQuantize;
 
-    let refs: Vec<TrackRef> = args_str.split(',')
+    let rest = rest.trim();
+    let closing = rest.find(')').ok_or_else(|| {
+        ParseError::new(
+            "expected ')' after mute/unmute args",
+            full_input.len() - rest.len(),
+            full_input.to_string(),
+        )
+    })?;
+    let args_str = &rest[..closing];
+    let mut after = rest[closing + 1..].trim();
+
+    let refs: Vec<TrackRef> = args_str
+        .split(',')
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|s| {
@@ -985,13 +994,78 @@ fn parse_mute_cmd(rest: &str, unmute: bool, full_input: &str) -> ParseResult<Mus
         .collect();
 
     if refs.is_empty() {
-        return Err(ParseError::new("mute/unmute requires at least one track name or index", 0, full_input.to_string()));
+        return Err(ParseError::new(
+            "mute/unmute requires at least one track name or index",
+            0,
+            full_input.to_string(),
+        ));
     }
 
+    let mut bars: Option<u32> = None;
+    let mut quantize = MuteQuantize::Now;
+
+    // Optional suffix tokens: bars number and/or @bar / @1 (any order)
+    while !after.is_empty() {
+        if after.starts_with('@') {
+            let end = after[1..]
+                .find(|c: char| c.is_whitespace())
+                .map(|p| p + 1)
+                .unwrap_or(after.len());
+            let token = &after[..end];
+            let q = token[1..].trim();
+            match q {
+                "bar" | "1" => quantize = MuteQuantize::Bar,
+                other => {
+                    return Err(ParseError::new(
+                        format!("unknown mute quantize '@{other}' (use @bar)"),
+                        full_input.len() - after.len(),
+                        full_input.to_string(),
+                    ));
+                }
+            }
+            after = after[end..].trim_start();
+            continue;
+        }
+
+        // number of bars
+        let end = after
+            .find(|c: char| c.is_whitespace() || c == '@')
+            .unwrap_or(after.len());
+        let token = &after[..end];
+        if token.is_empty() {
+            break;
+        }
+        match token.parse::<u32>() {
+            Ok(n) if n >= 1 => {
+                if bars.is_some() {
+                    return Err(ParseError::new(
+                        "mute bars specified twice",
+                        full_input.len() - after.len(),
+                        full_input.to_string(),
+                    ));
+                }
+                bars = Some(n);
+                after = after[end..].trim_start();
+            }
+            _ => {
+                return Err(ParseError::new(
+                    format!("unexpected mute suffix '{token}' (want N bars and/or @bar)"),
+                    full_input.len() - after.len(),
+                    full_input.to_string(),
+                ));
+            }
+        }
+    }
+
+    let cmd = MuteCmd {
+        refs,
+        bars,
+        quantize,
+    };
     if unmute {
-        Ok(MusicLine::Unmute(MuteCmd { refs }))
+        Ok(MusicLine::Unmute(cmd))
     } else {
-        Ok(MusicLine::Mute(MuteCmd { refs }))
+        Ok(MusicLine::Mute(cmd))
     }
 }
 
@@ -1322,7 +1396,11 @@ mod tests {
         if let MusicLine::Mute(cmd) = result {
             assert_eq!(cmd.refs.len(), 1);
             assert_eq!(cmd.refs[0], TrackRef::Name("kick".to_string()));
-        } else { panic!("expected Mute"); }
+            assert_eq!(cmd.bars, None);
+            assert_eq!(cmd.quantize, MuteQuantize::Now);
+        } else {
+            panic!("expected Mute");
+        }
     }
 
     #[test]
@@ -1331,7 +1409,9 @@ mod tests {
         let result = parse_music_line(line).unwrap();
         if let MusicLine::Mute(cmd) = result {
             assert_eq!(cmd.refs.len(), 2);
-        } else { panic!("expected Mute"); }
+        } else {
+            panic!("expected Mute");
+        }
     }
 
     #[test]
@@ -1342,7 +1422,9 @@ mod tests {
             assert_eq!(cmd.refs.len(), 3);
             assert_eq!(cmd.refs[0], TrackRef::Index(1));
             assert_eq!(cmd.refs[2], TrackRef::Index(5));
-        } else { panic!("expected Mute"); }
+        } else {
+            panic!("expected Mute");
+        }
     }
 
     #[test]
@@ -1350,6 +1432,55 @@ mod tests {
         let line = "unmute(kick)";
         let result = parse_music_line(line).unwrap();
         assert!(matches!(result, MusicLine::Unmute(_)));
+    }
+
+    #[test]
+    fn test_parse_mute_bars() {
+        let line = "mute(kick) 4";
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Mute(cmd) = result {
+            assert_eq!(cmd.bars, Some(4));
+            assert_eq!(cmd.quantize, MuteQuantize::Now);
+        } else {
+            panic!("expected Mute");
+        }
+    }
+
+    #[test]
+    fn test_parse_mute_quantize_bar() {
+        let line = "mute(kick) @bar";
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Mute(cmd) = result {
+            assert_eq!(cmd.bars, None);
+            assert_eq!(cmd.quantize, MuteQuantize::Bar);
+        } else {
+            panic!("expected Mute");
+        }
+    }
+
+    #[test]
+    fn test_parse_mute_bars_and_bar() {
+        let line = "mute(kick, bass) 8 @bar";
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Mute(cmd) = result {
+            assert_eq!(cmd.refs.len(), 2);
+            assert_eq!(cmd.bars, Some(8));
+            assert_eq!(cmd.quantize, MuteQuantize::Bar);
+        } else {
+            panic!("expected Mute");
+        }
+    }
+
+    #[test]
+    fn test_parse_mute_bar_then_bars() {
+        let line = "unmute(lead) @bar 2";
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Unmute(cmd) = result {
+            assert_eq!(cmd.bars, Some(2));
+            assert_eq!(cmd.quantize, MuteQuantize::Bar);
+        } else {
+            panic!("expected Unmute");
+        }
     }
 
     #[test]

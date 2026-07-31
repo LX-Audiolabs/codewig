@@ -8,9 +8,14 @@ import com.bitwig.extension.controller.api.TrackBank;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
 /**
  * Tracks: create (with insert index), list, select, delete, move, multi mute/solo.
  * Clip-launcher slots: {@link #SCENE_SLOTS} scenes per track (live/performance).
+ * Timed mute: optional quantize to next bar + auto-invert after N bars.
  */
 public final class TrackService {
     /** Bank window large enough for typical projects (flat list). */
@@ -22,11 +27,14 @@ public final class TrackService {
     private final Application application;
     private final TrackBank trackBank;
     private final CursorTrack cursorTrack;
+    private final TransportService transport;
+    private final List<ScheduledMute> muteQueue = new ArrayList<>();
 
     private volatile int trackCount;
 
-    public TrackService(final ControllerHost host) {
+    public TrackService(final ControllerHost host, final TransportService transport) {
         this.host = host;
+        this.transport = transport;
         this.application = host.createApplication();
         // numSends=0, numScenes=SCENE_SLOTS for clip launcher
         this.trackBank = host.createTrackBank(BANK_SIZE, 0, SCENE_SLOTS, true);
@@ -47,9 +55,12 @@ public final class TrackService {
             t.trackType().markInterested();
             t.mute().markInterested();
             t.solo().markInterested();
-            t.volume().markInterested();
+            // Parameter: interest/observe via .value(), not Parameter itself
             t.volume().value().markInterested();
         }
+
+        // Beat-time mute queue (quantize / auto-unmute)
+        transport.addPositionListener(this::processMuteQueue);
     }
 
     public CursorTrack getCursorTrack() {
@@ -188,15 +199,151 @@ public final class TrackService {
 
     /**
      * Mute several tracks at once: refs = names and/or indices.
-     * Fluent later: track.mute(1,3,6)
      */
     public JsonObject muteMany(final String[] refs, final boolean on) {
-        return setBoolMany(refs, on, true);
+        return muteMany(refs, on, null, null);
+    }
+
+    /**
+     * Mute with optional timing.
+     *
+     * @param bars quantize duration: after primary mute state, invert after N bars (null = no invert)
+     * @param q    {@code "bar"} / {@code "1"} = apply primary at next bar; else immediate
+     */
+    public JsonObject muteMany(final String[] refs, final boolean on, final Integer bars, final String q) {
+        if (refs == null || refs.length == 0) {
+            throw new IllegalArgumentException("need at least one track ref (index or name)");
+        }
+        if (bars != null && bars < 1) {
+            throw new IllegalArgumentException("bars must be >= 1");
+        }
+
+        final boolean wantBar = q != null && ("bar".equalsIgnoreCase(q.trim()) || "1".equals(q.trim()));
+        final boolean playing = transport.isPlaying();
+        final double now = transport.getPositionBeats();
+        final double bpb = transport.getBeatsPerBar();
+
+        final JsonObject result = new JsonObject();
+        result.addProperty("on", on);
+        result.addProperty("playing", playing);
+        result.addProperty("beatsPerBar", bpb);
+        result.addProperty("positionBeats", now);
+
+        // Resolve track display once for response
+        final JsonArray targets = new JsonArray();
+        for (final String ref : refs) {
+            final Track t = resolve(ref);
+            final JsonObject o = new JsonObject();
+            o.addProperty("index", t.position().get());
+            o.addProperty("name", t.name().get());
+            targets.add(o);
+        }
+        result.add("tracks", targets);
+
+        double primaryAt = now;
+        boolean primaryScheduled = false;
+
+        if (wantBar && playing) {
+            primaryAt = transport.nextBarBeat(now);
+            enqueueMute(refs, on, primaryAt);
+            primaryScheduled = true;
+            result.addProperty("primaryAtBeat", primaryAt);
+            result.addProperty("q", "bar");
+        } else {
+            applyMuteRefs(refs, on);
+            result.addProperty("primary", "now");
+            if (wantBar && !playing) {
+                result.addProperty("note", "transport not playing — mute applied immediately");
+            }
+        }
+
+        if (bars != null) {
+            result.addProperty("bars", bars);
+            final double invertAt = primaryAt + bars * bpb;
+            if (playing || primaryScheduled) {
+                // Musical time: invert when playhead reaches invertAt
+                // If primary was immediate but transport stopped later, wall-clock fallback:
+                if (playing) {
+                    enqueueMute(refs, !on, invertAt);
+                    result.addProperty("invertAtBeat", invertAt);
+                    result.addProperty("invert", !on);
+                } else {
+                    // not playing: primary already applied; schedule wall-clock invert
+                    scheduleWallClockInvert(refs, !on, bars, bpb, result);
+                }
+            } else {
+                scheduleWallClockInvert(refs, !on, bars, bpb, result);
+            }
+        }
+
+        result.addProperty("queued", muteQueueSize());
+        return result;
+    }
+
+    private void scheduleWallClockInvert(
+            final String[] refs,
+            final boolean invertOn,
+            final int bars,
+            final double bpb,
+            final JsonObject result) {
+        final double tempo = Math.max(20.0, transport.getTempo());
+        final long ms = Math.max(1L, Math.round(bars * bpb * (60_000.0 / tempo)));
+        final String[] refsCopy = refs.clone();
+        host.scheduleTask(() -> applyMuteRefs(refsCopy, invertOn), ms);
+        result.addProperty("invertMs", ms);
+        result.addProperty("invert", invertOn);
+        result.addProperty("invertMode", "wallclock");
+    }
+
+    private void enqueueMute(final String[] refs, final boolean on, final double atBeat) {
+        synchronized (muteQueue) {
+            muteQueue.add(new ScheduledMute(refs.clone(), on, atBeat));
+        }
+    }
+
+    private int muteQueueSize() {
+        synchronized (muteQueue) {
+            return muteQueue.size();
+        }
+    }
+
+    private void processMuteQueue(final double pos) {
+        synchronized (muteQueue) {
+            final Iterator<ScheduledMute> it = muteQueue.iterator();
+            while (it.hasNext()) {
+                final ScheduledMute job = it.next();
+                if (pos + 1e-4 >= job.atBeat) {
+                    applyMuteRefs(job.refs, job.on);
+                    it.remove();
+                }
+            }
+        }
+    }
+
+    private void applyMuteRefs(final String[] refs, final boolean on) {
+        for (final String ref : refs) {
+            try {
+                resolve(ref).mute().set(on);
+            } catch (final IllegalArgumentException e) {
+                host.errorln("CLIwig scheduled mute: " + e.getMessage());
+            }
+        }
+    }
+
+    private static final class ScheduledMute {
+        final String[] refs;
+        final boolean on;
+        final double atBeat;
+
+        ScheduledMute(final String[] refs, final boolean on, final double atBeat) {
+            this.refs = refs;
+            this.on = on;
+            this.atBeat = atBeat;
+        }
     }
 
     /**
      * Solo several tracks at once: refs = names and/or indices.
-     * Fluent later: track.solo(1,3,6)
      */
     public JsonObject soloMany(final String[] refs, final boolean on) {
         return setBoolMany(refs, on, false);

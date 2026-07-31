@@ -23,6 +23,7 @@
 5. **`research/` is gitignored** — may be stale; always verify against code. Prefer `research/CURRENT.md` when updating notes.
 6. Live focus after setup: **clips / scenes / mute**, not full device browser.
 7. **Params = snapshot only** (`param.set`). No ramps, sequences, clip automation, or UI slider/knob pages. Continuous control = Bitwig UI / modulators / hardware.
+8. **Timed mute OK**: `mute(x) N` / `@bar` — discrete schedule only, not param automation.
 
 ## Caveman
 Talk terse. Drop articles/filler/pleasantries. Fragments OK. Technical terms exact.

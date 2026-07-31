@@ -89,7 +89,11 @@ public final class CommandRouter {
                             req.has("to") && !req.get("to").isJsonNull() ? req.get("to").getAsInt() : null));
 
                 case "track.mute":
-                    return Messages.ok(id, tracks.muteMany(requireRefs(req), boolOr(req, "on", true)));
+                    return Messages.ok(id, tracks.muteMany(
+                            requireRefs(req),
+                            boolOr(req, "on", true),
+                            optPositiveInt(req, "bars"),
+                            str(req, "q", null)));
 
                 case "track.solo":
                     return Messages.ok(id, tracks.soloMany(requireRefs(req), boolOr(req, "on", true)));
@@ -227,6 +231,18 @@ public final class CommandRouter {
             return null;
         }
         return req.get(key).getAsInt();
+    }
+
+    /** Optional positive int (>=1); null if missing. */
+    private static Integer optPositiveInt(final JsonObject req, final String key) {
+        final Integer v = optInt(req, key);
+        if (v == null) {
+            return null;
+        }
+        if (v < 1) {
+            throw new IllegalArgumentException(key + " must be >= 1");
+        }
+        return v;
     }
 
     /** notes: array of {step:int, key:int (MIDI), vel:int 1..127 = 100, dur:double steps = 1.0} */

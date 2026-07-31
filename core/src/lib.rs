@@ -154,11 +154,30 @@ impl Client {
     }
 
     pub fn track_mute(&self, refs: &[String], on: bool) -> Result<Option<Value>, Error> {
-        self.send(
-            self.req("track.mute")
-                .field("refs", refs)
-                .field("on", on),
-        )
+        self.track_mute_timed(refs, on, None, None)
+    }
+
+    /// Mute/unmute with optional musical timing.
+    /// - `bars`: after primary action, invert after N bars
+    /// - `q`: `"bar"` = apply primary at next bar (while playing)
+    pub fn track_mute_timed(
+        &self,
+        refs: &[String],
+        on: bool,
+        bars: Option<u32>,
+        q: Option<&str>,
+    ) -> Result<Option<Value>, Error> {
+        let mut r = self
+            .req("track.mute")
+            .field("refs", refs)
+            .field("on", on);
+        if let Some(b) = bars {
+            r = r.field("bars", b);
+        }
+        if let Some(quantize) = q {
+            r = r.field("q", quantize);
+        }
+        self.send(r)
     }
 
     pub fn track_solo(&self, refs: &[String], on: bool) -> Result<Option<Value>, Error> {

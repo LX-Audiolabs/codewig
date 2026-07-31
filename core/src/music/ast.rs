@@ -113,10 +113,24 @@ pub struct ParamCmd {
     pub params: Vec<(String, f64)>,  // (name, raw_value)
 }
 
-/// `mute(kick)` | `mute(kick, bass)` | `mute(1,3,5)`
+/// `mute(kick)` | `mute(kick) 4` | `mute(kick) @bar` | `mute(kick) 4 @bar`
 #[derive(Debug, Clone, PartialEq)]
 pub struct MuteCmd {
     pub refs: Vec<TrackRef>,
+    /// After primary action, invert mute state after N bars (auto unmute/mute).
+    pub bars: Option<u32>,
+    /// When to apply the primary mute/unmute.
+    pub quantize: MuteQuantize,
+}
+
+/// Quantize primary mute action to transport.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MuteQuantize {
+    /// Apply immediately.
+    #[default]
+    Now,
+    /// Apply at next bar boundary (while transport playing).
+    Bar,
 }
 
 #[derive(Debug, Clone, PartialEq)]

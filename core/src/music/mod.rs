@@ -13,7 +13,7 @@ pub mod scale;
 pub use ast::{
     BeatSpec, Chord, ClipAction, ClipCtrlCmd, ClipCtrlRef, ClipRef, DeviceSpec, DrumAlias,
     FluentCmd, FluentStep, LaunchAction, MusicAction, MusicCmd, MusicLine,
-    MuteCmd, ParamCmd, ParamSet, SceneCmd, Target, TrackRef,
+    MuteCmd, MuteQuantize, ParamCmd, ParamSet, SceneCmd, Target, TrackRef,
 };
 pub use device::{
     catalog_to_bitwig, catalog_to_drum, device_params, drum_device, drum_midi,
