@@ -8,6 +8,7 @@ import com.bitwig.extension.controller.api.SettableStringValue;
 import com.cliwig.bridge.ClipService;
 import com.cliwig.bridge.DeviceService;
 import com.cliwig.bridge.ParamService;
+import com.cliwig.bridge.SceneService;
 import com.cliwig.bridge.TrackService;
 import com.cliwig.bridge.TransportService;
 import com.cliwig.protocol.CommandRouter;
@@ -31,6 +32,7 @@ public class CliwigExtension extends ControllerExtension {
     private DeviceService deviceService;
     private ParamService paramService;
     private ClipService clipService;
+    private SceneService sceneService;
     private CommandRouter router;
     /** Port we asked for / report to clients (getPort() often returns -1). */
     private int listenPort = DEFAULT_PORT;
@@ -59,6 +61,7 @@ public class CliwigExtension extends ControllerExtension {
         paramService = new ParamService(trackService.getCursorTrack(), deviceService.getCursorDevice());
         // Launcher cursor clip follows the selected slot — used for note editing
         clipService = new ClipService(trackService, host.createLauncherCursorClip(64, 128));
+        sceneService = new SceneService(host, TrackService.SCENE_SLOTS);
 
         final RemoteSocket socket = host.createRemoteConnection("CLIwig", requestedPort);
         final int reported = socket.getPort();
@@ -71,7 +74,13 @@ public class CliwigExtension extends ControllerExtension {
         }
 
         router = new CommandRouter(
-                transportService, trackService, deviceService, paramService, clipService, listenPort);
+                transportService,
+                trackService,
+                deviceService,
+                paramService,
+                clipService,
+                sceneService,
+                listenPort);
         socket.setClientConnectCallback(this::onClientConnected);
 
         host.println("CLIwig listening on 127.0.0.1:" + listenPort);

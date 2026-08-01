@@ -340,6 +340,20 @@ impl Client {
         self.send(self.req("clip.stop").field("track", track))
     }
 
+    // Scenes — index primary, name secondary (`ref` string or number)
+
+    pub fn scene_list(&self) -> Result<Option<Value>, Error> {
+        self.send(self.req("scene.list"))
+    }
+
+    pub fn scene_launch(&self, r#ref: &str) -> Result<Option<Value>, Error> {
+        self.send(self.req("scene.launch").field("ref", r#ref))
+    }
+
+    pub fn scene_stop(&self, r#ref: &str) -> Result<Option<Value>, Error> {
+        self.send(self.req("scene.stop").field("ref", r#ref))
+    }
+
     pub fn clip_set_notes(
         &self,
         track: &str,

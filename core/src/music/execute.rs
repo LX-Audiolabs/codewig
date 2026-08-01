@@ -35,28 +35,11 @@ impl Default for MusicSession {
     }
 }
 
-/// Parse one pure WIGSCRIPT line and run it.
-///
-/// **Not** the full UI/CLI entry: `> …` ([`MusicLine::PassThrough`]) is rejected here.
-/// Frontends must peel that off first:
-/// - UI: `commands::run` → legacy flat tokens
-/// - CLI: `run_one_line` → clap legacy
-///
-/// Prefer those entry points for user input. This helper is for already-WIGSCRIPT lines only.
-pub fn run_wigscript(
-    client: &Client,
-    session: &mut MusicSession,
-    input: &str,
-) -> Result<Option<Value>, String> {
-    let line = super::parse::parse_music_line(input).map_err(|e| e.to_string())?;
-    execute_line(client, session, line)
-}
-
 /// Run an already-parsed pure WIGSCRIPT AST node.
 ///
-/// [`MusicLine::PassThrough`] (`> track list`, …) is **intentionally** an error:
-/// legacy lives in UI/CLI dispatch, not in the music executor (keeps core free of clap/shlex
-/// legacy trees). Callers: match PassThrough before this, same as `commands::run` / CLI eval.
+/// Full user-input entry is **not** here: UI `commands::run` and CLI `run_one_line` parse,
+/// peel [`MusicLine::PassThrough`] / legacy, then call this. [`MusicLine::PassThrough`] is
+/// intentionally an error so core stays free of clap/shlex legacy trees.
 pub fn execute_line(
     client: &Client,
     session: &mut MusicSession,
@@ -154,46 +137,20 @@ fn mute(client: &Client, cmd: &MuteCmd, on: bool) -> Result<Option<Value>, Strin
     map(client.track_mute_timed(&refs, on, cmd.bars, q))
 }
 
-fn scene(client: &Client, cmd: &SceneCmd) -> Result<Option<Value>, String> {
-    let list = client
-        .track_list()
-        .map_err(|e| e.to_string())?
-        .ok_or("track.list empty")?;
-    let tracks = list
-        .get("tracks")
-        .and_then(Value::as_array)
-        .ok_or("track.list missing tracks")?;
-
-    let mut results = Vec::new();
-    for t in tracks {
-        let ty = t
-            .get("type")
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_lowercase();
-        if ty != "instrument" && ty != "audio" {
-            continue;
-        }
-        let name = t
-            .get("name")
-            .and_then(Value::as_str)
-            .ok_or("track missing name")?;
-        match cmd.action {
-            LaunchAction::Start => {
-                match client.clip_launch(name, cmd.scene) {
-                    Ok(v) => results.push(json!({ "track": name, "launch": v })),
-                    Err(e) => results.push(json!({ "track": name, "error": e.to_string() })),
-                }
-            }
-            LaunchAction::Stop => {
-                match client.clip_stop(name) {
-                    Ok(v) => results.push(json!({ "track": name, "stop": v })),
-                    Err(e) => results.push(json!({ "track": name, "error": e.to_string() })),
-                }
-            }
-        }
+fn scene_ref_str(r: &SceneRef) -> String {
+    match r {
+        SceneRef::Index(i) => i.to_string(),
+        SceneRef::Name(n) => n.clone(),
     }
-    Ok(Some(json!({ "scene": cmd.scene, "action": format!("{:?}", cmd.action), "tracks": results })))
+}
+
+fn scene(client: &Client, cmd: &SceneCmd) -> Result<Option<Value>, String> {
+    // Index primary, name secondary — one wire RPC via SceneBank (not N× clip.launch).
+    let r = scene_ref_str(&cmd.scene);
+    match cmd.action {
+        LaunchAction::Start => map(client.scene_launch(&r)),
+        LaunchAction::Stop => map(client.scene_stop(&r)),
+    }
 }
 
 fn clip_ctrl(client: &Client, cmd: &ClipCtrlCmd) -> Result<Option<Value>, String> {
@@ -251,7 +208,17 @@ fn resolve_track_at(client: &Client, at: i32) -> Result<i32, String> {
 }
 
 fn ensure_clip(client: &Client, track: &str, slot: i32, beats: i32) -> Result<i32, String> {
-    // Try write path: if empty, create.
+    ensure_clip_at(client, track, slot, beats, None)
+}
+
+fn ensure_clip_at(
+    client: &Client,
+    track: &str,
+    slot: i32,
+    beats: i32,
+    name: Option<&str>,
+) -> Result<i32, String> {
+    // Try write path: if empty, create (optional display name).
     match client.clip_list(track) {
         Ok(Some(list)) => {
             if let Some(arr) = list.get("clips").and_then(Value::as_array) {
@@ -271,10 +238,76 @@ fn ensure_clip(client: &Client, track: &str, slot: i32, beats: i32) -> Result<i3
         Ok(None) | Err(_) => {}
     }
     client
-        .clip_new(track, Some(slot), beats, None)
+        .clip_new(track, Some(slot), beats, name)
         .map_err(|e| e.to_string())?;
     wait_clip_content(client, track, slot)?;
     Ok(slot)
+}
+
+/// Primary address = slot index. Name is secondary: scan `clip.list` (first match, case-insensitive).
+fn slot_by_name(list: &Value, name: &str) -> Option<(i32, bool)> {
+    let arr = list.get("clips").and_then(Value::as_array)?;
+    for c in arr {
+        let n = c.get("name").and_then(Value::as_str).unwrap_or("");
+        if n.eq_ignore_ascii_case(name) {
+            let slot = c.get("slot").and_then(Value::as_i64)? as i32;
+            let has = c
+                .get("hasContent")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            return Some((slot, has));
+        }
+    }
+    None
+}
+
+fn first_empty_slot(list: &Value) -> Option<i32> {
+    let arr = list.get("clips").and_then(Value::as_array)?;
+    for c in arr {
+        let has = c
+            .get("hasContent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if !has {
+            return c.get("slot").and_then(Value::as_i64).map(|s| s as i32);
+        }
+    }
+    None
+}
+
+/// Resolve write target: slot id first; `@name` → list match, else create empty named clip.
+fn resolve_write_slot(
+    client: &Client,
+    track: &str,
+    clip: &Option<ClipRef>,
+    default_slot: i32,
+    beats: i32,
+) -> Result<i32, String> {
+    match clip {
+        None | Some(ClipRef::Launch) => ensure_clip(client, track, default_slot, beats),
+        Some(ClipRef::Name(name)) => {
+            let name = name.trim();
+            if name.is_empty() {
+                return ensure_clip(client, track, default_slot, beats);
+            }
+            match client.clip_list(track) {
+                Ok(Some(list)) => {
+                    if let Some((slot, has)) = slot_by_name(&list, name) {
+                        if has {
+                            return Ok(slot);
+                        }
+                        return ensure_clip_at(client, track, slot, beats, Some(name));
+                    }
+                    let slot = first_empty_slot(&list).unwrap_or(default_slot);
+                    ensure_clip_at(client, track, slot, beats, Some(name))
+                }
+                Ok(None) | Err(_) => {
+                    // list failed — fall back to default slot with name
+                    ensure_clip_at(client, track, default_slot, beats, Some(name))
+                }
+            }
+        }
+    }
 }
 
 fn write_notes(
@@ -297,11 +330,15 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
         cmd.target.track.clone()
     };
 
-    let slot = session.default_slot;
     let beats = session.default_beats;
-
-    // Optional named clip: list and find by name — v1 use default slot
-    let _clip = &cmd.target.clip;
+    // Slot id (session default / launcher row) is primary; `@verse` is secondary name lookup.
+    let slot = resolve_write_slot(
+        client,
+        &track,
+        &cmd.target.clip,
+        session.default_slot,
+        beats,
+    )?;
 
     let notes = match cmd.action {
         MusicAction::Chord => expand_chord(
@@ -311,7 +348,7 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
             0,
         )
         .map_err(|e| e.to_string())?,
-        MusicAction::Notes | MusicAction::Drums => {
+        MusicAction::Notes | MusicAction::Drums | MusicAction::Arp(_) => {
             let (notes, _) =
                 expand_music_line(cmd, session.scale.as_ref(), session.steps_per_bar)
                     .map_err(|e| e.to_string())?;
@@ -333,7 +370,9 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
         let _ = client.param_set_multi(&sets);
     }
 
-    write_notes(client, &track, slot, beats, &notes)
+    // Notes path already resolved slot (incl. create); don't re-ensure without name.
+    let playable: Vec<NoteSpec> = notes.iter().copied().filter(|n| n.vel > 0).collect();
+    map(client.clip_replace_notes(&track, slot, &playable))
 }
 
 fn add_device(client: &Client, catalog: &str) -> Result<Option<Value>, String> {
@@ -562,5 +601,19 @@ mod tests {
         if let MusicLine::Music(cmd) = line {
             assert!(cmd.target.track.is_empty());
         }
+    }
+
+    #[test]
+    fn slot_by_name_first_match_case_insensitive() {
+        let list = json!({
+            "clips": [
+                { "slot": 0, "name": "Intro", "hasContent": true },
+                { "slot": 1, "name": "verse", "hasContent": true },
+                { "slot": 2, "name": "", "hasContent": false },
+            ]
+        });
+        assert_eq!(slot_by_name(&list, "VERSE"), Some((1, true)));
+        assert_eq!(slot_by_name(&list, "missing"), None);
+        assert_eq!(first_empty_slot(&list), Some(2));
     }
 }

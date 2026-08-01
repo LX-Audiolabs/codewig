@@ -60,8 +60,8 @@ export component AppWindow inherits Window {
         {
             name: "s() / scene()",
             summary: "launch or stop a scene",
-            syntax: "s(1).start",
-            detail: "Launch or stop scene N.\n\nSyntax:\n  s(N).start\n  s(N).stop\n\nExamples:\n  s(1).start\n  s(0).stop",
+            syntax: "scene(verse).start",
+            detail: "Launch or stop a scene by index (primary) or name.\n\nSyntax:\n  s(N).start | scene(N).start\n  s(name).start | scene(name).start\n  … .stop\n\nExamples:\n  s(0).start\n  scene(1).stop\n  scene(verse).start\n  s(Drop).start",
             tag: "scene",
         },
         {
@@ -104,6 +104,13 @@ export component AppWindow inherits Window {
             summary: "block chords / progressions",
             syntax: "pad: chord \"C Am F G\"",
             detail: "Block chords. Supports Roman numerals + scale.\n\nSyntax:\n  track: chord \"...\"\n\nExamples:\n  chord \"C Am F G\"\n  chord \"i iv v\"   (with k C minor)\n\nQualities: m  7  m7  maj7  dim  aug  sus4  9",
+            tag: "notes",
+        },
+        {
+            name: "arp",
+            summary: "arpeggiate chord or notes",
+            syntax: "bass: arp:up \"Cm7\"",
+            detail: "Arpeggiate over one bar (session grid steps).\nIndex/slot write like n/chord.\n\nSyntax:\n  track: arp \"c e g\"\n  track: arp:up|down|updown|rand \"...\"\n\nPitch source:\n  notes:  \"c e g\" / \"0 2 4\" (with key)\n  chord:  \"C\" \"Am7\" \"iii\"\n\nExamples:\n  bass: arp \"c e g\"\n  lead: arp:down \"Cm7\"\n  pad: arp:updown \"Cmaj7\"\n  k C minor\n  bass: arp:rand \"i\"",
             tag: "notes",
         },
         {
@@ -231,6 +238,8 @@ export component AppWindow inherits Window {
     callback reconnect();
     callback insert-command(string);
     callback show-help(string);
+    /// Substring match (case-insensitive). Slint has no string.contains — Rust implements it.
+    pure callback text-matches(haystack: string, needle: string) -> bool;
 
     // LX AudioLabs-inspired dark theme
     out property <color> accent: #ff731a;
@@ -426,11 +435,13 @@ export component AppWindow inherits Window {
                         alignment: stretch;
 
                         for entry in root.refs: Rectangle {
-                            // ponytail: Slint strings have no contains(); exact name match or empty filter
+                            // substring via pure callback text-matches (Slint has no string.contains)
                             property <bool> shown:
-                                (root.ref-filter == "" || entry.name.to-lowercase() == root.ref-filter.to-lowercase()
-                                  || entry.summary.to-lowercase() == root.ref-filter.to-lowercase()
-                                  || entry.tag.to-lowercase() == root.ref-filter.to-lowercase())
+                                (root.ref-filter == ""
+                                  || root.text-matches(entry.name, root.ref-filter)
+                                  || root.text-matches(entry.summary, root.ref-filter)
+                                  || root.text-matches(entry.syntax, root.ref-filter)
+                                  || root.text-matches(entry.tag, root.ref-filter))
                                 && (root.ref-tag == "" || root.ref-tag == "all" || entry.tag == root.ref-tag);
                             // collapse layout space when filtered out (not just hide paint)
                             height: shown ? 30px : 0px;

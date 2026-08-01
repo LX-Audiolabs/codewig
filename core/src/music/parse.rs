@@ -97,8 +97,8 @@ pub fn parse_music_line(input: &str) -> ParseResult<MusicLine> {
         return parse_mute_cmd(rest, true, s);
     }
 
-    // Scene: `s(1).start` | `s(1).stop`
-    if s.starts_with("s(") {
+    // Scene: `s(1).start` | `s(verse).start` | `scene(0).stop` | `scene(verse).start`
+    if s.starts_with("s(") || s.starts_with("scene(") {
         return parse_scene_cmd(s);
     }
 
@@ -265,10 +265,32 @@ fn parse_action_name(cmd: &str) -> ParseResult<(MusicAction, Option<String>)> {
         Ok((MusicAction::Drums, Some(kit.to_lowercase())))
     } else if cmd == "chord" {
         Ok((MusicAction::Chord, None))
+    } else if cmd == "arp" {
+        Ok((MusicAction::Arp(ArpStyle::Up), None))
+    } else if let Some(style) = cmd.strip_prefix("arp:") {
+        Ok((MusicAction::Arp(parse_arp_style(style)?), None))
     } else {
         Err(ParseError::new(
-            format!("unknown music action: '{cmd}'. Expected n, d, d:kit, or chord"),
-            0, cmd.to_string()))
+            format!(
+                "unknown music action: '{cmd}'. Expected n, d, d:kit, chord, arp, arp:up|down|updown|rand"
+            ),
+            0,
+            cmd.to_string(),
+        ))
+    }
+}
+
+fn parse_arp_style(s: &str) -> ParseResult<ArpStyle> {
+    match s.to_lowercase().as_str() {
+        "up" | "u" => Ok(ArpStyle::Up),
+        "down" | "dn" | "d" => Ok(ArpStyle::Down),
+        "updown" | "ud" | "up-down" => Ok(ArpStyle::UpDown),
+        "rand" | "random" | "r" => Ok(ArpStyle::Random),
+        other => Err(ParseError::new(
+            format!("unknown arp style: '{other}' (up|down|updown|rand)"),
+            0,
+            s.to_string(),
+        )),
     }
 }
 
@@ -276,7 +298,7 @@ fn parse_action_pattern<'a>(rest: &'a str, full_input: &str) -> ParseResult<(Mus
     let trimmed = rest.trim();
     let (action_name, rest1) = trimmed.split_once(' ')
         .ok_or_else(|| ParseError::new(
-            "expected action (n, d, chord) followed by pattern",
+            "expected action (n, d, chord, arp) followed by pattern",
             full_input.len() - rest.len(), full_input.to_string()))?;
 
     let (action, _drum_kit) = parse_action_name(action_name)?;
@@ -1165,14 +1187,40 @@ fn extract_paren_quoted<'a>(input: &'a str, full_input: &str) -> ParseResult<(St
     }
 }
 
-/// Parse `s(1).start` | `s(1).stop`
+/// Parse `s(1).start` | `s(verse).start` | `scene(0).stop` | `scene(name).start`
 fn parse_scene_cmd(input: &str) -> ParseResult<MusicLine> {
-    let after = input.strip_prefix("s(").unwrap();
-    let closing = after.find(')').ok_or_else(||
-        ParseError::new("expected ')' after scene number", input.len() - after.len(), input.to_string()))?;
-    let scene_str = &after[..closing];
-    let scene: i32 = scene_str.parse().map_err(|_|
-        ParseError::new(format!("invalid scene number: '{scene_str}'"), input.len() - after.len(), input.to_string()))?;
+    let after = if let Some(a) = input.strip_prefix("scene(") {
+        a
+    } else if let Some(a) = input.strip_prefix("s(") {
+        a
+    } else {
+        return Err(ParseError::new(
+            "expected s(…) or scene(…)",
+            0,
+            input.to_string(),
+        ));
+    };
+    let closing = after.find(')').ok_or_else(|| {
+        ParseError::new(
+            "expected ')' after scene ref",
+            input.len() - after.len(),
+            input.to_string(),
+        )
+    })?;
+    let scene_str = after[..closing].trim();
+    if scene_str.is_empty() {
+        return Err(ParseError::new(
+            "empty scene ref — use s(0) or s(verse)",
+            input.len() - after.len(),
+            input.to_string(),
+        ));
+    }
+    // Index primary when the whole token is a number; else name (live-friendly).
+    let scene = if let Ok(i) = scene_str.parse::<i32>() {
+        SceneRef::Index(i)
+    } else {
+        SceneRef::Name(scene_str.to_string())
+    };
 
     let rest = &after[closing + 1..];
     let action = parse_launch_action(rest, input)?;
@@ -1328,6 +1376,26 @@ mod tests {
             assert_eq!(cmd.target.clip, Some(ClipRef::Name("verse".to_string())));
         } else {
             panic!("expected Music");
+        }
+    }
+
+    #[test]
+    fn test_parse_arp() {
+        let line = r#"bass: arp "c e g""#;
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Music(cmd) = result {
+            assert_eq!(cmd.action, MusicAction::Arp(ArpStyle::Up));
+            assert_eq!(cmd.pattern, "c e g");
+        } else {
+            panic!("expected Music arp");
+        }
+
+        let down = parse_music_line(r#"lead: arp:down "Cm7""#).unwrap();
+        if let MusicLine::Music(cmd) = down {
+            assert_eq!(cmd.action, MusicAction::Arp(ArpStyle::Down));
+            assert_eq!(cmd.pattern, "Cm7");
+        } else {
+            panic!("expected arp:down");
         }
     }
 
@@ -1488,7 +1556,7 @@ mod tests {
         let line = "s(1).start";
         let result = parse_music_line(line).unwrap();
         if let MusicLine::Scene(cmd) = result {
-            assert_eq!(cmd.scene, 1);
+            assert_eq!(cmd.scene, SceneRef::Index(1));
             assert!(matches!(cmd.action, LaunchAction::Start));
         } else { panic!("expected Scene"); }
     }
@@ -1498,9 +1566,24 @@ mod tests {
         let line = "s(0).stop";
         let result = parse_music_line(line).unwrap();
         if let MusicLine::Scene(cmd) = result {
-            assert_eq!(cmd.scene, 0);
+            assert_eq!(cmd.scene, SceneRef::Index(0));
             assert!(matches!(cmd.action, LaunchAction::Stop));
         } else { panic!("expected Scene"); }
+
+        let named = parse_music_line("scene(verse).start").unwrap();
+        if let MusicLine::Scene(cmd) = named {
+            assert_eq!(cmd.scene, SceneRef::Name("verse".to_string()));
+            assert!(matches!(cmd.action, LaunchAction::Start));
+        } else {
+            panic!("expected Scene by name");
+        }
+
+        let alias = parse_music_line("s(Drop).stop").unwrap();
+        if let MusicLine::Scene(cmd) = alias {
+            assert_eq!(cmd.scene, SceneRef::Name("Drop".to_string()));
+        } else {
+            panic!("expected Scene");
+        }
     }
 
     #[test]

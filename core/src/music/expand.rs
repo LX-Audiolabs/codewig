@@ -40,6 +40,13 @@ pub fn expand_music_line(
         return Ok((notes, steps.max(1)));
     }
 
+    // Arp: pitch source in quotes → expand_arp over one bar (steps_per_bar)
+    if let MusicAction::Arp(style) = cmd.action {
+        let pitches = arp_source_pitches(&cmd.pattern, scale)?;
+        let notes = expand_arp(&pitches, steps_per_bar, style, 1.0, 0);
+        return Ok((notes, steps_per_bar.max(1)));
+    }
+
     let pattern = super::parse::parse_mini_pattern(&cmd.pattern)
         .map_err(|e| ExpandError { msg: e.to_string() })?;
 
@@ -485,13 +492,54 @@ fn parse_roman_degree(s: &str) -> Result<i32, ()> {
 
 // ── Arpeggio generation ────────────────────────────────────────────
 
-/// Arpeggio style.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ArpStyle {
-    Up,
-    Down,
-    UpDown,
-    Random,
+// ArpStyle lives in ast (parser/executor); re-export for callers.
+pub use super::ast::ArpStyle;
+
+/// Pitches for arp: one chord token (`Cm7`) or space-separated notes (`c e g`).
+fn arp_source_pitches(pattern: &str, scale: Option<&Scale>) -> Result<Vec<i32>, ExpandError> {
+    let tokens: Vec<&str> = pattern.split_whitespace().collect();
+    if tokens.is_empty() {
+        return Err(ExpandError {
+            msg: "arp pattern empty — e.g. arp \"c e g\" or arp:up \"Cm7\"".into(),
+        });
+    }
+
+    // Single token: prefer chord (C, Am7, iii) so `arp "C"` = triad tones
+    if tokens.len() == 1 {
+        if let Ok(block) = expand_chord(tokens[0], scale, 1, 0) {
+            let mut keys: Vec<i32> = block.iter().map(|n| n.key).collect();
+            keys.sort_unstable();
+            keys.dedup();
+            if !keys.is_empty() {
+                return Ok(keys);
+            }
+        }
+    }
+
+    let mut keys = Vec::with_capacity(tokens.len());
+    for t in tokens {
+        keys.push(resolve_arp_pitch(t, scale)?);
+    }
+    Ok(keys)
+}
+
+fn resolve_arp_pitch(token: &str, scale: Option<&Scale>) -> Result<i32, ExpandError> {
+    if let Ok(d) = token.parse::<i32>() {
+        if let Some(s) = scale {
+            if (-24..24).contains(&d) {
+                return Ok(s.degree_to_midi(d));
+            }
+        }
+        if (0..=127).contains(&d) {
+            return Ok(d);
+        }
+    }
+    if let Some(s) = scale {
+        if let Ok(d) = parse_roman_degree(token) {
+            return Ok(s.degree_to_midi(d));
+        }
+    }
+    scale::note_to_midi(token).map_err(|e| ExpandError { msg: e })
 }
 
 /// Generate an arpeggio from a list of note values over a number of steps.
@@ -696,6 +744,23 @@ mod tests {
         assert_eq!(arp[1].key, 64);
         assert_eq!(arp[2].key, 67);
         assert_eq!(arp[3].key, 60); // wraps
+    }
+
+    #[test]
+    fn test_expand_arp_line_from_chord() {
+        let line = parse::parse_music_line(r#"bass: arp:up "C""#).unwrap();
+        if let MusicLine::Music(ref cmd) = line {
+            let (notes, steps) = expand_music_line(cmd, None, 8).unwrap();
+            assert_eq!(steps, 8);
+            assert_eq!(notes.len(), 8);
+            // C major triad: 60, 64, 67 cycling
+            assert_eq!(notes[0].key, 60);
+            assert_eq!(notes[1].key, 64);
+            assert_eq!(notes[2].key, 67);
+            assert_eq!(notes[3].key, 60);
+        } else {
+            panic!("expected Music");
+        }
     }
 
     #[test]

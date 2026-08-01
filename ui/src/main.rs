@@ -2,10 +2,14 @@ use cliwig_core::music::MusicSession;
 use cliwig_core::Client;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::thread;
 
 mod commands;
 
 slint::include_modules!();
+
+/// Status probe only — short so offline Bitwig does not freeze the UI (commands keep 2s).
+const STATUS_TIMEOUT_MS: u64 = 250;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // One client for whole UI lifetime — persistent TCP inside Client.
@@ -16,14 +20,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
-    ui.set_status(connection_status(&client).into());
+    // Non-blocking start: never wait on TCP before first frame.
+    ui.set_status("checking…".into());
+    let status_weak = ui.as_weak();
+    thread::spawn(move || {
+        let status = connection_status();
+        let _ = slint::invoke_from_event_loop(move || {
+            if let Some(ui) = status_weak.upgrade() {
+                ui.set_status(status.into());
+            }
+        });
+    });
+
+    // Sidebar filter: substring match (Slint has no string.contains)
+    ui.on_text_matches(|haystack, needle| {
+        let n = needle.trim().to_lowercase();
+        if n.is_empty() {
+            return true;
+        }
+        haystack.to_lowercase().contains(&n)
+    });
 
     let reconnect_weak = ui.as_weak();
     let client_reconnect = client.clone();
     ui.on_reconnect(move || {
         let ui = reconnect_weak.upgrade().unwrap();
         client_reconnect.reset();
-        ui.set_status(connection_status(&client_reconnect).into());
+        // Short probe on UI thread — max ~STATUS_TIMEOUT_MS, not 2s
+        ui.set_status(connection_status().into());
     });
 
     let insert_weak = ui.as_weak();
@@ -64,8 +88,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(e) => {
                 output.push_str(&format!("error: {}\n", e));
-                // Re-check only on failure (may be disconnect)
-                ui.set_status(connection_status(&client_send).into());
+                // Re-check only on failure (short probe — do not block UI 2s)
+                ui.set_status(connection_status().into());
             }
         }
         ui.set_output(output.into());
@@ -76,9 +100,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn connection_status(client: &Client) -> String {
-    match client.ping() {
+/// Fresh short-timeout client so status never shares the live socket or 2s command timeout.
+fn connection_status() -> String {
+    let probe = Client::new("127.0.0.1", 9470, STATUS_TIMEOUT_MS);
+    match probe.ping() {
         Ok(_) => "connected".to_string(),
-        Err(e) => format!("disconnected ({})", e),
+        Err(e) => format!("disconnected ({e})"),
     }
 }

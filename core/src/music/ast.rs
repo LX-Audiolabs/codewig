@@ -155,6 +155,17 @@ pub enum MusicAction {
     Notes,      // n
     Drums,      // d
     Chord,      // chord
+    /// `arp` / `arp:up` / `arp:down` / `arp:updown` / `arp:rand` — expand_arp
+    Arp(ArpStyle),
+}
+
+/// Arpeggio direction for [`MusicAction::Arp`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArpStyle {
+    Up,
+    Down,
+    UpDown,
+    Random,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -166,8 +177,10 @@ pub struct Target {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClipRef {
-    Name(String),      // @verse
-    Launch,            // ! (just launch, no pattern)
+    /// Secondary address: resolve via `clip.list` name (slot index is primary elsewhere).
+    Name(String), // @verse
+    /// Legacy marker; treated as default slot on write.
+    Launch, // !
 }
 
 /// A parameter assignment: `+cutoff:0.3` — one snapshot via `param.set`.
@@ -194,11 +207,18 @@ pub enum TransportCmd {
     Stop,
 }
 
-/// `s(1).start` | `s(1).stop` — launch/stop all clips in scene row N.
+/// `s(1).start` | `s(verse).start` | `scene(0).stop` — scene by index (primary) or name.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SceneCmd {
-    pub scene: i32,
+    pub scene: SceneRef,
     pub action: LaunchAction,
+}
+
+/// Scene address: slot/row index is primary; name resolves via SceneBank.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SceneRef {
+    Index(i32),
+    Name(String),
 }
 
 /// `c(bass.0).start` | `c(bass.0, kick.1).start` — launch/stop clip(s).

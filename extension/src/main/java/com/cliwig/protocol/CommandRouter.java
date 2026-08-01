@@ -3,6 +3,7 @@ package com.cliwig.protocol;
 import com.cliwig.bridge.ClipService;
 import com.cliwig.bridge.DeviceService;
 import com.cliwig.bridge.ParamService;
+import com.cliwig.bridge.SceneService;
 import com.cliwig.bridge.TrackService;
 import com.cliwig.bridge.TransportService;
 import com.google.gson.JsonArray;
@@ -18,6 +19,7 @@ public final class CommandRouter {
     private final DeviceService devices;
     private final ParamService params;
     private final ClipService clips;
+    private final SceneService scenes;
     private final int port;
 
     public CommandRouter(
@@ -26,12 +28,14 @@ public final class CommandRouter {
             final DeviceService devices,
             final ParamService params,
             final ClipService clips,
+            final SceneService scenes,
             final int port) {
         this.transport = transport;
         this.tracks = tracks;
         this.devices = devices;
         this.params = params;
         this.clips = clips;
+        this.scenes = scenes;
         this.port = port;
     }
 
@@ -155,6 +159,15 @@ public final class CommandRouter {
                             optInt(req, "step"),
                             optInt(req, "key")));
 
+                case "scene.list":
+                    return Messages.ok(id, scenes.list());
+
+                case "scene.launch":
+                    return Messages.ok(id, scenes.launch(requireSceneRef(req)));
+
+                case "scene.stop":
+                    return Messages.ok(id, scenes.stop(requireSceneRef(req)));
+
                 default:
                     return Messages.error(id, "UNKNOWN_COMMAND", "unknown command: " + cmd);
             }
@@ -217,6 +230,22 @@ public final class CommandRouter {
             throw new IllegalArgumentException("missing '" + key + "'");
         }
         return v;
+    }
+
+    /** `ref` as string or number (index primary, name secondary). */
+    private static String requireSceneRef(final JsonObject req) {
+        if (!req.has("ref") || req.get("ref").isJsonNull()) {
+            throw new IllegalArgumentException("missing 'ref' (scene index or name)");
+        }
+        final JsonElement el = req.get("ref");
+        if (el.isJsonPrimitive() && el.getAsJsonPrimitive().isNumber()) {
+            return Integer.toString(el.getAsInt());
+        }
+        final String s = el.getAsString();
+        if (s == null || s.isBlank()) {
+            throw new IllegalArgumentException("empty scene ref");
+        }
+        return s.trim();
     }
 
     private static int intOr(final JsonObject req, final String key, final int def) {
