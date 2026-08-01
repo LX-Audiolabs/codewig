@@ -1,3 +1,4 @@
+use cliwig_core::music::param_catalog::{catalog, DeviceHostKind};
 use cliwig_core::music::MusicSession;
 use cliwig_core::Client;
 use std::cell::RefCell;
@@ -19,6 +20,56 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
+
+    // Load param catalog (devices with a YAML definition) into the Devices tab.
+    let catalog = catalog();
+    let devices: Vec<DeviceEntry> = catalog
+        .devices()
+        .iter()
+        .map(|d| {
+            let aliases = if d.aliases.is_empty() {
+                String::new()
+            } else {
+                d.aliases.join(", ")
+            };
+            let mut detail = format!(
+                "{}\nkind: {}\nsource: {}\n\nParameters:\n",
+                d.bitwig_name,
+                match d.kind {
+                    DeviceHostKind::Bitwig => "bitwig",
+                    DeviceHostKind::Clap => "clap",
+                },
+                d.source
+            );
+            if d.params.is_empty() {
+                detail.push_str("  (none documented yet)\n");
+            } else {
+                for p in &d.params {
+                    let aliases = if p.aliases.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" ({}", p.aliases.join(", "))
+                    };
+                    let unit = if p.unit.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" {}", p.unit)
+                    };
+                    detail.push_str(&format!(
+                        "  {}{}: {}..{}{}\n",
+                        p.name, aliases, p.display.0, p.display.1, unit
+                    ));
+                }
+            }
+            DeviceEntry {
+                name: d.bitwig_name.clone().into(),
+                aliases: aliases.into(),
+                syntax: format!(".device({})", d.bitwig_name).into(),
+                detail: detail.into(),
+            }
+        })
+        .collect();
+    ui.set_devices(slint::ModelRc::new(slint::VecModel::from(devices)));
 
     // Non-blocking start: never wait on TCP before first frame.
     ui.set_status("checking…".into());
@@ -75,10 +126,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         output.push_str(&format!("♫ {}\n", cmd));
         match &result {
             Ok(Some(v)) => {
-                output.push_str(&format!(
-                    "{}\n",
-                    serde_json::to_string_pretty(v).unwrap()
-                ));
+                output.push_str(&format!("{}\n", serde_json::to_string_pretty(v).unwrap()));
                 // RPC succeeded → socket live; skip extra ping RTT
                 ui.set_status("connected".into());
             }

@@ -11,16 +11,23 @@ export struct RefEntry {
     tag: string,
 }
 
+export struct DeviceEntry {
+    name: string,
+    aliases: string,
+    /// Inserted on right-click.
+    syntax: string,
+    /// Full help for the detail box (parameter catalog).
+    detail: string,
+}
+
 export component AppWindow inherits Window {
     in-out property <string> status: "disconnected";
     in-out property <string> output: "";
     in-out property <string> command: "";
     in-out property <string> ref-filter: "";
     in-out property <string> ref-tag: "";
+    in-out property <string> active-tab: "commands";
     in-out property <string> help-text: "Click a command to see details. Right-click to insert syntax.";
-    // Filter change → jump list to top (hidden rows used to leave scroll mid-list)
-    changed ref-tag => { ref-list.viewport-y = 0; }
-    changed ref-filter => { ref-list.viewport-y = 0; }
     in-out property <[RefEntry]> refs: [
         {
             name: "new track",
@@ -82,7 +89,7 @@ export component AppWindow inherits Window {
             name: "n / notes",
             summary: "write MIDI notes",
             syntax: "bass: n \"c e g b\"",
-            detail: "MIDI notes on 16th grid (Bitwig octaves).\n\nDefaults:\n  c = Bitwig C3 (MIDI 60)\n  each space-event = 1 beat (steps 0,4,8…; dur 4)\n  ~ = empty beat\n  [c d e f] = 16ths inside one beat (steps 0-3)\n\nPitches: c2  c#  cis  eb4  f#\nDegrees after k C minor: n \"0 2 4\"\n\nFluent setup (slot 0):\n  new track(lead).device(Polymer).n(\"c e d g\").clip(start).mute()\nMulti-clip:\n  lead@verse: n \"e c g\"",
+            detail: "MIDI notes on 16th grid (Bitwig octaves).\n\nDefaults:\n  c = Bitwig C3 (MIDI 60)\n  each space-event = 1 beat (steps 0,4,8…; dur 4)\n  ~ = empty beat\n  [c d e f] = 16ths inside one beat (steps 0-3)\n\nPitches: c2  c#  cis  eb4  f#\nDegrees after k C minor: n \"0 2 4\"\n\nNote expressions:\n  .vel(80 60 100)   velocity 0..127\n  .pres(50)          pressure 0..100%\n  .tim(-30 30)       timbre -100..100%\n  .pan(-50 0 50)     pan -100..100%\n  .gain(80)          gain 0..100%\n  .chnz(75)          chance 0..100%\n\nFluent setup (slot 0):\n  new track(lead).device(Polymer).n(\"c e d g\").clip(start).mute()\nMulti-clip:\n  lead@verse: n \"e c g\"",
             tag: "notes",
         },
         {
@@ -107,18 +114,18 @@ export component AppWindow inherits Window {
             tag: "notes",
         },
         {
+            name: "note expressions",
+            summary: "velocity, pressure, timbre, pan, gain, chance",
+            syntax: "bass: n \"c e g\".vel(80 60 100)",
+            detail: "Per-note expressions (MPE / chance). Values are positional to the expanded note list; ~ leaves a note unchanged.\n\nSyntax:\n  track: n \"...\".vel(…).pres(…).tim(…).pan(…).gain(…).chnz(…)\n\nUnits:\n  .vel()  0..127\n  .pres() 0..100%\n  .tim()  -100..100%\n  .pan()  -100..100%\n  .gain() 0..100%\n  .chnz() 0..100%\n\nExamples:\n  bass: n \"c e g\".vel(80 60 100)\n  bass: n \"c e g\".pan(-50 0 50)\n  bass: n \"c e g\".pres(50).tim(-30 30)\n  bass: n \"c e g\".vel(80 ~ 100)",
+            tag: "notes",
+        },
+        {
             name: "arp",
             summary: "arpeggiate chord or notes",
             syntax: "bass: arp:up \"Cm7\"",
             detail: "Arpeggiate over one bar (session grid steps).\nIndex/slot write like n/chord.\n\nSyntax:\n  track: arp \"c e g\"\n  track: arp:up|down|updown|rand \"...\"\n\nPitch source:\n  notes:  \"c e g\" / \"0 2 4\" (with key)\n  chord:  \"C\" \"Am7\" \"iii\"\n\nExamples:\n  bass: arp \"c e g\"\n  lead: arp:down \"Cm7\"\n  pad: arp:updown \"Cmaj7\"\n  k C minor\n  bass: arp:rand \"i\"",
             tag: "notes",
-        },
-        {
-            name: "d / drums",
-            summary: "drum pattern on a track",
-            syntax: "drums: d \"bd hh sd hh\"",
-            detail: "Write drum patterns (MIDI aliases).\n\nSyntax:\n  drums: d \"pattern\"\n  drums:kit: d \"pattern\"\n\nExamples:\n  drums: d \"bd hh sd hh\"\n  drums:909: d \"bd hh sd\"\n  d:808 \"bd cp hh\"",
-            tag: "drum",
         },
         {
             name: "beat()",
@@ -167,13 +174,6 @@ export component AppWindow inherits Window {
             summary: "multi-pad drum shell",
             syntax: "layer",
             detail: "Insertable shell for multi-pad kits.\nOr single pad on track: .device(kick.v9)\n\nAlias: layer",
-            tag: "drum",
-        },
-        {
-            name: "drum MIDI aliases",
-            summary: "bd / hh / sd note map",
-            syntax: "bd hh sd",
-            detail: "Percussion rhythm is fluent .beat(...), not hit markers.\n\nWorkflow:\n  new track(kick).device(v9 kick).beat(4_)\n  kick: n \"c1\"     // exact notes if you want\n\nNo d \"bd hh\" — that was Drum Machine / Strudel.",
             tag: "drum",
         },
         {
@@ -234,12 +234,20 @@ export component AppWindow inherits Window {
         },
     ];
 
+    in-out property <[DeviceEntry]> devices: [];
+
     callback send-command();
     callback reconnect();
     callback insert-command(string);
     callback show-help(string);
     /// Substring match (case-insensitive). Slint has no string.contains — Rust implements it.
     pure callback text-matches(haystack: string, needle: string) -> bool;
+
+    changed active-tab => {
+        help-text = active-tab == "commands"
+            ? "Click a command to see details. Right-click to insert syntax."
+            : "Click a device to see its parameters. Right-click to insert the device name.";
+    }
 
     // LX AudioLabs-inspired dark theme
     out property <color> accent: #ff731a;
@@ -366,131 +374,230 @@ export component AppWindow inherits Window {
 
                 LineEdit {
                     text <=> root.ref-filter;
-                    placeholder-text: "Search commands...";
+                    placeholder-text: "Search...";
                     height: 28px;
                     font-size: 12px;
                     vertical-stretch: 0;
                 }
 
-                // Tag bar (fixed height; wrap not needed — shorter labels)
+                // Tabs: Commands | Devices
                 HorizontalBox {
                     height: 28px;
                     spacing: 3px;
                     vertical-stretch: 0;
 
-                    tag-all := Rectangle {
-                        height: 24px; width: 32px;
-                        background: root.ref-tag == "" || root.ref-tag == "all" ? tag-active : tag-bg;
+                    tab-commands := Rectangle {
+                        height: 24px; width: 70px;
+                        background: root.active-tab == "commands" ? tag-active : tag-bg;
                         border-radius: 4px;
-                        ta0 := TouchArea { clicked => { root.ref-tag = ""; } }
-                        Text { x: 6px; y: 4px; text: "all"; font-size: 11px; color: root.ref-tag == "" || root.ref-tag == "all" ? text : muted; }
+                        TouchArea { clicked => { root.active-tab = "commands"; } }
+                        Text { x: 8px; y: 4px; text: "Commands"; font-size: 11px; color: root.active-tab == "commands" ? text : muted; }
                     }
-                    tag-track := Rectangle {
-                        height: 24px; width: 42px;
-                        background: root.ref-tag == "track" ? tag-active : tag-bg; border-radius: 4px;
-                        ta1 := TouchArea { clicked => { if root.ref-tag == "track" { root.ref-tag = ""; } else { root.ref-tag = "track"; } } }
-                        Text { x: 5px; y: 4px; text: "track"; font-size: 11px; color: root.ref-tag == "track" ? text : muted; }
-                    }
-                    tag-transport := Rectangle {
-                        height: 24px; width: 56px;
-                        background: root.ref-tag == "transport" ? tag-active : tag-bg; border-radius: 4px;
-                        ta2 := TouchArea { clicked => { if root.ref-tag == "transport" { root.ref-tag = ""; } else { root.ref-tag = "transport"; } } }
-                        Text { x: 3px; y: 4px; text: "transport"; font-size: 11px; color: root.ref-tag == "transport" ? text : muted; }
-                    }
-                    tag-scene := Rectangle {
-                        height: 24px; width: 42px;
-                        background: root.ref-tag == "scene" ? tag-active : tag-bg; border-radius: 4px;
-                        ta3 := TouchArea { clicked => { if root.ref-tag == "scene" { root.ref-tag = ""; } else { root.ref-tag = "scene"; } } }
-                        Text { x: 5px; y: 4px; text: "scene"; font-size: 11px; color: root.ref-tag == "scene" ? text : muted; }
-                    }
-                    tag-clip := Rectangle {
-                        height: 24px; width: 32px;
-                        background: root.ref-tag == "clip" ? tag-active : tag-bg; border-radius: 4px;
-                        ta4 := TouchArea { clicked => { if root.ref-tag == "clip" { root.ref-tag = ""; } else { root.ref-tag = "clip"; } } }
-                        Text { x: 6px; y: 4px; text: "clip"; font-size: 11px; color: root.ref-tag == "clip" ? text : muted; }
-                    }
-                    tag-notes := Rectangle {
-                        height: 24px; width: 42px;
-                        background: root.ref-tag == "notes" ? tag-active : tag-bg; border-radius: 4px;
-                        ta5 := TouchArea { clicked => { if root.ref-tag == "notes" { root.ref-tag = ""; } else { root.ref-tag = "notes"; } } }
-                        Text { x: 5px; y: 4px; text: "notes"; font-size: 11px; color: root.ref-tag == "notes" ? text : muted; }
-                    }
-                    tag-drum := Rectangle {
-                        height: 24px; width: 40px;
-                        background: root.ref-tag == "drum" ? tag-active : tag-bg; border-radius: 4px;
-                        ta6 := TouchArea { clicked => { if root.ref-tag == "drum" { root.ref-tag = ""; } else { root.ref-tag = "drum"; } } }
-                        Text { x: 5px; y: 4px; text: "drum"; font-size: 11px; color: root.ref-tag == "drum" ? text : muted; }
+                    tab-devices := Rectangle {
+                        height: 24px; width: 58px;
+                        background: root.active-tab == "devices" ? tag-active : tag-bg;
+                        border-radius: 4px;
+                        TouchArea { clicked => { root.active-tab = "devices"; } }
+                        Text { x: 8px; y: 4px; text: "Devices"; font-size: 11px; color: root.active-tab == "devices" ? text : muted; }
                     }
                 }
 
-                // Command list — takes remaining height (scrolls)
-                // visible:false alone still left row height → long empty scroll; collapse height + reset viewport
-                ref-list := ScrollView {
-                    vertical-stretch: 3;
-                    min-height: 100px;
+                // ── Commands tab ──
+                if root.active-tab == "commands": VerticalBox {
+                    vertical-stretch: 1;
+                    spacing: 6px;
 
-                    VerticalBox {
-                        width: 100%;
-                        spacing: 0px;
-                        alignment: stretch;
+                    // Tag bar (fixed height; wrap not needed — shorter labels)
+                    HorizontalBox {
+                        height: 28px;
+                        spacing: 3px;
+                        vertical-stretch: 0;
 
-                        for entry in root.refs: Rectangle {
-                            // substring via pure callback text-matches (Slint has no string.contains)
-                            property <bool> shown:
-                                (root.ref-filter == ""
-                                  || root.text-matches(entry.name, root.ref-filter)
-                                  || root.text-matches(entry.summary, root.ref-filter)
-                                  || root.text-matches(entry.syntax, root.ref-filter)
-                                  || root.text-matches(entry.tag, root.ref-filter))
-                                && (root.ref-tag == "" || root.ref-tag == "all" || entry.tag == root.ref-tag);
-                            // collapse layout space when filtered out (not just hide paint)
-                            height: shown ? 30px : 0px;
+                        tag-all := Rectangle {
+                            height: 24px; width: 32px;
+                            background: root.ref-tag == "" || root.ref-tag == "all" ? tag-active : tag-bg;
+                            border-radius: 4px;
+                            ta0 := TouchArea { clicked => { root.ref-tag = ""; } }
+                            Text { x: 6px; y: 4px; text: "all"; font-size: 11px; color: root.ref-tag == "" || root.ref-tag == "all" ? text : muted; }
+                        }
+                        tag-track := Rectangle {
+                            height: 24px; width: 42px;
+                            background: root.ref-tag == "track" ? tag-active : tag-bg; border-radius: 4px;
+                            ta1 := TouchArea { clicked => { if root.ref-tag == "track" { root.ref-tag = ""; } else { root.ref-tag = "track"; } } }
+                            Text { x: 5px; y: 4px; text: "track"; font-size: 11px; color: root.ref-tag == "track" ? text : muted; }
+                        }
+                        tag-transport := Rectangle {
+                            height: 24px; width: 56px;
+                            background: root.ref-tag == "transport" ? tag-active : tag-bg; border-radius: 4px;
+                            ta2 := TouchArea { clicked => { if root.ref-tag == "transport" { root.ref-tag = ""; } else { root.ref-tag = "transport"; } } }
+                            Text { x: 3px; y: 4px; text: "transport"; font-size: 11px; color: root.ref-tag == "transport" ? text : muted; }
+                        }
+                        tag-scene := Rectangle {
+                            height: 24px; width: 42px;
+                            background: root.ref-tag == "scene" ? tag-active : tag-bg; border-radius: 4px;
+                            ta3 := TouchArea { clicked => { if root.ref-tag == "scene" { root.ref-tag = ""; } else { root.ref-tag = "scene"; } } }
+                            Text { x: 5px; y: 4px; text: "scene"; font-size: 11px; color: root.ref-tag == "scene" ? text : muted; }
+                        }
+                        tag-clip := Rectangle {
+                            height: 24px; width: 32px;
+                            background: root.ref-tag == "clip" ? tag-active : tag-bg; border-radius: 4px;
+                            ta4 := TouchArea { clicked => { if root.ref-tag == "clip" { root.ref-tag = ""; } else { root.ref-tag = "clip"; } } }
+                            Text { x: 6px; y: 4px; text: "clip"; font-size: 11px; color: root.ref-tag == "clip" ? text : muted; }
+                        }
+                        tag-notes := Rectangle {
+                            height: 24px; width: 42px;
+                            background: root.ref-tag == "notes" ? tag-active : tag-bg; border-radius: 4px;
+                            ta5 := TouchArea { clicked => { if root.ref-tag == "notes" { root.ref-tag = ""; } else { root.ref-tag = "notes"; } } }
+                            Text { x: 5px; y: 4px; text: "notes"; font-size: 11px; color: root.ref-tag == "notes" ? text : muted; }
+                        }
+                        tag-drum := Rectangle {
+                            height: 24px; width: 40px;
+                            background: root.ref-tag == "drum" ? tag-active : tag-bg; border-radius: 4px;
+                            ta6 := TouchArea { clicked => { if root.ref-tag == "drum" { root.ref-tag = ""; } else { root.ref-tag = "drum"; } } }
+                            Text { x: 5px; y: 4px; text: "drum"; font-size: 11px; color: root.ref-tag == "drum" ? text : muted; }
+                        }
+                    }
+
+                    // Command list — takes remaining height (scrolls)
+                    ref-list := ScrollView {
+                        vertical-stretch: 3;
+                        min-height: 100px;
+
+                        VerticalBox {
                             width: 100%;
-                            visible: shown;
-                            background: ta-entry.has-hover ? hover : transparent;
-                            border-radius: 3px;
-                            clip: true;
+                            spacing: 0px;
+                            alignment: stretch;
 
-                            ta-entry := TouchArea {
+                            for entry in root.refs: Rectangle {
+                                // substring via pure callback text-matches (Slint has no string.contains)
+                                property <bool> shown:
+                                    (root.ref-filter == ""
+                                      || root.text-matches(entry.name, root.ref-filter)
+                                      || root.text-matches(entry.summary, root.ref-filter)
+                                      || root.text-matches(entry.syntax, root.ref-filter)
+                                      || root.text-matches(entry.tag, root.ref-filter))
+                                    && (root.ref-tag == "" || root.ref-tag == "all" || entry.tag == root.ref-tag);
+                                // collapse layout space when filtered out (not just hide paint)
+                                height: shown ? 30px : 0px;
                                 width: 100%;
-                                height: 100%;
-                                pointer-event(event) => {
-                                    if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
-                                        root.show-help(entry.detail);
-                                    }
-                                    if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
-                                        root.insert-command(entry.syntax);
+                                visible: shown;
+                                background: ta-entry.has-hover ? hover : transparent;
+                                border-radius: 3px;
+                                clip: true;
+
+                                ta-entry := TouchArea {
+                                    width: 100%;
+                                    height: 100%;
+                                    pointer-event(event) => {
+                                        if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                                            root.show-help(entry.detail);
+                                        }
+                                        if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                            root.insert-command(entry.syntax);
+                                        }
                                     }
                                 }
-                            }
 
-                            // name | short summary — syntax/examples only in detail box
-                            Text {
-                                x: 8px;
-                                y: 0px;
-                                width: 128px;
-                                height: 100%;
-                                text: entry.name;
-                                font-size: 12px;
-                                font-weight: 500;
-                                color: text;
-                                wrap: no-wrap;
-                                overflow: elide;
-                                vertical-alignment: center;
-                                horizontal-alignment: left;
+                                // name | short summary — syntax/examples only in detail box
+                                Text {
+                                    x: 8px;
+                                    y: 0px;
+                                    width: 128px;
+                                    height: 100%;
+                                    text: entry.name;
+                                    font-size: 12px;
+                                    font-weight: 500;
+                                    color: text;
+                                    wrap: no-wrap;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: left;
+                                }
+                                Text {
+                                    x: 140px;
+                                    y: 0px;
+                                    width: parent.width - 148px;
+                                    height: 100%;
+                                    text: entry.summary;
+                                    font-size: 11px;
+                                    color: muted;
+                                    wrap: no-wrap;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: left;
+                                }
                             }
-                            Text {
-                                x: 140px;
-                                y: 0px;
-                                width: parent.width - 148px;
-                                height: 100%;
-                                text: entry.summary;
-                                font-size: 11px;
-                                color: muted;
-                                wrap: no-wrap;
-                                overflow: elide;
-                                vertical-alignment: center;
-                                horizontal-alignment: left;
+                        }
+                    }
+                }
+
+                // ── Devices tab ──
+                if root.active-tab == "devices": VerticalBox {
+                    vertical-stretch: 1;
+                    spacing: 6px;
+
+                    dev-list := ScrollView {
+                        vertical-stretch: 3;
+                        min-height: 100px;
+
+                        VerticalBox {
+                            width: 100%;
+                            spacing: 0px;
+                            alignment: stretch;
+
+                            for entry in root.devices: Rectangle {
+                                property <bool> shown:
+                                    root.ref-filter == ""
+                                    || root.text-matches(entry.name, root.ref-filter)
+                                    || root.text-matches(entry.aliases, root.ref-filter)
+                                    || root.text-matches(entry.detail, root.ref-filter);
+                                height: shown ? 30px : 0px;
+                                width: 100%;
+                                visible: shown;
+                                background: ta-dev.has-hover ? hover : transparent;
+                                border-radius: 3px;
+                                clip: true;
+
+                                ta-dev := TouchArea {
+                                    width: 100%;
+                                    height: 100%;
+                                    pointer-event(event) => {
+                                        if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
+                                            root.show-help(entry.detail);
+                                        }
+                                        if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
+                                            root.insert-command(entry.syntax);
+                                        }
+                                    }
+                                }
+
+                                Text {
+                                    x: 8px;
+                                    y: 0px;
+                                    width: 160px;
+                                    height: 100%;
+                                    text: entry.name;
+                                    font-size: 12px;
+                                    font-weight: 500;
+                                    color: text;
+                                    wrap: no-wrap;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: left;
+                                }
+                                Text {
+                                    x: 172px;
+                                    y: 0px;
+                                    width: parent.width - 180px;
+                                    height: 100%;
+                                    text: entry.aliases;
+                                    font-size: 11px;
+                                    color: muted;
+                                    wrap: no-wrap;
+                                    overflow: elide;
+                                    vertical-alignment: center;
+                                    horizontal-alignment: left;
+                                }
                             }
                         }
                     }
