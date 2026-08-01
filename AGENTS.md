@@ -24,6 +24,8 @@
 6. Live focus after setup: **clips / scenes / mute**, not full device browser.
 7. **Params = snapshot only** (`param.set`). No ramps, sequences, clip automation, or UI slider/knob pages. Continuous control = Bitwig UI / modulators / hardware.
 8. **Timed mute OK**: `mute(x) N` / `@bar` — discrete schedule only, not param automation.
+9. **`>` passthrough is UI/CLI only** — `execute_line` / `run_wigscript` reject `MusicLine::PassThrough`.  
+   User input → `ui/commands::run` or `cli` `run_one_line` (peel `>` → legacy). Not a bug.
 
 ## Caveman
 Talk terse. Drop articles/filler/pleasantries. Fragments OK. Technical terms exact.

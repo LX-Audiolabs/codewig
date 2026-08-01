@@ -35,7 +35,14 @@ impl Default for MusicSession {
     }
 }
 
-/// Parse one WIGSCRIPT line and run it. Prefer this from UI / `cliwig eval`.
+/// Parse one pure WIGSCRIPT line and run it.
+///
+/// **Not** the full UI/CLI entry: `> …` ([`MusicLine::PassThrough`]) is rejected here.
+/// Frontends must peel that off first:
+/// - UI: `commands::run` → legacy flat tokens
+/// - CLI: `run_one_line` → clap legacy
+///
+/// Prefer those entry points for user input. This helper is for already-WIGSCRIPT lines only.
 pub fn run_wigscript(
     client: &Client,
     session: &mut MusicSession,
@@ -45,7 +52,11 @@ pub fn run_wigscript(
     execute_line(client, session, line)
 }
 
-/// Run an already-parsed line.
+/// Run an already-parsed pure WIGSCRIPT AST node.
+///
+/// [`MusicLine::PassThrough`] (`> track list`, …) is **intentionally** an error:
+/// legacy lives in UI/CLI dispatch, not in the music executor (keeps core free of clap/shlex
+/// legacy trees). Callers: match PassThrough before this, same as `commands::run` / CLI eval.
 pub fn execute_line(
     client: &Client,
     session: &mut MusicSession,
@@ -66,7 +77,7 @@ pub fn execute_line(
         }
         MusicLine::ModeSwitch(mode) => Ok(Some(json!({ "mode": mode, "note": "UI/CLI mode is cosmetic here" }))),
         MusicLine::PassThrough(cmd) => Err(format!(
-            "passthrough not handled in executor: run as legacy CLI or drop `>` — got '{cmd}'"
+            "passthrough `> {cmd}` not handled in execute_line — use UI/CLI entry (commands::run / cliwig eval), or drop `>`"
         )),
         MusicLine::Mute(cmd) => mute(client, &cmd, true),
         MusicLine::Unmute(cmd) => mute(client, &cmd, false),
