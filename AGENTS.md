@@ -18,8 +18,9 @@
    Valid: `bass: n "c e g"`, mini-notation **only inside quotes**.
 2. **WIGSCRIPT is primary** (UI form). CLI: `cliwig eval "same line"`. Not a second grammar.
 3. **UI and CLI both use `cliwig-core`** → TCP `:9470`. UI does **not** shell out to `cliwig`.
-4. **Insert allowlist = 9 devices** (Polymer, Polysynth, Organ, Instrument Layer, Filter, Reverb, Delay+, Chorus+, Saturator).  
-   **No** Sampler / Drum Machine via `device.add`. Drum pads = manual + MIDI aliases only.
+4. **Insert allowlist** — Polymer, Polysynth, Organ + stock drum modules (`v9 kick` / `v9kick`…).  
+   Layer + FX. **No** Sampler / Drum Machine.  
+   **Input split:** `n "…"` = pitches; fluent **`.beat(4_)`** = percussion rhythm; **no** `d "bd hh"` hit markers.
 5. **`research/` is gitignored** — may be stale; always verify against code. Prefer `research/CURRENT.md` when updating notes.
 6. Live focus after setup: **clips / scenes / mute**, not full device browser.
 7. **Params = snapshot only** (`param.set`). No ramps, sequences, clip automation, or UI slider/knob pages. Continuous control = Bitwig UI / modulators / hardware.

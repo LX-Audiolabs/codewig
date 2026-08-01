@@ -131,7 +131,7 @@ export component AppWindow inherits Window {
             name: ".device() / .add()",
             summary: "insert instrument or FX",
             syntax: ".device(Polymer)",
-            detail: "Insert curated devices only (allowlist).\n\nSyntax:\n  .device(Polymer)\n  .add(Delay+)\n  .device(layer)\n\nExamples:\n  new track(b).device(Polymer).add(Delay+)\n  new track(drums).device(layer)\n\nAllowlist:\n  Polymer  Polysynth  Organ  Instrument Layer\n  Filter  Reverb  Delay+  Chorus+  Saturator\n\nAliases:\n  Delay-2 → Delay+   Chorus → Chorus+\n  dist → Saturator   layer → Instrument Layer\n\nDrum pads (v9Kick…): place manually in Bitwig.",
+            detail: "Insert curated devices only (allowlist).\n\nSyntax:\n  .device(Polymer)\n  .device(v9 kick)\n  .add(Delay+)\n  .device(layer)\n\nExamples:\n  new track(b).device(Polymer).add(Delay+)\n  new track(kick).device(v9 kick).beat(4_)\n\nInstruments:\n  Polymer  Polysynth  Organ\n  stock drums: v0 Cymbal … v9 Tom\n  write: v9 kick  |  v9kick  |  V9 Kick\n\nLayer + FX:\n  Instrument Layer  Filter  Reverb  Delay+  Chorus+  Saturator\n\nNot allowed:\n  Sampler  Drum Machine  VSTs\n\nDrums: one track = one module = one MIDI for clip hits.\nNot GM multi-pad (bd/hh/sd) — that needs Drum Machine.",
             tag: "device",
         },
         {
@@ -166,14 +166,14 @@ export component AppWindow inherits Window {
             name: "Instrument Layer",
             summary: "multi-pad drum shell",
             syntax: "layer",
-            detail: "Insertable shell for multi-pad drums.\nAdd v0/v8/v9 pads manually inside Bitwig.\n\nAlias: layer",
+            detail: "Insertable shell for multi-pad kits.\nOr single pad on track: .device(kick.v9)\n\nAlias: layer",
             tag: "drum",
         },
         {
             name: "drum MIDI aliases",
             summary: "bd / hh / sd note map",
             syntax: "bd hh sd",
-            detail: "For d \"bd hh\" patterns only — MIDI note names.\nNot device.add. Prep pads on the track first.\n\nMap:\n  bd → 36   hh → 42   sd → 40   cp → 39",
+            detail: "Percussion rhythm is fluent .beat(...), not hit markers.\n\nWorkflow:\n  new track(kick).device(v9 kick).beat(4_)\n  kick: n \"c1\"     // exact notes if you want\n\nNo d \"bd hh\" — that was Drum Machine / Strudel.",
             tag: "drum",
         },
         {

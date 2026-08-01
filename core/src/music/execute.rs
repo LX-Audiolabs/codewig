@@ -19,7 +19,7 @@ pub struct MusicSession {
     pub steps_per_bar: u32,
     pub default_beats: i32,
     pub default_slot: i32,
-    /// MIDI key for next `.beat(...)` on a monophonic drum track.
+    /// Trigger MIDI for monophonic drum module (`.beat` / `d` hits). Always one key — not GM pads.
     pub last_drum_midi: Option<i32>,
 }
 
@@ -348,7 +348,7 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
             0,
         )
         .map_err(|e| e.to_string())?,
-        MusicAction::Notes | MusicAction::Drums | MusicAction::Arp(_) => {
+        MusicAction::Notes | MusicAction::Arp(_) => {
             let (notes, _) =
                 expand_music_line(cmd, session.scale.as_ref(), session.steps_per_bar)
                     .map_err(|e| e.to_string())?;
@@ -379,14 +379,10 @@ fn add_device(client: &Client, catalog: &str) -> Result<Option<Value>, String> {
     if let Some(name) = catalog_to_bitwig(catalog) {
         return map(client.device_add(&name));
     }
-    if catalog_to_drum(catalog).is_some() {
-        return Ok(Some(json!({
-            "skipped": catalog,
-            "reason": "drum pad not insertable — place manually in Instrument Layer",
-        })));
-    }
     Err(format!(
-        "unknown/non-curated device '{catalog}'. Insertable: Polymer Polysynth Organ layer Filter Reverb Delay+ Chorus+ Saturator"
+        "unknown / non-curated device '{catalog}'. \
+         Insertable: Polymer Polysynth Organ layer; v0–v9 drums (prefer `v9 kick` / `v9kick`); \
+         Filter Reverb Delay+ Chorus+ Saturator. Not allowed: Sampler, Drum Machine."
     ))
 }
 
@@ -460,6 +456,7 @@ fn fluent(
     for step in &cmd.steps {
         match step {
             FluentStep::Device(d) | FluentStep::Add(d) => {
+                // Drum module → monophonic trigger for following .beat (not multi-pad map)
                 if let Some((_, midi)) = catalog_to_drum(&d.catalog_name) {
                     session.last_drum_midi = Some(midi);
                 }
@@ -467,7 +464,9 @@ fn fluent(
                 wait_cursor();
             }
             FluentStep::Beat(b) => {
-                let midi = session.last_drum_midi.unwrap_or(36);
+                let midi = session
+                    .last_drum_midi
+                    .unwrap_or(super::device::MONO_DRUM_NOTE);
                 let step_dur = 1.0; // grid step units (match CLI clip note default)
                 let notes: Vec<NoteSpec> = b
                     .steps()

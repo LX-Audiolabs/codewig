@@ -1,5 +1,9 @@
 package com.cliwig.bridge;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Locale;
@@ -9,50 +13,186 @@ import java.util.UUID;
 /**
  * Curated native Bitwig devices that {@code device.add} may insert.
  * <p>
- * Not a full Bitwig browser. Live setup is mostly manual (drum pads, extra FX);
- * codewig-live focuses on clips / scenes / mute after tracks exist.
+ * <b>Insertable:</b> Organ, Polymer, Polysynth; Instrument Layer; Filter/Reverb/Delay+/Chorus+/Saturator;
+ * all stock drum instruments {@code v0 Cymbal} … {@code v9 Tom} (via {@code insertFile}).
  * <p>
- * Out of scope (user places manually): Sampler, Drum Machine, Grids, all v* drum
- * devices, VSTs, and any FX not listed here.
+ * <b>Not insertable:</b> Sampler, Drum Machine, Grids, VSTs, other FX.
  * <p>
  * Case-insensitive lookup; spaces / hyphens / plus normalized. Raw UUID always allowed.
  */
 public final class DeviceCatalog {
-    private static final Map<String, UUID> BY_KEY;
+    private static final Map<String, UUID> BY_UUID;
+    /** Normalized key → Bitwig library file name (without path), e.g. {@code v9 Kick.bwdevice}. */
+    private static final Map<String, String> DRUM_FILES;
 
     static {
         final Map<String, UUID> m = new LinkedHashMap<>();
 
-        // Synths (WIGSCRIPT n / fluent synth tracks)
-        put(m, "Polymer", "8f58138b-03aa-4e9d-83bd-a038c99a4ed5");
-        put(m, "Polysynth", "a9ffacb5-33e9-4fc7-8621-b1af31e410ef");
-        put(m, "Organ", "f2dcfe9a-7b66-4c84-984a-b25685a1c21a");
+        // Synths
+        putUuid(m, "Polymer", "8f58138b-03aa-4e9d-83bd-a038c99a4ed5");
+        putUuid(m, "Polysynth", "a9ffacb5-33e9-4fc7-8621-b1af31e410ef");
+        putUuid(m, "Organ", "f2dcfe9a-7b66-4c84-984a-b25685a1c21a");
 
-        // Drum kit shell only — pads (v0Kick, v9Hat, …) are manual inside the layer
-        put(m, "Instrument Layer", "5024be2e-65d6-4d40-bbfe-8b2ea993c445");
+        // Layer shell (multi-pad kits)
+        putUuid(m, "Instrument Layer", "5024be2e-65d6-4d40-bbfe-8b2ea993c445");
 
-        // Small FX set for fluent/chain setup
-        put(m, "Filter", "4ccfc70e-59bd-4e97-a8a7-d8cdce88bf42");
-        put(m, "Reverb", "5a1cb339-1c4a-4cc7-9cae-bd7a2058153d");
-        put(m, "Delay+", "f2baa2a8-36c5-4a79-b1d9-a4e461c45ee9");
-        put(m, "Chorus+", "1b8f2226-c432-4a0a-9830-69bc76d1a276");
-        put(m, "Saturator", "93d11348-86ae-4ead-9fe7-84ac03b9369c");
+        // FX
+        putUuid(m, "Filter", "4ccfc70e-59bd-4e97-a8a7-d8cdce88bf42");
+        putUuid(m, "Reverb", "5a1cb339-1c4a-4cc7-9cae-bd7a2058153d");
+        putUuid(m, "Delay+", "f2baa2a8-36c5-4a79-b1d9-a4e461c45ee9");
+        putUuid(m, "Chorus+", "1b8f2226-c432-4a0a-9830-69bc76d1a276");
+        putUuid(m, "Saturator", "93d11348-86ae-4ead-9fe7-84ac03b9369c");
 
-        BY_KEY = Collections.unmodifiableMap(m);
+        BY_UUID = Collections.unmodifiableMap(m);
+
+        final Map<String, String> d = new LinkedHashMap<>();
+        // Exact Bitwig library filenames (Library/devices/*.bwdevice)
+        putDrum(d, "v0 Cymbal", "v0 Cymbal.bwdevice");
+        putDrum(d, "v0 Hat", "v0 Hat.bwdevice");
+        putDrum(d, "v0 Kick", "v0 Kick.bwdevice");
+        putDrum(d, "v0 Snare", "v0 Snare.bwdevice");
+        putDrum(d, "v0 Tom", "v0 Tom.bwdevice");
+        putDrum(d, "v0 Zap Kick", "v0 Zap Kick.bwdevice");
+
+        putDrum(d, "v1 Clap", "v1 Clap.bwdevice");
+        putDrum(d, "v1 Cowbell", "v1 Cowbell.bwdevice");
+        putDrum(d, "v1 Hat", "v1 Hat.bwdevice");
+        putDrum(d, "v1 Kick", "v1 Kick.bwdevice");
+        putDrum(d, "v1 Snare", "v1 Snare.bwdevice");
+        putDrum(d, "v1 Tom", "v1 Tom.bwdevice");
+
+        putDrum(d, "v8 Clap", "v8 Clap.bwdevice");
+        putDrum(d, "v8 Claves", "v8 Claves.bwdevice");
+        putDrum(d, "v8 Cowbell", "v8 Cowbell.bwdevice");
+        putDrum(d, "v8 Cymbal", "v8 Cymbal.bwdevice");
+        putDrum(d, "v8 Hat", "v8 Hat.bwdevice");
+        putDrum(d, "v8 Kick", "v8 Kick.bwdevice");
+        putDrum(d, "v8 Maracas", "v8 Maracas.bwdevice");
+        putDrum(d, "v8 Rimshot", "v8 Rimshot.bwdevice");
+        putDrum(d, "v8 Snare", "v8 Snare.bwdevice");
+        putDrum(d, "v8 Tom", "v8 Tom.bwdevice");
+
+        putDrum(d, "v9 Clap", "v9 Clap.bwdevice");
+        putDrum(d, "v9 Crash", "v9 Crash.bwdevice");
+        putDrum(d, "v9 Hat Closed", "v9 Hat Closed.bwdevice");
+        putDrum(d, "v9 Hat Open", "v9 Hat Open.bwdevice");
+        putDrum(d, "v9 Kick", "v9 Kick.bwdevice");
+        putDrum(d, "v9 Ride", "v9 Ride.bwdevice");
+        putDrum(d, "v9 Rimshot", "v9 Rimshot.bwdevice");
+        putDrum(d, "v9 Snare", "v9 Snare.bwdevice");
+        putDrum(d, "v9 Tom", "v9 Tom.bwdevice");
+
+        // WIGSCRIPT aliases → same files
+        aliasDrum(d, "v0cymbal", "v0 Cymbal.bwdevice");
+        aliasDrum(d, "v0hat", "v0 Hat.bwdevice");
+        aliasDrum(d, "v0kick", "v0 Kick.bwdevice");
+        aliasDrum(d, "v0snare", "v0 Snare.bwdevice");
+        aliasDrum(d, "v0tom", "v0 Tom.bwdevice");
+        aliasDrum(d, "v0zapkick", "v0 Zap Kick.bwdevice");
+        aliasDrum(d, "kick", "v0 Kick.bwdevice");
+        aliasDrum(d, "hh", "v0 Hat.bwdevice");
+        aliasDrum(d, "hat", "v0 Hat.bwdevice");
+        aliasDrum(d, "cymb", "v0 Cymbal.bwdevice");
+        aliasDrum(d, "tom", "v0 Tom.bwdevice");
+
+        aliasDrum(d, "v1clap", "v1 Clap.bwdevice");
+        aliasDrum(d, "v1cowbell", "v1 Cowbell.bwdevice");
+        aliasDrum(d, "v1hat", "v1 Hat.bwdevice");
+        aliasDrum(d, "v1kick", "v1 Kick.bwdevice");
+        aliasDrum(d, "v1snare", "v1 Snare.bwdevice");
+        aliasDrum(d, "v1tom", "v1 Tom.bwdevice");
+        aliasDrum(d, "v1perc", "v1 Cowbell.bwdevice"); // legacy alias
+
+        aliasDrum(d, "v8clap", "v8 Clap.bwdevice");
+        aliasDrum(d, "v8claves", "v8 Claves.bwdevice");
+        aliasDrum(d, "v8cowbell", "v8 Cowbell.bwdevice");
+        aliasDrum(d, "v8cymbal", "v8 Cymbal.bwdevice");
+        aliasDrum(d, "v8hat", "v8 Hat.bwdevice");
+        aliasDrum(d, "v8kick", "v8 Kick.bwdevice");
+        aliasDrum(d, "v8maracas", "v8 Maracas.bwdevice");
+        aliasDrum(d, "v8rimshot", "v8 Rimshot.bwdevice");
+        aliasDrum(d, "v8rim", "v8 Rimshot.bwdevice");
+        aliasDrum(d, "v8snare", "v8 Snare.bwdevice");
+        aliasDrum(d, "v8tom", "v8 Tom.bwdevice");
+        aliasDrum(d, "v8perc", "v8 Cowbell.bwdevice");
+        aliasDrum(d, "v8cp", "v8 Clap.bwdevice");
+        aliasDrum(d, "v8sn", "v8 Snare.bwdevice");
+        aliasDrum(d, "v8hh", "v8 Hat.bwdevice");
+
+        aliasDrum(d, "v9clap", "v9 Clap.bwdevice");
+        aliasDrum(d, "v9crash", "v9 Crash.bwdevice");
+        aliasDrum(d, "v9hatclosed", "v9 Hat Closed.bwdevice");
+        aliasDrum(d, "v9hatopen", "v9 Hat Open.bwdevice");
+        aliasDrum(d, "v9hat", "v9 Hat Closed.bwdevice"); // default closed
+        aliasDrum(d, "v9hh", "v9 Hat Closed.bwdevice");
+        aliasDrum(d, "v9kick", "v9 Kick.bwdevice");
+        aliasDrum(d, "v9ride", "v9 Ride.bwdevice");
+        aliasDrum(d, "v9rimshot", "v9 Rimshot.bwdevice");
+        aliasDrum(d, "v9rim", "v9 Rimshot.bwdevice");
+        aliasDrum(d, "v9snare", "v9 Snare.bwdevice");
+        aliasDrum(d, "v9sn", "v9 Snare.bwdevice");
+        aliasDrum(d, "v9tom", "v9 Tom.bwdevice");
+        aliasDrum(d, "v9cp", "v9 Clap.bwdevice");
+
+        // type.variant (kick.v9, hat.v8, …)
+        aliasDrum(d, "kick.v0", "v0 Kick.bwdevice");
+        aliasDrum(d, "kick.v1", "v1 Kick.bwdevice");
+        aliasDrum(d, "kick.v8", "v8 Kick.bwdevice");
+        aliasDrum(d, "kick.v9", "v9 Kick.bwdevice");
+        aliasDrum(d, "kick.808", "v8 Kick.bwdevice");
+        aliasDrum(d, "kick.909", "v9 Kick.bwdevice");
+        aliasDrum(d, "hat.v0", "v0 Hat.bwdevice");
+        aliasDrum(d, "hat.v1", "v1 Hat.bwdevice");
+        aliasDrum(d, "hat.v8", "v8 Hat.bwdevice");
+        aliasDrum(d, "hat.v9", "v9 Hat Closed.bwdevice");
+        aliasDrum(d, "hat.808", "v8 Hat.bwdevice");
+        aliasDrum(d, "hat.909", "v9 Hat Closed.bwdevice");
+        aliasDrum(d, "snare.v1", "v1 Snare.bwdevice");
+        aliasDrum(d, "snare.v8", "v8 Snare.bwdevice");
+        aliasDrum(d, "snare.v9", "v9 Snare.bwdevice");
+        aliasDrum(d, "snare.808", "v8 Snare.bwdevice");
+        aliasDrum(d, "snare.909", "v9 Snare.bwdevice");
+        aliasDrum(d, "clap.v1", "v1 Clap.bwdevice");
+        aliasDrum(d, "clap.v8", "v8 Clap.bwdevice");
+        aliasDrum(d, "clap.v9", "v9 Clap.bwdevice");
+        aliasDrum(d, "tom.v0", "v0 Tom.bwdevice");
+        aliasDrum(d, "tom.v1", "v1 Tom.bwdevice");
+        aliasDrum(d, "tom.v8", "v8 Tom.bwdevice");
+        aliasDrum(d, "tom.v9", "v9 Tom.bwdevice");
+        aliasDrum(d, "cymb.v0", "v0 Cymbal.bwdevice");
+        aliasDrum(d, "cymb.v8", "v8 Cymbal.bwdevice");
+        aliasDrum(d, "ride.v9", "v9 Ride.bwdevice");
+        aliasDrum(d, "rim.v8", "v8 Rimshot.bwdevice");
+        aliasDrum(d, "rim.v9", "v9 Rimshot.bwdevice");
+
+        DRUM_FILES = Collections.unmodifiableMap(d);
     }
 
     private DeviceCatalog() {
     }
 
-    private static void put(final Map<String, UUID> m, final String name, final String uuid) {
+    private static void putUuid(final Map<String, UUID> m, final String name, final String uuid) {
         m.put(key(name), UUID.fromString(uuid));
     }
 
-    private static String key(final String name) {
-        return name.toLowerCase(Locale.ROOT).replace(" ", "").replace("-", "").replace("+", "plus");
+    private static void putDrum(final Map<String, String> m, final String bitwigName, final String file) {
+        m.put(key(bitwigName), file);
     }
 
-    public static UUID resolve(final String name) {
+    private static void aliasDrum(final Map<String, String> m, final String aliasKey, final String file) {
+        m.put(key(aliasKey), file);
+    }
+
+    static String key(final String name) {
+        return name.toLowerCase(Locale.ROOT)
+                .replace(" ", "")
+                .replace("-", "")
+                .replace("_", "")
+                .replace("+", "plus");
+    }
+
+    /** UUID devices (synths / layer / FX). {@code null} if not UUID-curated. */
+    public static UUID resolveUuid(final String name) {
         if (name == null || name.isBlank()) {
             return null;
         }
@@ -62,24 +202,110 @@ public final class DeviceCatalog {
         } catch (final IllegalArgumentException ignored) {
             // fall through
         }
-        // Aliases used in WIGSCRIPT / older docs
         final String k = key(trimmed);
-        if ("delay2".equals(k) || "delay1".equals(k) || "dly2".equals(k) || "dly1".equals(k)) {
-            return BY_KEY.get(key("Delay+"));
+        if ("delay2".equals(k) || "delay1".equals(k) || "dly2".equals(k) || "dly1".equals(k)
+                || "delay".equals(k)) {
+            return BY_UUID.get(key("Delay+"));
         }
         if ("chorus".equals(k) || "chor".equals(k)) {
-            return BY_KEY.get(key("Chorus+"));
+            return BY_UUID.get(key("Chorus+"));
         }
         if ("dist".equals(k) || "distortion".equals(k)) {
-            return BY_KEY.get(key("Saturator"));
+            return BY_UUID.get(key("Saturator"));
         }
         if ("layer".equals(k) || "instrumentlayer".equals(k)) {
-            return BY_KEY.get(key("Instrument Layer"));
+            return BY_UUID.get(key("Instrument Layer"));
         }
-        return BY_KEY.get(k);
+        if ("poly".equals(k)) {
+            return BY_UUID.get(key("Polymer"));
+        }
+        if ("psynth".equals(k)) {
+            return BY_UUID.get(key("Polysynth"));
+        }
+        if ("filt".equals(k)) {
+            return BY_UUID.get(key("Filter"));
+        }
+        if ("rev".equals(k)) {
+            return BY_UUID.get(key("Reverb"));
+        }
+        return BY_UUID.get(k);
+    }
+
+    /**
+     * Absolute path to a stock drum {@code .bwdevice}, or {@code null}.
+     * Never resolves Sampler / Drum Machine.
+     */
+    public static String resolveDrumFile(final String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        final String k = key(name.trim());
+        // hard ban
+        if (k.contains("sampler") || k.contains("drummachine") || "dm".equals(k)) {
+            return null;
+        }
+        final String file = DRUM_FILES.get(k);
+        if (file == null) {
+            return null;
+        }
+        final Path dir = devicesLibraryDir();
+        if (dir == null) {
+            return null;
+        }
+        final Path full = dir.resolve(file);
+        return Files.isRegularFile(full) ? full.toAbsolutePath().toString() : null;
+    }
+
+    /** Prefer UUID; else drum file path. */
+    public static boolean isAllowed(final String name) {
+        return resolveUuid(name) != null || resolveDrumFile(name) != null;
+    }
+
+    /** @deprecated use {@link #resolveUuid(String)} */
+    @Deprecated
+    public static UUID resolve(final String name) {
+        return resolveUuid(name);
     }
 
     public static Map<String, UUID> all() {
-        return BY_KEY;
+        return BY_UUID;
+    }
+
+    /**
+     * Bitwig stock devices folder. Override with env {@code BITWIG_DEVICES}.
+     */
+    static Path devicesLibraryDir() {
+        final String env = System.getenv("BITWIG_DEVICES");
+        if (env != null && !env.isBlank()) {
+            final Path p = Paths.get(env.trim());
+            if (Files.isDirectory(p)) {
+                return p;
+            }
+        }
+        final String[] candidates = {
+                "C:\\Program Files\\Bitwig Studio\\Library\\devices",
+                "/Applications/Bitwig Studio.app/Contents/Resources/Library/devices",
+                System.getProperty("user.home") + "/Bitwig Studio/Library/devices",
+        };
+        for (final String c : candidates) {
+            final Path p = Paths.get(c);
+            if (Files.isDirectory(p)) {
+                return p;
+            }
+        }
+        // Versioned install dirs: "Bitwig Studio 5.3" etc.
+        final File pf = new File("C:\\Program Files");
+        if (pf.isDirectory()) {
+            final File[] kids = pf.listFiles((dir, n) -> n.startsWith("Bitwig Studio"));
+            if (kids != null) {
+                for (final File k : kids) {
+                    final Path dev = k.toPath().resolve("Library").resolve("devices");
+                    if (Files.isDirectory(dev)) {
+                        return dev;
+                    }
+                }
+            }
+        }
+        return null;
     }
 }

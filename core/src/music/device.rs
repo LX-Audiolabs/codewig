@@ -1,17 +1,24 @@
 //! Curated Bitwig device registry — must stay in sync with
 //! `extension/.../DeviceCatalog.java` for anything that goes through `device.add`.
 //!
-//! Two roles:
-//! - **Insertable** — small allowlist the extension can insert (UUIDs in Java).
-//! - **Drum MIDI map** — alias → note for `d "bd hh"` patterns. Pads are **not**
-//!   insertable; user builds Instrument Layer + v* devices by hand for live.
-
-use super::ast::DrumAlias;
+//! **Insertable:** Organ, Polymer, Polysynth; Instrument Layer; FX set;
+//! all stock drum instruments (v0 Cymbal … v9 Tom) via extension `insertFile`.
+//! **Not insertable:** Sampler, Drum Machine (multi-pad / samples / pages — out of scope).
+//!
+//! ## Drums ≠ Drum Machine (important)
+//!
+//! Bitwig **stock drum modules** (v0/v1/v8/v9) are **monophonic instruments**.
+//! Workflow:
+//! 1. `new track(kick).device(v9 kick)` — load module
+//! 2. Percussion rhythm: fluent **`.beat(4_)`** (not Strudel hit markers)
+//! 3. Exact pitches if wanted: **`n "c1"`** / **`n "36"`** — same as any instrument
+//!
+//! **No** `d "bd hh sd"` hit map — that is Drum Machine / Strudel only.
 
 /// A Bitwig device we document / address.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Device {
-    /// Canonical Bitwig name (insertable) or logical drum id (MIDI only).
+    /// Canonical Bitwig name (matches library / UUID catalog).
     pub name: &'static str,
     pub kind: DeviceKind,
     pub alias: &'static str,
@@ -21,16 +28,16 @@ pub struct Device {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceKind {
     Synth,
-    /// Insertable shell for multi-pad drum tracks (pads themselves are manual).
+    /// Insertable shell for multi-pad drum tracks.
     Layer,
-    /// Logical drum pad — MIDI only, not `device.add`.
+    /// Stock drum instrument (insertable via .bwdevice file).
     Drum,
     AudioFx,
 }
 
 // ── Insertable (sync with DeviceCatalog.java) ──────────────────────
 
-/// Devices `device.add` / fluent `.device()` may create.
+/// UUID devices + layer + FX (`device.add` via UUID).
 pub static INSERTABLE: &[Device] = &[
     Device {
         name: "Polymer",
@@ -88,6 +95,47 @@ pub static INSERTABLE: &[Device] = &[
     },
 ];
 
+/// Stock drum instruments — Bitwig library display names (spaces). Insert via file.
+/// Prefer writing `.device(v9 kick)` / `.device(v9kick)` — avoid `.` inside the name
+/// (fluent already uses `.` as step separator).
+pub static DRUM_DEVICES: &[Device] = &[
+    Device { name: "v0 Cymbal", kind: DeviceKind::Drum, alias: "v0cymbal", params: &["decay", "tone"] },
+    Device { name: "v0 Hat", kind: DeviceKind::Drum, alias: "v0hat", params: &["decay", "tone"] },
+    Device { name: "v0 Kick", kind: DeviceKind::Drum, alias: "v0kick", params: &["decay", "pitch", "tone", "attack"] },
+    Device { name: "v0 Snare", kind: DeviceKind::Drum, alias: "v0snare", params: &["decay", "pitch"] },
+    Device { name: "v0 Tom", kind: DeviceKind::Drum, alias: "v0tom", params: &["decay", "pitch", "tone"] },
+    Device { name: "v0 Zap Kick", kind: DeviceKind::Drum, alias: "v0zapkick", params: &["decay", "pitch"] },
+    Device { name: "v1 Clap", kind: DeviceKind::Drum, alias: "v1clap", params: &["decay", "tone"] },
+    Device { name: "v1 Cowbell", kind: DeviceKind::Drum, alias: "v1cowbell", params: &["decay", "pitch"] },
+    Device { name: "v1 Hat", kind: DeviceKind::Drum, alias: "v1hat", params: &["decay", "tone"] },
+    Device { name: "v1 Kick", kind: DeviceKind::Drum, alias: "v1kick", params: &["decay", "pitch"] },
+    Device { name: "v1 Snare", kind: DeviceKind::Drum, alias: "v1snare", params: &["decay", "pitch"] },
+    Device { name: "v1 Tom", kind: DeviceKind::Drum, alias: "v1tom", params: &["decay", "pitch"] },
+    Device { name: "v8 Clap", kind: DeviceKind::Drum, alias: "v8clap", params: &["decay", "tone"] },
+    Device { name: "v8 Claves", kind: DeviceKind::Drum, alias: "v8claves", params: &["decay"] },
+    Device { name: "v8 Cowbell", kind: DeviceKind::Drum, alias: "v8cowbell", params: &["decay", "pitch"] },
+    Device { name: "v8 Cymbal", kind: DeviceKind::Drum, alias: "v8cymbal", params: &["decay", "tone"] },
+    Device { name: "v8 Hat", kind: DeviceKind::Drum, alias: "v8hat", params: &["decay", "tone"] },
+    Device { name: "v8 Kick", kind: DeviceKind::Drum, alias: "v8kick", params: &["decay", "pitch"] },
+    Device { name: "v8 Maracas", kind: DeviceKind::Drum, alias: "v8maracas", params: &["decay"] },
+    Device { name: "v8 Rimshot", kind: DeviceKind::Drum, alias: "v8rimshot", params: &["decay", "pitch"] },
+    Device { name: "v8 Snare", kind: DeviceKind::Drum, alias: "v8snare", params: &["decay", "pitch"] },
+    Device { name: "v8 Tom", kind: DeviceKind::Drum, alias: "v8tom", params: &["decay", "pitch"] },
+    Device { name: "v9 Clap", kind: DeviceKind::Drum, alias: "v9clap", params: &["decay", "tone"] },
+    Device { name: "v9 Crash", kind: DeviceKind::Drum, alias: "v9crash", params: &["decay", "tone"] },
+    Device { name: "v9 Hat Closed", kind: DeviceKind::Drum, alias: "v9hatclosed", params: &["decay", "tone"] },
+    Device { name: "v9 Hat Open", kind: DeviceKind::Drum, alias: "v9hatopen", params: &["decay", "tone"] },
+    Device { name: "v9 Kick", kind: DeviceKind::Drum, alias: "v9kick", params: &["decay", "pitch"] },
+    Device { name: "v9 Ride", kind: DeviceKind::Drum, alias: "v9ride", params: &["decay", "tone"] },
+    Device { name: "v9 Rimshot", kind: DeviceKind::Drum, alias: "v9rimshot", params: &["decay", "pitch"] },
+    Device { name: "v9 Snare", kind: DeviceKind::Drum, alias: "v9snare", params: &["decay", "pitch"] },
+    Device { name: "v9 Tom", kind: DeviceKind::Drum, alias: "v9tom", params: &["decay", "pitch"] },
+];
+
+/// Trigger MIDI for monophonic Bitwig drum **modules** (not Drum Machine pads).
+/// Clip hits / `.beat` / `d "…"` rhythm all use this single key.
+pub const MONO_DRUM_NOTE: i32 = 36; // C1
+
 /// Back-compat aliases used in docs / older chains (`Delay-2` → `Delay+`).
 static INSERT_ALIASES: &[(&str, &str)] = &[
     ("poly", "Polymer"),
@@ -113,143 +161,119 @@ static INSERT_ALIASES: &[(&str, &str)] = &[
     ("saturator", "Saturator"),
 ];
 
-// ── Drum MIDI only (not insertable) ────────────────────────────────
-
-/// Logical pad names for docs / MIDI map (user places real v* devices manually).
-pub static DRUM_DEVICES: &[Device] = &[
-    Device { name: "v0Kick", kind: DeviceKind::Drum, alias: "kick", params: &["decay", "pitch", "tone", "attack"] },
-    Device { name: "v0Hat", kind: DeviceKind::Drum, alias: "hh", params: &["decay", "tone"] },
-    Device { name: "v0Cymbal", kind: DeviceKind::Drum, alias: "cymb", params: &["decay", "tone"] },
-    Device { name: "v0Tom", kind: DeviceKind::Drum, alias: "tom", params: &["decay", "pitch", "tone"] },
-    Device { name: "v1Kick", kind: DeviceKind::Drum, alias: "v1kick", params: &["decay", "pitch"] },
-    Device { name: "v1Hat", kind: DeviceKind::Drum, alias: "v1hh", params: &["decay", "tone"] },
-    Device { name: "v1Snare", kind: DeviceKind::Drum, alias: "v1sn", params: &["decay", "pitch"] },
-    Device { name: "v1Perc", kind: DeviceKind::Drum, alias: "v1perc", params: &["decay", "pitch"] },
-    Device { name: "v8Kick", kind: DeviceKind::Drum, alias: "v8kick", params: &["decay", "pitch"] },
-    Device { name: "v8Hat", kind: DeviceKind::Drum, alias: "v8hh", params: &["decay", "tone"] },
-    Device { name: "v8Snare", kind: DeviceKind::Drum, alias: "v8sn", params: &["decay", "pitch"] },
-    Device { name: "v8Clap", kind: DeviceKind::Drum, alias: "v8cp", params: &["decay", "tone"] },
-    Device { name: "v8Perc", kind: DeviceKind::Drum, alias: "v8perc", params: &["decay", "pitch"] },
-    Device { name: "v9Kick", kind: DeviceKind::Drum, alias: "v9kick", params: &["decay", "pitch"] },
-    Device { name: "v9Hat", kind: DeviceKind::Drum, alias: "v9hh", params: &["decay", "tone"] },
-    Device { name: "v9Snare", kind: DeviceKind::Drum, alias: "v9sn", params: &["decay", "pitch"] },
-    Device { name: "v9Clap", kind: DeviceKind::Drum, alias: "v9cp", params: &["decay", "tone"] },
-    Device { name: "v9Ride", kind: DeviceKind::Drum, alias: "v9ride", params: &["decay", "tone"] },
-    Device { name: "v9Rim", kind: DeviceKind::Drum, alias: "v9rim", params: &["decay", "pitch"] },
-];
-
-type DrumEntry = (DrumAlias, i32, &'static str);
-
-static DRUM_MAP: &[DrumEntry] = &[
-    (DrumAlias::Bd, 36, "v0Kick"),
-    (DrumAlias::Sd, 40, "v8Snare"),
-    (DrumAlias::Hh, 42, "v0Hat"),
-    (DrumAlias::Cp, 39, "v8Clap"),
-    (DrumAlias::Cymb, 49, "v0Cymbal"),
-    (DrumAlias::Tom, 50, "v0Tom"),
-    (DrumAlias::Ride, 46, "v9Ride"),
-    (DrumAlias::Rim, 49, "v9Rim"),
-    (DrumAlias::V1Kick, 38, "v1Kick"),
-    (DrumAlias::V1Hat, 44, "v1Hat"),
-    (DrumAlias::V1Sn, 40, "v1Snare"),
-    (DrumAlias::V1Perc, 46, "v1Perc"),
-    (DrumAlias::V8Kick, 36, "v8Kick"),
-    (DrumAlias::V8Hat, 42, "v8Hat"),
-    (DrumAlias::V8Sn, 40, "v8Snare"),
-    (DrumAlias::V8Clap, 39, "v8Clap"),
-    (DrumAlias::V8Perc, 46, "v8Perc"),
-    (DrumAlias::V9Kick, 36, "v9Kick"),
-    (DrumAlias::V9Hat, 42, "v9Hat"),
-    (DrumAlias::V9Sn, 40, "v9Snare"),
-    (DrumAlias::V9Clap, 39, "v9Clap"),
-    (DrumAlias::V9Ride, 46, "v9Ride"),
-    (DrumAlias::V9Rim, 49, "v9Rim"),
-];
-
-/// MIDI note for a drum alias (`d "bd hh"` expand).
-pub fn drum_midi(alias: DrumAlias) -> Option<i32> {
-    DRUM_MAP.iter().find(|(a, _, _)| *a == alias).map(|(_, midi, _)| *midi)
+fn norm(s: &str) -> String {
+    s.to_lowercase()
+        .replace(' ', "")
+        .replace('-', "")
+        .replace('_', "")
+        .replace('+', "plus")
+        .replace('.', "") // kick.v9 legacy → kickv9; prefer "v9 kick" / "v9kick"
 }
 
-/// Logical pad id for a drum alias (not insertable).
-pub fn drum_device(alias: DrumAlias) -> Option<&'static str> {
-    DRUM_MAP.iter().find(|(a, _, _)| *a == alias).map(|(_, _, dev)| *dev)
-}
-
-/// Resolve `kick.v9` / `808bd` style catalog → logical pad + MIDI.
-/// Returns `None` if not a drum pad name.
+/// Resolve device catalog → Bitwig library name + monophonic trigger MIDI.
+///
+/// Preferred: `v9 kick`, `v9kick`, `V9 Kick` (case / spaces ignored).
+/// Legacy: `kick.v9` still maps (`.` stripped by [`norm`]).
 pub fn catalog_to_drum(catalog: &str) -> Option<(&'static str, i32)> {
-    let lower = catalog.to_lowercase();
-    // Direct drum device name
-    if let Some(d) = DRUM_DEVICES.iter().find(|d| d.name.to_lowercase() == lower || d.alias == lower) {
-        let midi = DRUM_MAP.iter().find(|(_, _, n)| *n == d.name).map(|(_, m, _)| *m)?;
-        return Some((d.name, midi));
+    let n = norm(catalog);
+    if n.contains("sampler") || n.contains("drummachine") {
+        return None;
     }
-    // type.variant
-    let (kind, variant) = match catalog.split_once('.') {
-        Some(p) => (p.0.to_lowercase(), p.1.to_lowercase()),
-        None => return None,
-    };
-    let name = match (kind.as_str(), variant.as_str()) {
-        ("kick", "v0") | ("kick", "") => "v0Kick",
-        ("kick", "v8") | ("kick", "808") => "v8Kick",
-        ("kick", "v9") | ("kick", "909") => "v9Kick",
-        ("kick", "v1") => "v1Kick",
-        ("hat", "v0") | ("hat", "") => "v0Hat",
-        ("hat", "v8") | ("hat", "808") => "v8Hat",
-        ("hat", "v9") | ("hat", "909") => "v9Hat",
-        ("hat", "v1") => "v1Hat",
-        ("snare", "v8") | ("snare", "808") | ("sd", "") => "v8Snare",
-        ("snare", "v9") | ("snare", "909") => "v9Snare",
-        ("snare", "v1") => "v1Snare",
-        ("clap", "v8") | ("clap", "808") | ("cp", "") => "v8Clap",
-        ("clap", "v9") | ("clap", "909") => "v9Clap",
-        ("perc", "v1") => "v1Perc",
-        ("perc", "v8") | ("perc", "808") => "v8Perc",
-        ("ride", _) => "v9Ride",
-        ("rim", _) => "v9Rim",
-        ("cymb", _) | ("cy", _) => "v0Cymbal",
-        ("tom", _) => "v0Tom",
+    // Direct match: Bitwig name, alias, or compacted "v9kick"
+    if let Some(d) = DRUM_DEVICES
+        .iter()
+        .find(|d| norm(d.name) == n || norm(d.alias) == n)
+    {
+        return Some((d.name, MONO_DRUM_NOTE));
+    }
+    // Family+type without spaces already in name (v9hatclosed, v0zapkick, …)
+    // Legacy type+family: kickv9, hatv8, snarev9 (from kick.v9 after norm)
+    let name = match n.as_str() {
+        "kickv0" | "v0kick" => "v0 Kick",
+        "kickv1" | "v1kick" => "v1 Kick",
+        "kickv8" | "v8kick" | "kick808" => "v8 Kick",
+        "kickv9" | "v9kick" | "kick909" => "v9 Kick",
+        "hatv0" | "v0hat" => "v0 Hat",
+        "hatv1" | "v1hat" => "v1 Hat",
+        "hatv8" | "v8hat" | "hat808" => "v8 Hat",
+        "hatv9" | "v9hat" | "v9hatclosed" | "hat909" => "v9 Hat Closed",
+        "v9hatopen" | "hatopen" => "v9 Hat Open",
+        "snarev0" | "v0snare" => "v0 Snare",
+        "snarev1" | "v1snare" => "v1 Snare",
+        "snarev8" | "v8snare" | "snare808" => "v8 Snare",
+        "snarev9" | "v9snare" | "snare909" => "v9 Snare",
+        "clapv1" | "v1clap" => "v1 Clap",
+        "clapv8" | "v8clap" | "clap808" => "v8 Clap",
+        "clapv9" | "v9clap" | "clap909" => "v9 Clap",
+        "tomv0" | "v0tom" => "v0 Tom",
+        "tomv1" | "v1tom" => "v1 Tom",
+        "tomv8" | "v8tom" => "v8 Tom",
+        "tomv9" | "v9tom" => "v9 Tom",
+        "cymbv0" | "v0cymbal" | "cymbalv0" => "v0 Cymbal",
+        "cymbv8" | "v8cymbal" => "v8 Cymbal",
+        "ridev9" | "v9ride" => "v9 Ride",
+        "rimv8" | "v8rim" | "v8rimshot" => "v8 Rimshot",
+        "rimv9" | "v9rim" | "v9rimshot" => "v9 Rimshot",
+        "crashv9" | "v9crash" => "v9 Crash",
+        "zap" | "v0zap" | "v0zapkick" | "zapkick" => "v0 Zap Kick",
+        // short family-only names default to v0/v8 stock where it matches library
+        "kick" => "v0 Kick",
+        "hat" | "hh" => "v0 Hat",
+        "snare" | "sd" => "v8 Snare",
+        "clap" | "cp" => "v8 Clap",
+        "tom" => "v0 Tom",
+        "cymb" | "cymbal" | "cy" => "v0 Cymbal",
+        "ride" => "v9 Ride",
+        "rim" => "v9 Rimshot",
+        "crash" => "v9 Crash",
         _ => return None,
     };
-    let midi = DRUM_MAP.iter().find(|(_, _, n)| *n == name).map(|(_, m, _)| *m)?;
-    Some((name, midi))
+    Some((name, MONO_DRUM_NOTE))
 }
 
 // ── Lookups ────────────────────────────────────────────────────────
 
-/// Find an **insertable** device by name or alias.
+/// Find UUID/FX/layer device by name or alias.
 pub fn find_device(name: &str) -> Option<&'static Device> {
     let lower = name.to_lowercase();
+    let n = norm(name);
     let canonical = INSERT_ALIASES
         .iter()
-        .find(|(a, _)| *a == lower)
+        .find(|(a, _)| *a == lower || norm(a) == n)
         .map(|(_, c)| *c)
         .unwrap_or(name);
-    let cl = canonical.to_lowercase();
+    let cl = norm(canonical);
     INSERTABLE
         .iter()
-        .find(|d| d.name.to_lowercase() == cl || d.alias == lower)
+        .find(|d| norm(d.name) == cl || norm(d.alias) == n)
 }
 
-/// Parameter name hints for insertable devices (and drum pads for UI).
+/// Parameter name hints.
 pub fn device_params(name: &str) -> Option<&'static [&'static str]> {
     if let Some(d) = find_device(name) {
         return Some(d.params);
     }
-    let lower = name.to_lowercase();
-    DRUM_DEVICES
-        .iter()
-        .find(|d| d.name.to_lowercase() == lower || d.alias == lower)
-        .map(|d| d.params)
+    if let Some((pad, _)) = catalog_to_drum(name) {
+        return DRUM_DEVICES
+            .iter()
+            .find(|d| d.name == pad)
+            .map(|d| d.params);
+    }
+    None
 }
 
-/// Map WIGSCRIPT catalog name → Bitwig name for **`device.add` only**.
+/// Map WIGSCRIPT catalog name → Bitwig name for **`device.add`**.
 ///
-/// Drum pads (`kick.v9`, `v0Kick`, …) return `None` — not insertable.
-/// Old names `Delay-2` / `Chorus` / `Distortion` map to Delay+ / Chorus+ / Saturator.
+/// Drums resolve to library names (`v9 Kick`). Sampler / Drum Machine → `None`.
 pub fn catalog_to_bitwig(catalog: &str) -> Option<String> {
-    find_device(catalog).map(|d| d.name.to_string())
+    let n = norm(catalog);
+    if n.contains("sampler") || n.contains("drummachine") {
+        return None;
+    }
+    if let Some(d) = find_device(catalog) {
+        return Some(d.name.to_string());
+    }
+    catalog_to_drum(catalog).map(|(name, _)| name.to_string())
 }
 
 /// Whether this catalog name is allowed for `device.add`.
@@ -257,39 +281,44 @@ pub fn is_insertable(catalog: &str) -> bool {
     catalog_to_bitwig(catalog).is_some()
 }
 
-// Kit helpers (MIDI layout only — pads must already exist in Bitwig)
+// Kit helpers
 
 pub fn default_kit_devices() -> Vec<(&'static str, i32)> {
-    vec![("v0Kick", 36), ("v0Hat", 42), ("v8Snare", 40), ("v8Clap", 39)]
+    vec![
+        ("v0 Kick", 36),
+        ("v0 Hat", 42),
+        ("v8 Snare", 40),
+        ("v8 Clap", 39),
+    ]
 }
 
 pub fn kit_808_devices() -> Vec<(&'static str, i32)> {
     vec![
-        ("v8Kick", 36),
-        ("v8Hat", 42),
-        ("v8Snare", 40),
-        ("v8Clap", 39),
-        ("v8Perc", 46),
+        ("v8 Kick", 36),
+        ("v8 Hat", 42),
+        ("v8 Snare", 40),
+        ("v8 Clap", 39),
+        ("v8 Cowbell", 46),
     ]
 }
 
 pub fn kit_909_devices() -> Vec<(&'static str, i32)> {
     vec![
-        ("v9Kick", 36),
-        ("v9Hat", 42),
-        ("v9Snare", 40),
-        ("v9Clap", 39),
-        ("v9Ride", 46),
-        ("v9Rim", 49),
+        ("v9 Kick", 36),
+        ("v9 Hat Closed", 42),
+        ("v9 Snare", 40),
+        ("v9 Clap", 39),
+        ("v9 Ride", 46),
+        ("v9 Rimshot", 49),
     ]
 }
 
 pub fn kit_retro_devices() -> Vec<(&'static str, i32)> {
     vec![
-        ("v0Kick", 36),
-        ("v0Hat", 42),
-        ("v0Cymbal", 49),
-        ("v0Tom", 50),
+        ("v0 Kick", 36),
+        ("v0 Hat", 42),
+        ("v0 Cymbal", 49),
+        ("v0 Tom", 50),
     ]
 }
 
@@ -327,25 +356,30 @@ mod tests {
     }
 
     #[test]
-    fn drums_not_insertable() {
-        assert_eq!(catalog_to_bitwig("kick.v9"), None);
-        assert_eq!(catalog_to_bitwig("v9Kick"), None);
-        assert_eq!(catalog_to_bitwig("kick"), None);
-        assert!(!is_insertable("kick.v9"));
+    fn drums_are_insertable() {
+        // Preferred names (no fluent `.` inside device token)
+        assert_eq!(catalog_to_bitwig("v9 kick"), Some("v9 Kick".to_string()));
+        assert_eq!(catalog_to_bitwig("v9kick"), Some("v9 Kick".to_string()));
+        assert_eq!(catalog_to_bitwig("V9 Kick"), Some("v9 Kick".to_string()));
+        // legacy dotted form still works (inside device(...))
+        assert_eq!(catalog_to_bitwig("kick.v9"), Some("v9 Kick".to_string()));
+        assert!(is_insertable("v0 Cymbal"));
+        assert!(is_insertable("v9 Tom"));
     }
 
     #[test]
-    fn drum_catalog_midi() {
-        assert_eq!(catalog_to_drum("kick.v9"), Some(("v9Kick", 36)));
-        assert_eq!(catalog_to_drum("hat.v8"), Some(("v8Hat", 42)));
-        assert_eq!(catalog_to_drum("kick"), Some(("v0Kick", 36)));
-        assert_eq!(drum_midi(DrumAlias::Bd), Some(36));
+    fn drum_catalog_mono_midi() {
+        // Device resolve + monophonic trigger for .beat
+        assert_eq!(catalog_to_drum("v9 kick"), Some(("v9 Kick", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("v8hat"), Some(("v8 Hat", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("kick.v9"), Some(("v9 Kick", MONO_DRUM_NOTE)));
     }
 
     #[test]
     fn no_sampler_no_drum_machine() {
         assert_eq!(catalog_to_bitwig("Sampler"), None);
         assert_eq!(catalog_to_bitwig("Drum Machine"), None);
+        assert!(!is_insertable("Sampler"));
     }
 
     #[test]

@@ -2,8 +2,8 @@
 //!
 //! Parses strings like:
 //! - `bass: n "c e g" +cutoff:0.3`
-//! - `drums:808: d "bd hh sd"`
 //! - `!bass Polymer Filter Delay-2`
+//! - Percussion: fluent `.beat(4_)` (not Strudel hit markers bd/hh)
 
 use super::ast::*;
 use std::fmt;
@@ -259,10 +259,13 @@ fn parse_shorthand(input: &str) -> ParseResult<MusicLine> {
 fn parse_action_name(cmd: &str) -> ParseResult<(MusicAction, Option<String>)> {
     if cmd == "n" {
         Ok((MusicAction::Notes, None))
-    } else if cmd == "d" {
-        Ok((MusicAction::Drums, None))
-    } else if let Some(kit) = cmd.strip_prefix("d:") {
-        Ok((MusicAction::Drums, Some(kit.to_lowercase())))
+    } else if cmd == "d" || cmd.starts_with("d:") {
+        // Hit markers (bd/hh/sd) are Drum Machine / Strudel — not mono Bitwig modules.
+        Err(ParseError::new(
+            "action 'd' removed: use .beat(4_) for percussion rhythm, or n \"c1\" / n \"36\" for exact notes",
+            0,
+            cmd.to_string(),
+        ))
     } else if cmd == "chord" {
         Ok((MusicAction::Chord, None))
     } else if cmd == "arp" {
@@ -272,7 +275,8 @@ fn parse_action_name(cmd: &str) -> ParseResult<(MusicAction, Option<String>)> {
     } else {
         Err(ParseError::new(
             format!(
-                "unknown music action: '{cmd}'. Expected n, d, d:kit, chord, arp, arp:up|down|updown|rand"
+                "unknown music action: '{cmd}'. Expected n, chord, arp, arp:up|down|updown|rand \
+                 (percussion: fluent .beat(...), not d \"bd hh\")"
             ),
             0,
             cmd.to_string(),
@@ -298,7 +302,7 @@ fn parse_action_pattern<'a>(rest: &'a str, full_input: &str) -> ParseResult<(Mus
     let trimmed = rest.trim();
     let (action_name, rest1) = trimmed.split_once(' ')
         .ok_or_else(|| ParseError::new(
-            "expected action (n, d, chord, arp) followed by pattern",
+            "expected action (n, chord, arp) followed by pattern",
             full_input.len() - rest.len(), full_input.to_string()))?;
 
     let (action, _drum_kit) = parse_action_name(action_name)?;
@@ -437,7 +441,6 @@ pub fn parse_mini_pattern(input: &str) -> ParseResult<Pattern> {
 #[derive(Debug, Clone, PartialEq)]
 enum Token {
     NoteName(String),    // "c4", "eb", "f#"
-    DrumName(String),    // "bd", "hh"
     Number(i32),
     Float(f64),
     LBracket,
@@ -524,7 +527,7 @@ fn tokenize(input: &str) -> ParseResult<Vec<(Token, usize)>> {
                 }
             }
 
-            // Note name or drum alias
+            // Note name (c4, eb, …) — no Strudel hit markers (bd/hh)
             'a'..='z' | 'A'..='Z' => {
                 let start = i;
                 while i < chars.len() {
@@ -536,14 +539,7 @@ fn tokenize(input: &str) -> ParseResult<Vec<(Token, usize)>> {
                     }
                 }
                 let word: String = chars[start..i].iter().collect();
-                let lower = word.to_lowercase();
-
-                // Is it a drum alias?
-                if is_drum_alias(&lower) {
-                    tokens.push((Token::DrumName(lower), pos));
-                } else {
-                    tokens.push((Token::NoteName(word), pos));
-                }
+                tokens.push((Token::NoteName(word), pos));
             }
 
             _ => {
@@ -554,17 +550,6 @@ fn tokenize(input: &str) -> ParseResult<Vec<(Token, usize)>> {
     }
 
     Ok(tokens)
-}
-
-fn is_drum_alias(s: &str) -> bool {
-    matches!(s,
-        "bd" | "kick" | "808bd" | "909bd" | "v1kick" | "v8kick" | "v9kick"
-        | "sd" | "snare" | "808sd" | "909sd" | "v1sn" | "v8sn" | "v9sn"
-        | "hh" | "808hh" | "909hh" | "v1hh" | "v8hh" | "v9hh"
-        | "cp" | "clap" | "808cp" | "909cp" | "v8cp" | "v9cp"
-        | "cy" | "cymb" | "tom" | "ride" | "rim"
-        | "v1perc" | "v8perc" | "v9perc" | "v9ride" | "v9rim"
-    )
 }
 
 struct MiniParser {
@@ -702,11 +687,6 @@ impl MiniParser {
                 self.advance();
                 Ok(Atom::Note(name))
             }
-            Some(Token::DrumName(name)) => {
-                let name = name.clone();
-                self.advance();
-                Ok(Atom::Drum(parse_drum_alias(&name)))
-            }
             Some(Token::Number(n)) => {
                 let n = *n;
                 self.advance();
@@ -839,38 +819,9 @@ impl MiniParser {
     }
 }
 
-fn parse_drum_alias(s: &str) -> DrumAlias {
-    match s {
-        "bd" | "kick" => DrumAlias::Bd,
-        "sd" | "snare" => DrumAlias::Sd,
-        "hh" => DrumAlias::Hh,
-        "cp" | "clap" => DrumAlias::Cp,
-        "cy" | "cymb" => DrumAlias::Cymb,
-        "tom" => DrumAlias::Tom,
-        "ride" => DrumAlias::Ride,
-        "rim" => DrumAlias::Rim,
-        "v1kick" => DrumAlias::V1Kick,
-        "v1hh" => DrumAlias::V1Hat,
-        "v1sn" => DrumAlias::V1Sn,
-        "v1perc" => DrumAlias::V1Perc,
-        "v8kick" | "808bd" => DrumAlias::V8Kick,
-        "v8hh" | "808hh" => DrumAlias::V8Hat,
-        "v8sn" | "808sd" => DrumAlias::V8Sn,
-        "v8cp" | "808cp" => DrumAlias::V8Clap,
-        "v8perc" => DrumAlias::V8Perc,
-        "v9kick" | "909bd" => DrumAlias::V9Kick,
-        "v9hh" | "909hh" => DrumAlias::V9Hat,
-        "v9sn" | "909sd" => DrumAlias::V9Sn,
-        "v9cp" | "909cp" => DrumAlias::V9Clap,
-        "v9ride" | "909ride" => DrumAlias::V9Ride,
-        "v9rim" | "909rim" => DrumAlias::V9Rim,
-        _ => DrumAlias::Bd, // fallback
-    }
-}
-
 // ── Fluent parser ──────────────────────────────────────────────────
 
-/// Parse `new track(kick).device(kick.v9).beat(4_).mute().clip(start)`
+/// Parse `new track(kick).device(v9 kick).beat(4_).mute().clip(start)`
 fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
     let s = input;
     let create = s.starts_with("new ");
@@ -1303,17 +1254,9 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_drums() {
-        let line = r#"drums:909: d "bd hh sd""#;
-        let result = parse_music_line(line).unwrap();
-        if let MusicLine::Music(cmd) = result {
-            assert_eq!(cmd.target.track, "drums");
-            assert_eq!(cmd.target.drum_kit, Some("909".to_string()));
-            assert!(matches!(cmd.action, MusicAction::Drums));
-            assert_eq!(cmd.pattern, "bd hh sd");
-        } else {
-            panic!("expected Music");
-        }
+    fn test_parse_d_removed() {
+        assert!(parse_music_line(r#"drums: d "bd hh""#).is_err());
+        assert!(parse_music_line(r#"kick: d:808 "bd""#).is_err());
     }
 
     #[test]
@@ -1667,10 +1610,9 @@ mod tests {
 
     #[test]
     fn test_mini_euclid() {
-        let pat = parse_mini_pattern("bd(3,8)").unwrap();
-        // euclid is now a suffix on the atom
+        let pat = parse_mini_pattern("c(3,8)").unwrap();
         assert_eq!(pat.sequences[0].events.len(), 1);
-        assert!(matches!(pat.sequences[0].events[0].atom, Atom::Drum(DrumAlias::Bd)));
+        assert!(matches!(pat.sequences[0].events[0].atom, Atom::Note(_)));
         assert!(pat.sequences[0].events[0].suffixes.iter().any(|s| matches!(s, Suffix::Euclid { beats: 3, steps: 8, offset: None })));
     }
 
@@ -1681,16 +1623,16 @@ mod tests {
     }
 
     #[test]
-    fn test_mini_drums() {
-        let pat = parse_mini_pattern("bd hh sd hh").unwrap();
-        assert_eq!(pat.sequences[0].events.len(), 4);
-        assert!(matches!(pat.sequences[0].events[0].atom, Atom::Drum(DrumAlias::Bd)));
-        assert!(matches!(pat.sequences[0].events[1].atom, Atom::Drum(DrumAlias::Hh)));
+    fn test_mini_no_hit_markers() {
+        // "bd" is an ordinary note token now (invalid pitch at expand), not a drum atom
+        let pat = parse_mini_pattern("bd ~").unwrap();
+        assert!(matches!(pat.sequences[0].events[0].atom, Atom::Note(_)));
+        assert!(matches!(pat.sequences[0].events[1].atom, Atom::Rest));
     }
 
     #[test]
     fn test_mini_superpose() {
-        let pat = parse_mini_pattern("bd hh, sd cp").unwrap();
+        let pat = parse_mini_pattern("c e, g a").unwrap();
         assert_eq!(pat.sequences.len(), 2);
     }
 }

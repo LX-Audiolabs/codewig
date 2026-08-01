@@ -65,20 +65,35 @@ public final class DeviceService {
 
     public JsonObject add(final String deviceName) {
         requireTrack();
-        final UUID uuid = DeviceCatalog.resolve(deviceName);
-        if (uuid == null) {
-            throw new IllegalArgumentException(
-                    "unknown / non-curated device '" + deviceName
-                            + "' — allowlist: Polymer, Polysynth, Organ, Instrument Layer, "
-                            + "Filter, Reverb, Delay+, Chorus+, Saturator (or raw UUID). "
-                            + "Drum pads / extra FX: place manually in Bitwig.");
-        }
-        cursorTrack.endOfDeviceChainInsertionPoint().insertBitwigDevice(uuid);
+        final var insert = cursorTrack.endOfDeviceChainInsertionPoint();
         final JsonObject result = new JsonObject();
         result.addProperty("added", deviceName);
-        result.addProperty("uuid", uuid.toString());
         result.addProperty("track", cursorTrack.name().get());
-        return result;
+
+        // UUID path: synths / layer / FX
+        final UUID uuid = DeviceCatalog.resolveUuid(deviceName);
+        if (uuid != null) {
+            insert.insertBitwigDevice(uuid);
+            result.addProperty("uuid", uuid.toString());
+            result.addProperty("via", "uuid");
+            return result;
+        }
+
+        // File path: stock drum instruments (v0 Cymbal … v9 Tom) — not Sampler / Drum Machine
+        final String file = DeviceCatalog.resolveDrumFile(deviceName);
+        if (file != null) {
+            insert.insertFile(file);
+            result.addProperty("file", file);
+            result.addProperty("via", "file");
+            return result;
+        }
+
+        throw new IllegalArgumentException(
+                "unknown / non-curated device '" + deviceName
+                        + "'. Insertable: Polymer Polysynth Organ layer; "
+                        + "v0–v9 drum instruments (e.g. kick.v9, v9 Kick); "
+                        + "Filter Reverb Delay+ Chorus+ Saturator. "
+                        + "Not allowed: Sampler, Drum Machine, VSTs.");
     }
 
     public JsonObject select(final int index) {

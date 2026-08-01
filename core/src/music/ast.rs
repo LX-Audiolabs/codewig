@@ -43,9 +43,9 @@ pub struct FluentCmd {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FluentStep {
-    /// .device(kick.v9) or .d(hat.v8)
+    /// `.device(Polymer)` / `.device(kick.v9)` — allowlist insert
     Device(DeviceSpec),
-    /// .add(Delay-2)
+    /// .add(Delay+)
     Add(DeviceSpec),
     /// .beat(4_) or .beat:16(1,5,11,14)
     Beat(BeatSpec),
@@ -152,8 +152,7 @@ pub struct MusicCmd {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MusicAction {
-    Notes,      // n
-    Drums,      // d
+    Notes,      // n — exact pitches (any track, including drum modules if user wants)
     Chord,      // chord
     /// `arp` / `arp:up` / `arp:down` / `arp:updown` / `arp:rand` — expand_arp
     Arp(ArpStyle),
@@ -263,7 +262,6 @@ pub struct Event {
 pub enum Atom {
     Note(String),           // "c4", "eb", "f#"
     Midi(i32),              // 60, 36, 127
-    Drum(DrumAlias),        // "bd", "hh", "909bd"
     Rest,
     Group(Vec<Sequence>),   // [ ... ]
     Alternate(Vec<Vec<Sequence>>), // < ... >
@@ -275,33 +273,6 @@ pub enum Atom {
         offset: Option<u32>,
     },
     Subdivide(Vec<Sequence>, u32), // { ... }%N
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DrumAlias {
-    Bd,       // bd, kick
-    Sd,       // sd, snare
-    Hh,       // hh
-    Cp,       // cp, clap
-    Cymb,     // cy, cymb
-    Tom,      // tom
-    Ride,     // ride
-    Rim,      // rim
-    V1Kick,
-    V1Hat,
-    V1Sn,
-    V1Perc,
-    V8Kick,
-    V8Hat,
-    V8Sn,
-    V8Clap,
-    V8Perc,
-    V9Kick,
-    V9Hat,
-    V9Sn,
-    V9Clap,
-    V9Ride,
-    V9Rim,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -6,7 +6,6 @@
 //! Also provides chord expansion and arpeggio generation.
 
 use super::ast::*;
-use super::device;
 use super::scale::{self, Scale};
 use crate::NoteSpec;
 use rand::Rng;
@@ -148,10 +147,6 @@ fn expand_event(
             } else {
                 (vec![NoteSpec { step: base_step as i32, key, vel: 100, dur: sub_step_size }], 1)
             }
-        }
-        Atom::Drum(drum_alias) => {
-            let midi = device::drum_midi(*drum_alias).unwrap_or(36);
-            (vec![NoteSpec { step: base_step as i32, key: midi, vel: 100, dur: sub_step_size }], 1)
         }
         Atom::Rest => {
             (vec![NoteSpec { step: base_step as i32, key: 0, vel: 0, dur: sub_step_size }], 1)
@@ -655,15 +650,8 @@ mod tests {
     }
 
     #[test]
-    fn test_expand_drums() {
-        let line = parse::parse_music_line(r#"drums: d "bd hh sd""#).unwrap();
-        if let MusicLine::Music(ref cmd) = line {
-            let (notes, _) = expand_music_line(cmd, None, 16).unwrap();
-            assert_eq!(notes.len(), 3);
-            assert_eq!(notes[0].key, 36); // v0Kick
-            assert_eq!(notes[1].key, 42); // v0Hat
-            assert_eq!(notes[2].key, 40); // v8Snare
-        }
+    fn test_d_action_removed() {
+        assert!(parse::parse_music_line(r#"kick: d "bd hh""#).is_err());
     }
 
     #[test]
