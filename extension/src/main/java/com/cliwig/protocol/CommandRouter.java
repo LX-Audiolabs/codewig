@@ -162,6 +162,9 @@ public final class CommandRouter {
                 case "scene.list":
                     return Messages.ok(id, scenes.list());
 
+                case "scene.new":
+                    return Messages.ok(id, scenes.create(str(req, "name", null)));
+
                 case "scene.launch":
                     return Messages.ok(id, scenes.launch(requireSceneRef(req)));
 

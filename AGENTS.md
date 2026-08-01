@@ -6,29 +6,42 @@
 
 | Priority | Where |
 |----------|--------|
-| 1 | `core/src/music/{parse,ast,execute,device,expand}.rs` |
+| 1 | `core/src/music/{parse,ast,execute,device,expand,param_catalog}.rs` |
+| 1 | `devices/*.yaml` (param catalog — bitwig\|clap only) |
 | 1 | `extension/.../DeviceCatalog.java` (insert allowlist) |
 | 1 | `ui/src/commands.rs`, `cli/src/main.rs` (`eval`) |
 | 2 | Root `README.md` |
 | 3 | Local `research/CURRENT.md` if present (**folder is gitignored**) |
 
+### WIGSCRIPT — three layers (do not blur)
+
+| Layer | Role | Examples |
+|-------|------|----------|
+| **Fluent** | Build structure | `new track(lead).device(Polymer).n("c e d g").clip(start).mute()` |
+| **Colon** | Content in existing cells | `lead@verse: n "e c g"` |
+| **Param** | Device params on a track | `kick&v9kick: decay(50) pitch(40)` (`@` = scene/slot, `&` = track×device) |
+| **Performance** | Live triggers | `play` · `mute(kick)` · `s(verse).start` · `c(lead.0).start` |
+
+- Fluent **`.n` / `.beat`** → **slot 0** only (first clip). Multi-clip → `track@scene` / `track@slot`.
+- Notes: Bitwig octaves (`c` = **C3** = MIDI **60**); space events = **1 beat** each (steps 0,4,8…); `~` = rest; `[c d e f]` = 16ths in one beat.
+- `.c` / `.clip` = clip cell (new/start/stop), **not** notes (notes = `.n` / `n`).
+- Global `play`/`stop` = transport, not fluent step.
+
 ### Do not reintroduce these mistakes
 
-1. **Bare Tidal lines are not the REPL** — invalid: `c e g`, `kick ~ ~ snare`.  
-   Valid: `bass: n "c e g"`, mini-notation **only inside quotes**.
-2. **WIGSCRIPT is primary** (UI form). CLI: `cliwig eval "same line"`. Not a second grammar.
-3. **UI and CLI both use `cliwig-core`** → TCP `:9470`. UI does **not** shell out to `cliwig`.
-4. **Insert allowlist** — Polymer, Polysynth, Organ + stock drum modules (`v9 kick` / `v9kick`…).  
-   Layer + FX. **No** Sampler / Drum Machine.  
-   **Input split:** `n "…"` = pitches; fluent **`.beat(4_)`** = percussion rhythm; **no** `d "bd hh"` hit markers.
-5. **`research/` is gitignored** — may be stale; always verify against code. Prefer `research/CURRENT.md` when updating notes.
-6. Live focus after setup: **clips / scenes / mute**, not full device browser.
-7. **Params = snapshot only** (`param.set`). No ramps, sequences, clip automation, or UI slider/knob pages. Continuous control = Bitwig UI / modulators / hardware.
-8. **Timed mute OK**: `mute(x) N` / `@bar` — discrete schedule only, not param automation.
-9. **`>` passthrough is UI/CLI only** — `execute_line` rejects `MusicLine::PassThrough`.  
-   User input → `ui/commands::run` or `cli` `run_one_line` (parse, peel `>`, legacy). Not a bug.
-10. **Clips: slot id primary, name secondary** — `c(bass.0)`, default slot; `bass@verse: n "…"` resolves via `clip.list` (create-with-name if missing).  
-    **Scenes: index primary, name secondary** — `s(0)` / `scene(1)` / `scene(verse)` / `s(Drop).start`. Wire: `scene.launch` / `scene.stop`.
+1. **Bare Tidal lines are not the REPL** — invalid: `c e g`. Valid: `bass: n "c e g"` (quotes).
+2. **WIGSCRIPT is primary**. CLI: `cliwig eval "same line"`.
+3. **UI + CLI → `cliwig-core` TCP `:9470`**. UI does not shell out to `cliwig`.
+4. **Insert allowlist** — Polymer, Polysynth, Organ + stock drums (`v9 kick`…). No Sampler / Drum Machine. No `d "bd hh"`.
+5. **`research/` gitignored** — code wins.
+6. Live focus: **clips / scenes / mute**.
+7. **Params = snapshot only** (`param.set`). Display ranges from `devices/*.yaml` → wire `0..1`. No YAML / empty `params` → no param support (insert may still work).
+8. **Param catalog scope** = Bitwig devices + CLAP (system paths later). **No** VST3/LV2. No Bitwig plugin-path queries.
+9. **Param address** = `track&device:` — not track alone, not `@` (reserved scene/clip).
+10. **Timed mute OK**: `mute(x) N` / `@bar`.
+11. **`>` passthrough** only UI/CLI entry, not `execute_line`.
+12. **Launcher** — scene=row, track=column, clip=cell: `new scene(verse)` · `s(verse).t(lead).c(new)` · `lead@verse: n "…"`.
+13. **Polymer** — insert + notes OK; params deferred (`devices/polymer.yaml` empty until fixed subset).
 
 ## Caveman
 Talk terse. Drop articles/filler/pleasantries. Fragments OK. Technical terms exact.

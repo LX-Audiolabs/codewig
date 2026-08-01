@@ -79,7 +79,12 @@ pub fn parse_music_line(input: &str) -> ParseResult<MusicLine> {
         return Ok(MusicLine::PassThrough(rest.trim().to_string()));
     }
 
-    // Param: `t(kick).d(kick.v9): decay(280)...`  — check BEFORE fluent (has `):`)
+    // Param: `track&device: decay(50)...`  (@ is scene/slot — & is track×device)
+    if s.contains('&') && s.contains(':') && !s.starts_with("new ") {
+        return parse_amp_param_cmd(s);
+    }
+
+    // Param legacy: `t(kick).d(kick.v9): decay(50)...`  — check BEFORE fluent (has `):`)
     if (s.starts_with("t(") || s.starts_with("track(")) && s.contains("):") {
         return parse_param_cmd(s);
     }
@@ -97,7 +102,12 @@ pub fn parse_music_line(input: &str) -> ParseResult<MusicLine> {
         return parse_mute_cmd(rest, true, s);
     }
 
-    // Scene: `s(1).start` | `s(verse).start` | `scene(0).stop` | `scene(verse).start`
+    // `new scene` | `new scene()` | `new scene(verse)` — Bitwig scene row
+    if s.starts_with("new scene") {
+        return parse_new_scene(s);
+    }
+
+    // Scene: `s(1).start` | `s(verse).t(lead).c(new)` | `scene(0).stop`
     if s.starts_with("s(") || s.starts_with("scene(") {
         return parse_scene_cmd(s);
     }
@@ -210,11 +220,21 @@ fn parse_target(s: &str) -> ParseResult<Target> {
     let mut clip: Option<ClipRef> = None;
     let mut drum_kit: Option<String> = None;
 
-    // Check for @clipname
+    // Bitwig address: track@slot or track@sceneName (row = scene)
     if let Some(at_pos) = track.find('@') {
-        let clip_name = track[at_pos + 1..].to_string();
+        let rest = track[at_pos + 1..].trim().to_string();
         track = track[..at_pos].to_string();
-        clip = Some(ClipRef::Name(clip_name));
+        clip = Some(if let Ok(i) = rest.parse::<i32>() {
+            ClipRef::Slot(i)
+        } else if rest.is_empty() {
+            return Err(ParseError::new(
+                "empty @ address — use track@0 or track@verse",
+                at_pos,
+                s.to_string(),
+            ));
+        } else {
+            ClipRef::Name(rest)
+        });
     }
 
     // Check for :kit suffix on track
@@ -904,7 +924,38 @@ fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
     Ok(MusicLine::Fluent(FluentCmd { create, track: track_name, steps }))
 }
 
-/// Parse `t(kick).d(kick.v9): decay(280) punch(45)`
+/// Parse `kick&v9kick: decay(50) pitch(40)` or `kick&v9kick: +decay(50) +pitch(40)`.
+fn parse_amp_param_cmd(input: &str) -> ParseResult<MusicLine> {
+    let s = input;
+    let amp = s.find('&').ok_or_else(|| ParseError::new("expected 'track&device:'", 0, s.to_string()))?;
+    let track = s[..amp].trim().to_string();
+    if track.is_empty() {
+        return Err(ParseError::new("empty track before '&'", 0, s.to_string()));
+    }
+    let rest = &s[amp + 1..];
+    let colon = rest.find(':').ok_or_else(|| {
+        ParseError::new(
+            "expected 'track&device: params' (colon after device)",
+            amp + 1,
+            s.to_string(),
+        )
+    })?;
+    let device_name = rest[..colon].trim().to_string();
+    if device_name.is_empty() {
+        return Err(ParseError::new("empty device after '&'", amp + 1, s.to_string()));
+    }
+    // Scene/slot uses `@` — reject accidental `track@scene&...` confusion later if needed.
+    let params = parse_param_assignments(rest[colon + 1..].trim_start(), s)?;
+    Ok(MusicLine::Param(ParamCmd {
+        track,
+        device: DeviceSpec {
+            catalog_name: device_name,
+        },
+        params,
+    }))
+}
+
+/// Parse `t(kick).d(kick.v9): decay(50) pitch(40)` (legacy).
 fn parse_param_cmd(input: &str) -> ParseResult<MusicLine> {
     let s = input;
     let rest = s.strip_prefix("t(").or_else(|| s.strip_prefix("track("))
@@ -920,22 +971,55 @@ fn parse_param_cmd(input: &str) -> ParseResult<MusicLine> {
     let rest = rest.strip_prefix(":").or_else(|| rest.strip_prefix(": "))
         .ok_or_else(|| ParseError::new("expected ': params...' after device", s.len() - rest.len(), s.to_string()))?;
 
+    let params = parse_param_assignments(rest, s)?;
+    Ok(MusicLine::Param(ParamCmd { track: track_name, device: dev, params }))
+}
+
+/// `decay(50) pitch(40)` or `+decay(50) +pitch(40)` — space-separated, no dots between.
+fn parse_param_assignments(rest: &str, full: &str) -> ParseResult<Vec<(String, f64)>> {
     let mut params = Vec::new();
     let mut remaining = rest.trim_start();
     while !remaining.is_empty() {
+        if remaining.starts_with('+') {
+            remaining = remaining[1..].trim_start();
+        }
         if let Some((name, after)) = remaining.split_once('(') {
-            let (val_str, after_paren) = after.split_once(')')
-                .ok_or_else(|| ParseError::new("expected ')' after param value", s.len() - remaining.len(), s.to_string()))?;
-            let val: f64 = val_str.trim().parse().map_err(|_|
-                ParseError::new(format!("invalid param value: '{val_str}'"), s.len() - remaining.len(), s.to_string()))?;
-            params.push((name.trim().to_string(), val));
+            let name = name.trim();
+            if name.is_empty() || name.contains(char::is_whitespace) {
+                return Err(ParseError::new(
+                    "param name before '('",
+                    full.len().saturating_sub(remaining.len()),
+                    full.to_string(),
+                ));
+            }
+            let (val_str, after_paren) = after.split_once(')').ok_or_else(|| {
+                ParseError::new(
+                    "expected ')' after param value",
+                    full.len().saturating_sub(remaining.len()),
+                    full.to_string(),
+                )
+            })?;
+            let val: f64 = val_str.trim().parse().map_err(|_| {
+                ParseError::new(
+                    format!("invalid param value: '{val_str}'"),
+                    full.len().saturating_sub(remaining.len()),
+                    full.to_string(),
+                )
+            })?;
+            params.push((name.to_string(), val));
             remaining = after_paren.trim_start();
         } else {
             break;
         }
     }
-
-    Ok(MusicLine::Param(ParamCmd { track: track_name, device: dev, params }))
+    if params.is_empty() {
+        return Err(ParseError::new(
+            "expected at least one param name(value)",
+            full.len().saturating_sub(rest.len()),
+            full.to_string(),
+        ));
+    }
+    Ok(params)
 }
 
 /// Parse `mute(kick)` / `mute(kick) 4` / `mute(kick) @bar` / `mute(kick) 4 @bar`
@@ -1078,8 +1162,20 @@ fn parse_beat_step<'a>(input: &'a str, full_input: &str) -> ParseResult<(BeatSpe
             ParseError::new("expected ')' after beat positions", full_input.len() - input.len(), full_input.to_string()))?;
         let pos_str = &after_paren[..closing];
         let positions: Result<Vec<u32>, _> = pos_str.split(',').map(|s| s.trim().parse::<u32>()).collect();
-        let positions = positions.map_err(|_|
+        let mut positions = positions.map_err(|_|
             ParseError::new(format!("invalid beat positions: '{pos_str}'"), full_input.len() - input.len(), full_input.to_string()))?;
+        // Accept 1-based counts (1..grid) like musicians type; store 0-based for Bitwig.
+        if !positions.is_empty()
+            && positions.iter().all(|&p| p >= 1 && p <= grid)
+            && positions.iter().any(|&p| p == grid || p > 0)
+        {
+            // If any 0 present, leave as 0-based; only convert pure 1..=grid sets
+            if !positions.contains(&0) {
+                for p in &mut positions {
+                    *p -= 1;
+                }
+            }
+        }
 
         Ok((BeatSpec::Explicit { grid, positions }, &after_paren[closing + 1..]))
     } else if rest.starts_with('(') {
@@ -1138,7 +1234,49 @@ fn extract_paren_quoted<'a>(input: &'a str, full_input: &str) -> ParseResult<(St
     }
 }
 
-/// Parse `s(1).start` | `s(verse).start` | `scene(0).stop` | `scene(name).start`
+/// Parse `new scene` | `new scene()` | `new scene(verse)`.
+fn parse_new_scene(input: &str) -> ParseResult<MusicLine> {
+    let rest = input
+        .strip_prefix("new scene")
+        .ok_or_else(|| ParseError::new("expected 'new scene'", 0, input.to_string()))?
+        .trim_start();
+    if rest.is_empty() {
+        return Ok(MusicLine::NewScene { name: None });
+    }
+    if !rest.starts_with('(') {
+        return Err(ParseError::new(
+            "use new scene / new scene() / new scene(name)",
+            input.len() - rest.len(),
+            input.to_string(),
+        ));
+    }
+    let after = &rest[1..];
+    let closing = after.find(')').ok_or_else(|| {
+        ParseError::new(
+            "expected ')' after new scene",
+            input.len() - after.len(),
+            input.to_string(),
+        )
+    })?;
+    let name = after[..closing].trim();
+    let tail = after[closing + 1..].trim();
+    if !tail.is_empty() {
+        return Err(ParseError::new(
+            format!("unexpected after new scene: '{tail}'"),
+            input.len() - after.len() + closing,
+            input.to_string(),
+        ));
+    }
+    Ok(MusicLine::NewScene {
+        name: if name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        },
+    })
+}
+
+/// Parse `s(1).start` | `s(verse).t(lead).c(new)` | `scene(0).stop`
 fn parse_scene_cmd(input: &str) -> ParseResult<MusicLine> {
     let after = if let Some(a) = input.strip_prefix("scene(") {
         a
@@ -1166,16 +1304,128 @@ fn parse_scene_cmd(input: &str) -> ParseResult<MusicLine> {
             input.to_string(),
         ));
     }
-    // Index primary when the whole token is a number; else name (live-friendly).
     let scene = if let Ok(i) = scene_str.parse::<i32>() {
         SceneRef::Index(i)
     } else {
         SceneRef::Name(scene_str.to_string())
     };
 
-    let rest = &after[closing + 1..];
+    let rest = after[closing + 1..].trim_start();
+    // Bitwig cell: s(scene).t(track).c(new|start|stop)
+    if rest.starts_with(".t(") || rest.starts_with(".track(") {
+        return parse_scene_track_clip(scene, rest, input);
+    }
     let action = parse_launch_action(rest, input)?;
     Ok(MusicLine::Scene(SceneCmd { scene, action }))
+}
+
+/// `.t(lead).c(new)` | `.t(lead).c(new, intro)` | `.t(lead).c(start)`
+fn parse_scene_track_clip(
+    scene: SceneRef,
+    rest: &str,
+    full: &str,
+) -> ParseResult<MusicLine> {
+    let after_t = rest
+        .strip_prefix(".t(")
+        .or_else(|| rest.strip_prefix(".track("))
+        .ok_or_else(|| {
+            ParseError::new(
+                "expected .t(track) after scene",
+                full.len() - rest.len(),
+                full.to_string(),
+            )
+        })?;
+    let t_close = after_t.find(')').ok_or_else(|| {
+        ParseError::new(
+            "expected ')' after track name",
+            full.len() - after_t.len(),
+            full.to_string(),
+        )
+    })?;
+    let track = after_t[..t_close].trim().to_string();
+    if track.is_empty() {
+        return Err(ParseError::new(
+            "empty track in s(…).t(…)",
+            full.len() - after_t.len(),
+            full.to_string(),
+        ));
+    }
+    let rest = after_t[t_close + 1..].trim_start();
+    let after_c = rest
+        .strip_prefix(".c(")
+        .or_else(|| rest.strip_prefix(".clip("))
+        .ok_or_else(|| {
+            ParseError::new(
+                "expected .c(new) or .c(start) after s(…).t(track)",
+                full.len() - rest.len(),
+                full.to_string(),
+            )
+        })?;
+    let c_close = after_c.find(')').ok_or_else(|| {
+        ParseError::new(
+            "expected ')' after clip action",
+            full.len() - after_c.len(),
+            full.to_string(),
+        )
+    })?;
+    let content = after_c[..c_close].trim();
+    let tail = after_c[c_close + 1..].trim();
+    if !tail.is_empty() {
+        return Err(ParseError::new(
+            format!("unexpected after clip action: '{tail}'"),
+            full.len() - after_c.len() + c_close,
+            full.to_string(),
+        ));
+    }
+    let action = parse_scene_clip_action(content, full)?;
+    Ok(MusicLine::SceneTrackClip(SceneTrackClipCmd {
+        scene,
+        track,
+        action,
+    }))
+}
+
+fn parse_scene_clip_action(content: &str, full: &str) -> ParseResult<SceneClipAction> {
+    let c = content.trim();
+    if c == "start" || c == "launch" {
+        return Ok(SceneClipAction::Start);
+    }
+    if c == "stop" {
+        return Ok(SceneClipAction::Stop);
+    }
+    // new | new, name | new:name
+    if c == "new" {
+        return Ok(SceneClipAction::New { name: None });
+    }
+    if let Some(rest) = c.strip_prefix("new,") {
+        let name = rest.trim();
+        if name.is_empty() {
+            return Ok(SceneClipAction::New { name: None });
+        }
+        return Ok(SceneClipAction::New {
+            name: Some(name.to_string()),
+        });
+    }
+    if let Some(rest) = c.strip_prefix("new:") {
+        let name = rest.trim();
+        if name.is_empty() {
+            return Err(ParseError::new(
+                "c(new:name) needs a name",
+                0,
+                full.to_string(),
+            ));
+        }
+        return Ok(SceneClipAction::New {
+            name: Some(name.to_string()),
+        });
+    }
+    Err(ParseError::new(
+        format!(
+            "unknown s().t().c(…) action '{c}' — use new | new, name | start | stop"
+        ),
+        0,
+        full.to_string(),
+    ))
 }
 
 /// Parse `c(bass.0).start` | `c(bass.0, kick.1).start`
@@ -1320,6 +1570,55 @@ mod tests {
         } else {
             panic!("expected Music");
         }
+
+        let slot = parse_music_line(r#"lead@2: n "c""#).unwrap();
+        if let MusicLine::Music(cmd) = slot {
+            assert_eq!(cmd.target.clip, Some(ClipRef::Slot(2)));
+        } else {
+            panic!("expected Music @slot");
+        }
+    }
+
+    #[test]
+    fn test_parse_new_scene() {
+        assert!(matches!(
+            parse_music_line("new scene").unwrap(),
+            MusicLine::NewScene { name: None }
+        ));
+        assert!(matches!(
+            parse_music_line("new scene()").unwrap(),
+            MusicLine::NewScene { name: None }
+        ));
+        match parse_music_line("new scene(verse)").unwrap() {
+            MusicLine::NewScene { name: Some(n) } => assert_eq!(n, "verse"),
+            _ => panic!("expected NewScene(verse)"),
+        }
+    }
+
+    #[test]
+    fn test_parse_scene_track_clip_new() {
+        let line = parse_music_line("s(verse).t(lead).c(new)").unwrap();
+        match line {
+            MusicLine::SceneTrackClip(cmd) => {
+                assert_eq!(cmd.scene, SceneRef::Name("verse".to_string()));
+                assert_eq!(cmd.track, "lead");
+                assert_eq!(cmd.action, SceneClipAction::New { name: None });
+            }
+            _ => panic!("expected SceneTrackClip"),
+        }
+        let named = parse_music_line("s(1).t(bass).c(new, intro)").unwrap();
+        match named {
+            MusicLine::SceneTrackClip(cmd) => {
+                assert_eq!(cmd.scene, SceneRef::Index(1));
+                assert_eq!(
+                    cmd.action,
+                    SceneClipAction::New {
+                        name: Some("intro".to_string())
+                    }
+                );
+            }
+            _ => panic!("expected SceneTrackClip named"),
+        }
     }
 
     #[test]
@@ -1369,7 +1668,8 @@ mod tests {
             assert_eq!(cmd.track, "hat");
             if let FluentStep::Beat(BeatSpec::Explicit { grid, positions }) = &cmd.steps[1] {
                 assert_eq!(*grid, 16);
-                assert_eq!(*positions, vec![1, 5, 9, 13]);
+                // 1-based input 1,5,9,13 → stored 0-based 0,4,8,12
+                assert_eq!(*positions, vec![0, 4, 8, 12]);
             } else { panic!("expected Beat::Explicit"); }
         } else { panic!("expected Fluent"); }
     }
@@ -1388,16 +1688,45 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_param_cmd() {
-        let line = "t(kick).d(kick.v9): decay(280) punch(45)";
+    fn test_parse_param_cmd_legacy() {
+        let line = "t(kick).d(kick.v9): decay(50) pitch(40)";
         let result = parse_music_line(line).unwrap();
         if let MusicLine::Param(cmd) = result {
             assert_eq!(cmd.track, "kick");
             assert_eq!(cmd.device.catalog_name, "kick.v9");
             assert_eq!(cmd.params.len(), 2);
-            assert_eq!(cmd.params[0], ("decay".to_string(), 280.0));
-            assert_eq!(cmd.params[1], ("punch".to_string(), 45.0));
-        } else { panic!("expected Param, got {:?}", result); }
+            assert_eq!(cmd.params[0], ("decay".to_string(), 50.0));
+            assert_eq!(cmd.params[1], ("pitch".to_string(), 40.0));
+        } else {
+            panic!("expected Param, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_parse_amp_param_cmd() {
+        let line = "kick&v9kick: decay(50) pitch(40)";
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Param(cmd) = result {
+            assert_eq!(cmd.track, "kick");
+            assert_eq!(cmd.device.catalog_name, "v9kick");
+            assert_eq!(cmd.params[0], ("decay".to_string(), 50.0));
+            assert_eq!(cmd.params[1], ("pitch".to_string(), 40.0));
+        } else {
+            panic!("expected Param, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_parse_amp_param_plus() {
+        let line = r#"lead&v9 kick: +decay(75)"#;
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Param(cmd) = result {
+            assert_eq!(cmd.track, "lead");
+            assert_eq!(cmd.device.catalog_name, "v9 kick");
+            assert_eq!(cmd.params[0], ("decay".to_string(), 75.0));
+        } else {
+            panic!("expected Param");
+        }
     }
 
     #[test]

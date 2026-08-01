@@ -58,10 +58,10 @@ export component AppWindow inherits Window {
             tag: "transport",
         },
         {
-            name: "s() / scene()",
-            summary: "launch or stop a scene",
-            syntax: "scene(verse).start",
-            detail: "Launch or stop a scene by index (primary) or name.\n\nSyntax:\n  s(N).start | scene(N).start\n  s(name).start | scene(name).start\n  … .stop\n\nExamples:\n  s(0).start\n  scene(1).stop\n  scene(verse).start\n  s(Drop).start",
+            name: "s() / scene / new scene",
+            summary: "scenes + clips (Bitwig launcher)",
+            syntax: "s(verse).t(lead).c(new)",
+            detail: "Bitwig: scene = row, track = column, clip = cell.\n\nScenes:\n  new scene\n  new scene(verse)\n  s(0).start | s(verse).start | .stop\n\nClips at scene×track:\n  s(verse).t(lead).c(new)\n  s(1).t(bass).c(new, intro)\n  s(verse).t(lead).c(start)\n\nWrite notes into a cell:\n  lead@verse: n \"g b d\"\n  lead@2: n \"c e g\"     // @slot id\n\nWorkflow:\n  new scene(verse)\n  s(verse).t(lead).c(new)\n  lead@verse: n \"g2 b3 d\"",
             tag: "scene",
         },
         {
@@ -82,14 +82,14 @@ export component AppWindow inherits Window {
             name: "n / notes",
             summary: "write MIDI notes",
             syntax: "bass: n \"c e g b\"",
-            detail: "Write MIDI notes via mini-notation.\n\nSyntax:\n  track: n \"pattern\"\n\nExamples:\n  bass: n \"c e g b\"\n  lead: n \"0 2 4 7\"",
+            detail: "MIDI notes on 16th grid (Bitwig octaves).\n\nDefaults:\n  c = Bitwig C3 (MIDI 60)\n  each space-event = 1 beat (steps 0,4,8…; dur 4)\n  ~ = empty beat\n  [c d e f] = 16ths inside one beat (steps 0-3)\n\nPitches: c2  c#  cis  eb4  f#\nDegrees after k C minor: n \"0 2 4\"\n\nFluent setup (slot 0):\n  new track(lead).device(Polymer).n(\"c e d g\").clip(start).mute()\nMulti-clip:\n  lead@verse: n \"e c g\"",
             tag: "notes",
         },
         {
             name: "mini-notation",
             summary: "pattern operators & symbols",
-            syntax: "n \"c e g\"",
-            detail: "Mini-notation operators:\n  ~ rest   [a b] group   * repeat   / slow\n  <a b> alternate   ! replicate   _ elongate\n  ? drop   @ el-N   | choice   (3,8) euclid\n  {a,b} polymetric   % ratio   : octave",
+            syntax: "n \"[c d e f] ~ g\"",
+            detail: "Operators:\n  space = next beat-event\n  ~ rest (1 beat)\n  [a b c d] subdivide one beat into 16ths\n  *N repeat   /N slow   _ elongate\n  <a b> alternate   (3,8) euclid\n\nSteps 1-3 (16ths): use groups, e.g. n \"[c d e f]\"",
             tag: "notes",
         },
         {
@@ -124,7 +124,7 @@ export component AppWindow inherits Window {
             name: "beat()",
             summary: "create drum/percussion beat",
             syntax: "beat(4_)",
-            detail: "Beat shortcuts on a 16-step grid.\n\nSyntax:\n  beat(4_)\n  beat(off)\n  beat:16(1,5,11,14)\n\nShortcuts:\n  4_   → 0,4,8,12\n  off  → 2,6,10,14\n  2_4 / bk2 → 0,8\n  :16(1,5,11,14) → explicit steps",
+            detail: "Percussion on 16th grid (1 bar = 16 steps). Counts are musical 1-based.\n\nSyntax:\n  .beat(4_)\n  .beat(off)\n  .beat:16(1,5,9,13)\n\n4_  4-on-the-floor: 1, 5, 9, 13 — each 1 beat long\noff off-beats:        3, 7, 11, 15 — each 1 beat long\n2_4 / bk2:            1, 9 — half notes (2 beats)\nbeat:16(…) explicit 1-based steps ok",
             tag: "drum",
         },
         {

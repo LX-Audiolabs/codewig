@@ -43,7 +43,8 @@ pub static INSERTABLE: &[Device] = &[
         name: "Polymer",
         kind: DeviceKind::Synth,
         alias: "poly",
-        params: &["cutoff", "res", "envMod", "oscMix", "noise"],
+        // Params live in devices/polymer.yaml (empty until fixed subset documented).
+        params: &[],
     },
     Device {
         name: "Polysynth",
@@ -125,6 +126,7 @@ pub static DRUM_DEVICES: &[Device] = &[
     Device { name: "v9 Crash", kind: DeviceKind::Drum, alias: "v9crash", params: &["decay", "tone"] },
     Device { name: "v9 Hat Closed", kind: DeviceKind::Drum, alias: "v9hatclosed", params: &["decay", "tone"] },
     Device { name: "v9 Hat Open", kind: DeviceKind::Drum, alias: "v9hatopen", params: &["decay", "tone"] },
+    // Param names/ranges: devices/v9kick.yaml (source of truth for WIGSCRIPT params).
     Device { name: "v9 Kick", kind: DeviceKind::Drum, alias: "v9kick", params: &["decay", "pitch"] },
     Device { name: "v9 Ride", kind: DeviceKind::Drum, alias: "v9ride", params: &["decay", "tone"] },
     Device { name: "v9 Rimshot", kind: DeviceKind::Drum, alias: "v9rimshot", params: &["decay", "pitch"] },
@@ -248,7 +250,7 @@ pub fn find_device(name: &str) -> Option<&'static Device> {
         .find(|d| norm(d.name) == cl || norm(d.alias) == n)
 }
 
-/// Parameter name hints.
+/// Parameter name hints (static table). Prefer [`super::param_catalog`] for real support.
 pub fn device_params(name: &str) -> Option<&'static [&'static str]> {
     if let Some(d) = find_device(name) {
         return Some(d.params);
@@ -260,6 +262,16 @@ pub fn device_params(name: &str) -> Option<&'static [&'static str]> {
             .map(|d| d.params);
     }
     None
+}
+
+/// Param names from MD catalog when available; else static table.
+pub fn device_param_names(name: &str) -> Vec<String> {
+    if let Some(dev) = super::param_catalog::catalog().resolve(name) {
+        return dev.params.iter().map(|p| p.name.clone()).collect();
+    }
+    device_params(name)
+        .map(|s| s.iter().map(|x| (*x).to_string()).collect())
+        .unwrap_or_default()
 }
 
 /// Map WIGSCRIPT catalog name → Bitwig name for **`device.add`**.

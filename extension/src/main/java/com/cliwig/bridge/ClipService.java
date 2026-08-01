@@ -201,6 +201,8 @@ public final class ClipService {
     }
 
     private void writeSteps(final List<NoteSpec> notes) {
+        // Align grid: 1 step = 1/16 note (0.25 beats). NoteSpec.dur is length in steps.
+        cursorClip.setStepSize(0.25);
         for (final NoteSpec n : notes) {
             if (n.step() < 0) {
                 throw new IllegalArgumentException("step must be >= 0, got " + n.step());
@@ -209,7 +211,8 @@ public final class ClipService {
                 throw new IllegalArgumentException("key must be 0..127, got " + n.key());
             }
             if (n.vel() < 1 || n.vel() > 127) {
-                throw new IllegalArgumentException("vel must be 1..127, got " + n.vel());
+                // rest (vel 0) — skip write
+                continue;
             }
             if (n.dur() <= 0) {
                 throw new IllegalArgumentException("dur must be > 0, got " + n.dur());
@@ -226,9 +229,17 @@ public final class ClipService {
         if (slot < 0 || slot >= TrackService.SCENE_SLOTS) {
             throw new IllegalArgumentException("slot out of range 0.." + (TrackService.SCENE_SLOTS - 1));
         }
-        final ClipLauncherSlot s = t.clipLauncherSlotBank().getItemAt(slot);
+        final ClipLauncherSlotBank bank = t.clipLauncherSlotBank();
+        ClipLauncherSlot s = bank.getItemAt(slot);
         if (!s.hasContent().get()) {
-            throw new IllegalArgumentException("slot " + slot + " is empty — create a clip first");
+            // Auto-create empty clip at this scene row (Bitwig cell track×scene)
+            bank.createEmptyClip(slot, 4);
+            s = bank.getItemAt(slot);
+        }
+        if (!s.hasContent().get()) {
+            throw new IllegalArgumentException(
+                    "slot " + slot + " is empty — create a clip first "
+                            + "(e.g. s(" + slot + ").t(" + trackRef + ").c(new) or clip.new)");
         }
         return s;
     }

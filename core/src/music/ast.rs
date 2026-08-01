@@ -21,8 +21,12 @@ pub enum MusicLine {
     Mute(MuteCmd),
     /// `unmute(kick)` | `unmute(1,3,5)`
     Unmute(MuteCmd),
-    /// `s(1).start` | `s(1).stop` — scene launch/stop
+    /// `s(1).start` | `s(verse).stop` — scene launch/stop
     Scene(SceneCmd),
+    /// `new scene` | `new scene()` | `new scene(verse)` — name a scene row (Bitwig launcher)
+    NewScene { name: Option<String> },
+    /// `s(verse).t(lead).c(new)` | `s(1).t(lead).c(new, A)` — clip at track × scene
+    SceneTrackClip(SceneTrackClipCmd),
     /// `c(track.0).start` | `c(track.0).stop` — clip launch/stop
     ClipCtrl(ClipCtrlCmd),
     /// `> bass` — CLIwig passthrough
@@ -66,22 +70,25 @@ pub struct DeviceSpec {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum BeatSpec {
-    /// 4_ → 4-on-the-floor (steps 0,4,8,12 in 16-grid)
+    /// `4_` — 4-on-the-floor: every quarter (musician 1-based **1, 5, 9, 13**).
+    /// Stored 0-based 0,4,8,12. Duration: **1 beat** (= 4 sixteenths).
     FourToFloor,
-    /// 2_4 → half notes (steps 0,8)
+    /// `2_4` — half notes: 1-based 1, 9 → 0-based 0, 8; duration 2 beats.
     HalfNotes,
-    /// off → offbeats (steps 2,6,10,14)
+    /// `off` — off-beats: musician 1-based **3, 7, 11, 15** → 0-based 2,6,10,14.
+    /// Duration: 1 beat each.
     Offbeat,
-    /// bk2 → breakbeat kick (steps 0,8)
+    /// `bk2` — sparse: 1-based 1, 9 → 0, 8; duration 2 beats.
     Break2,
-    /// :16(1,5,11,14)  — explicit grid size + step positions
+    /// `beat:16(0,4,8,12)` — explicit 0-based steps (or 1-based 1..grid, normalized).
     Explicit { grid: u32, positions: Vec<u32> },
 }
 
 impl BeatSpec {
-    /// Expand to step positions in a 16-step grid (default).
+    /// Hit start positions on the 16th-note grid (0-based).
     pub fn steps(&self) -> Vec<u32> {
         match self {
+            // 4-on-the-floor: every 4th 16th = quarter notes
             BeatSpec::FourToFloor => vec![0, 4, 8, 12],
             BeatSpec::HalfNotes => vec![0, 8],
             BeatSpec::Offbeat => vec![2, 6, 10, 14],
@@ -90,11 +97,22 @@ impl BeatSpec {
         }
     }
 
-    /// Grid size (default 16).
+    /// Grid size in 16th steps per bar (default 16).
     pub fn grid(&self) -> u32 {
         match self {
             BeatSpec::Explicit { grid, .. } => *grid,
             _ => 16,
+        }
+    }
+
+    /// Note length in **grid steps** (Bitwig clip step units).
+    /// One musical beat at 16-grid = 4 steps; half note = 8.
+    pub fn hit_duration_steps(&self) -> f64 {
+        let g = self.grid() as f64;
+        match self {
+            BeatSpec::FourToFloor | BeatSpec::Offbeat => g / 4.0, // quarter note
+            BeatSpec::HalfNotes | BeatSpec::Break2 => g / 2.0,    // half note
+            BeatSpec::Explicit { .. } => g / 4.0,                 // default one beat
         }
     }
 }
@@ -105,12 +123,32 @@ pub enum ClipAction {
     Stop,
 }
 
-/// `t(kick).d(kick.v9): decay(280) punch(45)`
+#[cfg(test)]
+mod beat_tests {
+    use super::*;
+
+    #[test]
+    fn four_on_the_floor_and_offbeat() {
+        // musician 1-based 1,5,9,13 → 0-based 0,4,8,12; dur 1 beat
+        let four = BeatSpec::FourToFloor;
+        assert_eq!(four.steps(), vec![0, 4, 8, 12]);
+        assert!((four.hit_duration_steps() - 4.0).abs() < f64::EPSILON);
+        // musician 1-based 3,7,11,15 → 0-based 2,6,10,14
+        let off = BeatSpec::Offbeat;
+        assert_eq!(off.steps(), vec![2, 6, 10, 14]);
+        assert!((off.hit_duration_steps() - 4.0).abs() < f64::EPSILON);
+    }
+}
+
+/// Param snapshot on a device.
+/// Preferred: `kick&v9kick: decay(50) pitch(40)` (display units from `devices/*.md`).
+/// Legacy: `t(kick).d(kick.v9): decay(50) pitch(40)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamCmd {
     pub track: String,
     pub device: DeviceSpec,
-    pub params: Vec<(String, f64)>,  // (name, raw_value)
+    /// User-facing values (display range from catalog; execute maps → wire 0..1).
+    pub params: Vec<(String, f64)>,
 }
 
 /// `mute(kick)` | `mute(kick) 4` | `mute(kick) @bar` | `mute(kick) 4 @bar`
@@ -174,12 +212,31 @@ pub struct Target {
     pub drum_kit: Option<String>,  // "808", "909", "retro"
 }
 
+/// Clip / scene-row address on a track (Bitwig: column=track, row=scene slot).
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClipRef {
-    /// Secondary address: resolve via `clip.list` name (slot index is primary elsewhere).
-    Name(String), // @verse
+    /// Scene **row index** — `lead@0`, `lead@2` (primary id).
+    Slot(i32),
+    /// Scene **row name** — `lead@verse` (secondary; resolve via scene.list).
+    Name(String),
     /// Legacy marker; treated as default slot on write.
     Launch, // !
+}
+
+/// `s(verse).t(lead).c(new)` | `s(1).t(bass).c(new, intro)` | `.c(start)`
+#[derive(Debug, Clone, PartialEq)]
+pub struct SceneTrackClipCmd {
+    pub scene: SceneRef,
+    pub track: String,
+    pub action: SceneClipAction,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum SceneClipAction {
+    /// Create empty launcher clip at track × scene (optional clip display name).
+    New { name: Option<String> },
+    Start,
+    Stop,
 }
 
 /// A parameter assignment: `+cutoff:0.3` — one snapshot via `param.set`.

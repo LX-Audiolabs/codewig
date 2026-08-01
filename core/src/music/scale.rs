@@ -61,15 +61,25 @@ pub static SCALES: &[(&str, ScaleKind, &[u8])] = &[
 ];
 
 /// Note name → semitone offset from C (within octave).
+/// English + German accidentals (cis, des, …). `b` alone = B natural (English).
 static NOTE_OFFSETS: &[(&str, i32)] = &[
-    ("c", 0), ("c#", 1), ("db", 1),
-    ("d", 2), ("d#", 3), ("eb", 3),
-    ("e", 4),
-    ("f", 5), ("f#", 6), ("gb", 6),
-    ("g", 7), ("g#", 8), ("ab", 8),
-    ("a", 9), ("a#", 10), ("bb", 10),
-    ("b", 11),
+    ("c", 0), ("c#", 1), ("db", 1), ("cis", 1), ("des", 1),
+    ("d", 2), ("d#", 3), ("eb", 3), ("dis", 3), ("es", 3),
+    ("e", 4), ("eis", 5), ("fb", 4),
+    ("f", 5), ("f#", 6), ("gb", 6), ("fis", 6), ("ges", 6),
+    ("g", 7), ("g#", 8), ("ab", 8), ("gis", 8), ("as", 8),
+    ("a", 9), ("a#", 10), ("bb", 10), ("ais", 10), ("b", 11), ("h", 11),
 ];
+
+/// Default octave when omitted: **3** in **Bitwig/Yamaha** naming.
+/// Bitwig: middle C = **C3** = MIDI **60**. Formula: `offset + (octave + 2) * 12`.
+pub const DEFAULT_OCTAVE: i32 = 3;
+
+/// Convert Bitwig octave number + pitch class → MIDI.
+#[inline]
+fn bitwig_octave_to_midi(note_offset: i32, octave: i32) -> i32 {
+    note_offset + (octave + 2) * 12
+}
 
 fn lookup_note_offset(name: &str) -> Option<i32> {
     NOTE_OFFSETS.iter().find(|(n, _)| *n == name).map(|(_, o)| *o)
@@ -85,7 +95,8 @@ impl Scale {
     /// `scale_name` e.g. "minor", "dorian", "major"
     pub fn new(root: &str, scale_name: &str) -> Result<Self, String> {
         let (root_note, root_octave) = parse_note_root(root)?;
-        let root_midi = root_note + (root_octave + 1) * 12; // C4 = MIDI 60
+        // Bitwig octave: C3 = MIDI 60
+        let root_midi = bitwig_octave_to_midi(root_note, root_octave);
 
         let (kind, intervals) = lookup_scale(&scale_name.to_lowercase())
             .ok_or_else(|| format!("unknown scale: '{scale_name}'. Known: major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic, blues, chromatic"))?;
@@ -146,7 +157,6 @@ impl Scale {
 }
 
 /// Parse a note name like "C", "Eb", "F#3" into (semitones from C, octave).
-/// If no octave given, defaults to 3 (so C = C4 = MIDI 60).
 fn parse_note_root(name: &str) -> Result<(i32, i32), String> {
     let s = name.trim();
     let chars: Vec<char> = s.chars().collect();
@@ -164,18 +174,25 @@ fn parse_note_root(name: &str) -> Result<(i32, i32), String> {
     let octave_str: String = chars[note_end..].iter().collect();
 
     let note_offset = lookup_note_offset(&note_part.to_lowercase())
-        .ok_or_else(|| format!("unknown note: '{note_part}'. Use C, C#, Db, D, ..."))?;
+        .ok_or_else(|| {
+            format!("unknown note: '{note_part}'. Use c, c#, cis, db, d, … + optional octave (c3)")
+        })?;
 
     let octave: i32 = if octave_str.is_empty() {
-        4  // default: c = C4 = MIDI 60
+        DEFAULT_OCTAVE
     } else {
-        octave_str.parse().map_err(|_| format!("invalid octave: '{octave_str}'"))?
+        octave_str
+            .parse()
+            .map_err(|_| format!("invalid octave: '{octave_str}'"))?
     };
 
     Ok((note_offset, octave))
 }
 
-/// Parse a note name from mini-notation like "c", "eb", "f#4" → MIDI number.
+/// Parse mini-notation pitch: `c`, `c#`, `cis`, `eb3`, `f#4` → MIDI.
+///
+/// **Bitwig octave names:** bare `c` = **C3** = MIDI **60**.
+/// Explicit: `c2`, `c3`, `c4` (same numbers Bitwig shows).
 pub fn note_to_midi(name: &str) -> Result<i32, String> {
     let s = name.trim();
     let chars: Vec<char> = s.chars().collect();
@@ -191,19 +208,23 @@ pub fn note_to_midi(name: &str) -> Result<i32, String> {
     let note_part: String = chars[..note_end].iter().collect();
     let octave_str: String = chars[note_end..].iter().collect();
 
-    let note_offset = lookup_note_offset(&note_part.to_lowercase())
-        .ok_or_else(|| format!("unknown note: '{note_part}'"))?;
+    let note_offset = lookup_note_offset(&note_part.to_lowercase()).ok_or_else(|| {
+        format!("unknown note: '{note_part}'. Use c, c#/cis, db/des, d, … or MIDI 0..127")
+    })?;
 
     let octave: i32 = if octave_str.is_empty() {
-        // Default: lowercase = octave 4, uppercase = octave 3?
-        // Tidal convention: c = C4 (60), C = C3 (48)... but MIDI spec C4=60
-        // Let's use: c = C4 (60), same as Tidal
-        4
+        DEFAULT_OCTAVE
     } else {
-        octave_str.parse().map_err(|_| format!("invalid octave in '{s}'"))?
+        octave_str
+            .parse()
+            .map_err(|_| format!("invalid octave in '{s}'"))?
     };
 
-    Ok(note_offset + (octave + 1) * 12)
+    let midi = bitwig_octave_to_midi(note_offset, octave);
+    if !(0..=127).contains(&midi) {
+        return Err(format!("note '{s}' → MIDI {midi} out of range 0..127"));
+    }
+    Ok(midi)
 }
 
 #[cfg(test)]
@@ -212,42 +233,47 @@ mod tests {
 
     #[test]
     fn test_scale_c_minor() {
+        // Bitwig: bare C = C3 = MIDI 60
         let scale = Scale::new("C", "minor").unwrap();
-        assert_eq!(scale.degree_to_midi(0), 60);  // C4
-        assert_eq!(scale.degree_to_midi(1), 62);  // D4
-        assert_eq!(scale.degree_to_midi(2), 63);  // Eb4
-        assert_eq!(scale.degree_to_midi(3), 65);  // F4
-        assert_eq!(scale.degree_to_midi(7), 72);  // C5 (octave up)
-        assert_eq!(scale.degree_to_midi(-1), 58); // Bb3?  Wait, -1 = last scale degree
+        assert_eq!(scale.degree_to_midi(0), 60);
+        assert_eq!(scale.degree_to_midi(1), 62);
+        assert_eq!(scale.degree_to_midi(2), 63); // Eb
+        assert_eq!(scale.degree_to_midi(3), 65);
+        assert_eq!(scale.degree_to_midi(7), 72); // C4 Bitwig
     }
 
     #[test]
     fn test_scale_d_major() {
         let scale = Scale::new("D", "major").unwrap();
-        assert_eq!(scale.degree_to_midi(0), 62);  // D4
-        assert_eq!(scale.degree_to_midi(1), 64);  // E4
-        assert_eq!(scale.degree_to_midi(2), 66);  // F#4
+        assert_eq!(scale.degree_to_midi(0), 62); // D3 Bitwig
+        assert_eq!(scale.degree_to_midi(1), 64);
+        assert_eq!(scale.degree_to_midi(2), 66);
     }
 
     #[test]
-    fn test_note_to_midi() {
-        assert_eq!(note_to_midi("c4").unwrap(), 60);
-        assert_eq!(note_to_midi("c").unwrap(), 60);   // C4
-        assert_eq!(note_to_midi("eb4").unwrap(), 63);
-        assert_eq!(note_to_midi("f#").unwrap(), 66);  // F#4
+    fn test_note_to_midi_bitwig() {
+        assert_eq!(note_to_midi("c").unwrap(), 60); // Bitwig C3
+        assert_eq!(note_to_midi("c3").unwrap(), 60);
+        assert_eq!(note_to_midi("c4").unwrap(), 72);
+        assert_eq!(note_to_midi("c2").unwrap(), 48);
+        assert_eq!(note_to_midi("c#").unwrap(), 61);
+        assert_eq!(note_to_midi("cis").unwrap(), 61);
+        assert_eq!(note_to_midi("cis2").unwrap(), 49);
+        assert_eq!(note_to_midi("eb3").unwrap(), 63);
+        assert_eq!(note_to_midi("f#").unwrap(), 66); // F#3 Bitwig
     }
 
     #[test]
     fn test_scale_new_flat_root() {
         let scale = Scale::new("Eb", "major").unwrap();
-        assert_eq!(scale.degree_to_midi(0), 63);  // Eb4
+        assert_eq!(scale.degree_to_midi(0), 63); // Eb3 Bitwig
     }
 
     #[test]
     fn test_scale_transpose() {
         let scale = Scale::new("C", "major").unwrap();
-        let midi = scale.degree_to_midi(0); // C4 = 60
+        let midi = scale.degree_to_midi(0); // 60
         let up_one = scale.scale_transpose(midi, 1);
-        assert_eq!(up_one, 62); // D4
+        assert_eq!(up_one, 62);
     }
 }

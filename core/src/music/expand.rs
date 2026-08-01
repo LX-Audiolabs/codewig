@@ -3,7 +3,15 @@
 //! Converts parsed mini-notation patterns and music commands into
 //! concrete MIDI note lists for `clip.set-notes`.
 //!
-//! Also provides chord expansion and arpeggio generation.
+//! ## Note language (`n "…"`)
+//! - **Spaces** separate successive events (not empty beats).
+//! - **`~`** = rest (skip time, no note).
+//! - Bare pitch `c` / `e` → Bitwig octave **3** (`c` = MIDI 60, same as Bitwig UI).
+//! - Explicit: `c2`, `c#3`, `cis`, `eb4` (Bitwig octave numbers).
+//! - Numbers `0 2 4` with key set = **scale degrees**; without key = raw MIDI 0..127.
+//! - Space-separated events: each **1 beat** (steps 0,4,8,…; dur 4 on 16-grid).
+//! - `[c d e f]` = one beat subdivided into 16ths (steps within that beat).
+//! - Bitwig `dur` = length in **grid steps**; `setStepSize(0.25)`.
 
 use super::ast::*;
 use super::scale::{self, Scale};
@@ -118,6 +126,11 @@ fn expand_sequence(
     Ok((notes, current_step - base_step))
 }
 
+/// Grid steps for one musical beat (16-grid → 4 sixteenths).
+fn steps_per_beat(steps_per_bar: u32) -> u32 {
+    (steps_per_bar / 4).max(1)
+}
+
 fn expand_event(
     event: &Event,
     cmd: &MusicCmd,
@@ -125,79 +138,156 @@ fn expand_event(
     steps_per_bar: u32,
     base_step: u32,
 ) -> Result<(Vec<NoteSpec>, u32), ExpandError> {
-    let sub_step_size = 1.0 / steps_per_bar as f64;
+    // Bitwig setStep `dur` = length in **grid steps** (not fraction of bar).
+    // Default event = 1 beat.
+    let beat = steps_per_beat(steps_per_bar);
+    let beat_dur = beat as f64;
 
     // Determine the base notes and step count for the atom
     let (base_notes, atom_steps) = match &event.atom {
         Atom::Note(name) => {
-            let midi = scale::note_to_midi(name)
-                .map_err(|e| ExpandError { msg: e })?;
-            (vec![NoteSpec { step: base_step as i32, key: midi, vel: 100, dur: sub_step_size }], 1)
+            let midi = scale::note_to_midi(name).map_err(|e| ExpandError { msg: e })?;
+            (
+                vec![NoteSpec {
+                    step: base_step as i32,
+                    key: midi,
+                    vel: 100,
+                    dur: beat_dur,
+                }],
+                beat,
+            )
         }
         Atom::Midi(n) => {
-            let key = (*n).clamp(0, 127);
-            // Heuristic: if scale is set and number is small (< 24), treat as degree
-            if let Some(s) = scale {
-                if *n >= -24 && *n < 24 {
-                    let midi = s.degree_to_midi(*n);
-                    (vec![NoteSpec { step: base_step as i32, key: midi, vel: 100, dur: sub_step_size }], 1)
+            // With scale: small ints are scale degrees (0 = root, 2 = third, …).
+            // Without scale: treat as raw MIDI 0..127.
+            let key = if let Some(s) = scale {
+                if (-24..24).contains(n) {
+                    s.degree_to_midi(*n)
                 } else {
-                    (vec![NoteSpec { step: base_step as i32, key, vel: 100, dur: sub_step_size }], 1)
+                    (*n).clamp(0, 127)
                 }
+            } else if (0..=127).contains(n) {
+                *n
             } else {
-                (vec![NoteSpec { step: base_step as i32, key, vel: 100, dur: sub_step_size }], 1)
-            }
+                return Err(ExpandError {
+                    msg: format!(
+                        "number {n}: set key first for scale degrees (0 2 4), or use MIDI 0..127 / note names"
+                    ),
+                });
+            };
+            (
+                vec![NoteSpec {
+                    step: base_step as i32,
+                    key,
+                    vel: 100,
+                    dur: beat_dur,
+                }],
+                beat,
+            )
         }
         Atom::Rest => {
-            (vec![NoteSpec { step: base_step as i32, key: 0, vel: 0, dur: sub_step_size }], 1)
+            // Advance time, no audible note (filtered out on write if vel==0)
+            (
+                vec![NoteSpec {
+                    step: base_step as i32,
+                    key: 0,
+                    vel: 0,
+                    dur: beat_dur,
+                }],
+                beat,
+            )
         }
         Atom::Group(ref seqs) => {
-            let division = step_division_for_group(seqs);
-            let sub_dur = sub_step_size / division as f64;
+            // One beat wall-time → N equal grid slots (16-grid, 4 notes → steps +0..+3, dur 1 each).
+            let events: Vec<&Event> = seqs.iter().flat_map(|s| s.events.iter()).collect();
+            let division = events.len().max(1) as u32;
+            let sub_len = (beat / division).max(1);
+            let sub_dur = sub_len as f64;
             let mut all_notes = Vec::new();
-            let mut offset = 0u32;
-            for seq in seqs {
-                let (mut seq_notes, used) = expand_sequence_stepped(seq, cmd, scale, steps_per_bar, base_step, offset, division, sub_dur)?;
-                all_notes.append(&mut seq_notes);
-                offset += used;
+            for (i, ev) in events.iter().enumerate() {
+                let sub_step = base_step + i as u32 * sub_len;
+                let (key, vel) = match &ev.atom {
+                    Atom::Note(name) => {
+                        let m = scale::note_to_midi(name).map_err(|e| ExpandError { msg: e })?;
+                        (m, 100)
+                    }
+                    Atom::Midi(n) => {
+                        let key = if let Some(s) = scale {
+                            if (-24..24).contains(n) {
+                                s.degree_to_midi(*n)
+                            } else {
+                                (*n).clamp(0, 127)
+                            }
+                        } else {
+                            (*n).clamp(0, 127)
+                        };
+                        (key, 100)
+                    }
+                    Atom::Rest => (0, 0),
+                    _ => {
+                        // Nested structure: expand then re-stamp into this sub-slot
+                        let (mut leaf, _) = expand_event(ev, cmd, scale, steps_per_bar, sub_step)?;
+                        for n in &mut leaf {
+                            n.step = sub_step as i32;
+                            n.dur = sub_dur;
+                        }
+                        all_notes.append(&mut leaf);
+                        continue;
+                    }
+                };
+                all_notes.push(NoteSpec {
+                    step: sub_step as i32,
+                    key,
+                    vel,
+                    dur: sub_dur,
+                });
             }
-            (all_notes, 1) // group occupies 1 step, internally subdivided
+            (all_notes, beat)
         }
         Atom::Alternate(ref alts) => {
-            // Alternate cycles through options. For static expansion, pick first (or random?)
-            // ponytail: for v1, expand to first alternative. Later: cycle tracking.
+            // Alternate cycles through options. For static expansion, pick first.
+            // ponytail: first alternative only until cycle state exists.
             if let Some(first) = alts.first() {
-                let sub_dur = sub_step_size;
+                let sub_dur = beat_dur;
                 let mut all_notes = Vec::new();
                 let mut offset = 0u32;
                 for seq in first {
-                    let (mut seq_notes, used) = expand_sequence_stepped(seq, cmd, scale, steps_per_bar, base_step, offset, 1, sub_dur)?;
+                    let (mut seq_notes, used) = expand_sequence_stepped(
+                        seq,
+                        cmd,
+                        scale,
+                        steps_per_bar,
+                        base_step,
+                        offset,
+                        1,
+                        sub_dur,
+                    )?;
                     all_notes.append(&mut seq_notes);
                     offset += used;
                 }
-                (all_notes, 1)
+                (all_notes, beat)
             } else {
-                (vec![], 1)
+                (vec![], beat)
             }
         }
         Atom::Euclid { beats, steps, offset } => {
             let pattern = euclid_pattern(*beats, *steps, offset.unwrap_or(0));
             let mut all_notes = Vec::new();
+            let step_dur = beat_dur; // each euclid cell = one beat unit of the outer grid
             for (sub_step, is_hit) in pattern.iter().enumerate() {
                 if *is_hit {
-                    // Ponytail: euclid on drums uses the drum MIDI, on notes needs a pitch
-                    // For drums, use the first note from the parent context? 
-                    // v1: euclid on drums only. For notes, wrap in Group.
-                    let midi = 36; // default kick — caller should wrap in drum context
+                    let midi = scale
+                        .map(|s| s.degree_to_midi(0))
+                        .unwrap_or(scale::note_to_midi("c").unwrap_or(48));
                     all_notes.push(NoteSpec {
-                        step: (base_step as i32 + sub_step as i32),
+                        step: (base_step as i32 + sub_step as i32 * beat as i32),
                         key: midi,
                         vel: 100,
-                        dur: sub_step_size,
+                        dur: step_dur,
                     });
                 }
             }
-            (all_notes, *steps)
+            (all_notes, *steps * beat)
         }
         Atom::RandomChoice(ref atoms) => {
             let mut rng = rand::thread_rng();
@@ -209,43 +299,58 @@ fn expand_event(
         Atom::Polymetric(ref polys) => {
             // Polymetric: each sub-pattern runs at its own rate, wrapping
             // v1: take the longest pattern, wrap shorter ones
-            let max_len = polys.iter().map(|p| p.iter().map(|s| s.events.len() as u32).sum::<u32>()).max().unwrap_or(1);
+            let max_len = polys
+                .iter()
+                .map(|p| p.iter().map(|s| s.events.len() as u32).sum::<u32>())
+                .max()
+                .unwrap_or(1);
             let mut all_notes = Vec::new();
             for poly in polys.iter() {
-                let _poly_steps: u32 = poly.iter().map(|s| s.events.len() as u32).sum();
                 let mut offset = 0u32;
                 for seq in poly {
                     let (mut seq_notes, _) = expand_sequence_stepped(
-                        seq, cmd, scale, steps_per_bar, base_step, offset, 1, sub_step_size)?;
+                        seq,
+                        cmd,
+                        scale,
+                        steps_per_bar,
+                        base_step,
+                        offset,
+                        1,
+                        beat_dur,
+                    )?;
                     all_notes.append(&mut seq_notes);
                     offset += seq.events.len() as u32;
                 }
             }
-            (all_notes, max_len)
+            (all_notes, max_len * beat)
         }
         Atom::Subdivide(ref seqs, n) => {
-            let sub_dur = sub_step_size / *n as f64;
+            let sub_dur = beat_dur / *n as f64;
             let mut all_notes = Vec::new();
             for seq in seqs {
                 let (mut seq_notes, _) = expand_sequence_stepped(
-                    seq, cmd, scale, steps_per_bar, base_step, 0, *n, sub_dur)?;
+                    seq,
+                    cmd,
+                    scale,
+                    steps_per_bar,
+                    base_step,
+                    0,
+                    *n,
+                    sub_dur,
+                )?;
                 all_notes.append(&mut seq_notes);
             }
-            (all_notes, 1) // ponytail: subdivide fills one step
+            (all_notes, beat) // ponytail: subdivide fills one beat
         }
     };
 
     // Apply suffixes
     let mut notes = base_notes;
     for suffix in &event.suffixes {
-        notes = apply_suffix(notes, suffix, &event.atom, base_step as i32, sub_step_size);
+        notes = apply_suffix(notes, suffix, &event.atom, base_step as i32, beat_dur);
     }
 
     Ok((notes, atom_steps))
-}
-
-fn step_division_for_group(seqs: &[Sequence]) -> u32 {
-    seqs.iter().map(|s| s.events.len() as u32).sum::<u32>().max(1)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -419,18 +524,19 @@ pub fn expand_chord(
     base_step: i32,
 ) -> Result<Vec<NoteSpec>, ExpandError> {
     let tokens: Vec<&str> = chord_str.split_whitespace().collect();
-    let sub_step_size = 1.0 / steps_per_bar as f64;
+    let beat = steps_per_beat(steps_per_bar) as f64;
     let mut notes = Vec::new();
 
-    for (current_step, token) in (base_step..).zip(tokens.iter()) {
+    for (i, token) in tokens.iter().enumerate() {
+        let current_step = base_step + i as i32 * steps_per_beat(steps_per_bar) as i32;
         let (root, quality) = parse_chord_token(token)?;
         let root_midi = if let Some(s) = scale {
             // Try as scale degree (roman numeral) first
             parse_roman_degree(&root)
                 .map(|d| s.degree_to_midi(d))
-                .unwrap_or_else(|_| scale::note_to_midi(&root).unwrap_or(60))
+                .unwrap_or_else(|_| scale::note_to_midi(&root).unwrap_or(48))
         } else {
-            scale::note_to_midi(&root).unwrap_or(60)
+            scale::note_to_midi(&root).unwrap_or(48)
         };
 
         let intervals = chord_intervals(&quality)
@@ -441,7 +547,7 @@ pub fn expand_chord(
                 step: current_step,
                 key: (root_midi + iv).clamp(0, 127),
                 vel: 100,
-                dur: sub_step_size,
+                dur: beat,
             });
         }
     }
@@ -613,13 +719,17 @@ mod tests {
     fn test_expand_simple_notes() {
         let line = parse::parse_music_line(r#"bass: n "c e g""#).unwrap();
         if let MusicLine::Music(ref cmd) = line {
-            let scale = Scale::new("C", "major").ok();
-            let (notes, steps) = expand_music_line(cmd, scale.as_ref(), 16).unwrap();
+            let (notes, steps) = expand_music_line(cmd, None, 16).unwrap();
             assert_eq!(notes.len(), 3);
-            assert_eq!(notes[0].key, 60); // C4
-            assert_eq!(notes[1].key, 64); // E4
-            assert_eq!(notes[2].key, 67); // G4
-            assert_eq!(steps, 3);
+            // Bitwig C3=60, E3=64, G3=67; one beat each on 16-grid
+            assert_eq!(notes[0].key, 60);
+            assert_eq!(notes[1].key, 64);
+            assert_eq!(notes[2].key, 67);
+            assert_eq!(notes[0].step, 0);
+            assert_eq!(notes[1].step, 4);
+            assert_eq!(notes[2].step, 8);
+            assert!((notes[0].dur - 4.0).abs() < f64::EPSILON);
+            assert_eq!(steps, 12); // 3 beats × 4 sixteenths
         } else {
             panic!("expected Music");
         }
@@ -634,6 +744,7 @@ mod tests {
             assert_eq!(notes[0].key, 60);
             assert_eq!(notes[1].vel, 0); // rest
             assert_eq!(notes[2].key, 67);
+            assert_eq!(notes[2].step, 8);
         }
     }
 
@@ -650,18 +761,35 @@ mod tests {
     }
 
     #[test]
+    fn test_expand_group_sixteenths() {
+        // One beat subdivided: steps 0,1,2,3 within first beat
+        let line = parse::parse_music_line(r#"bass: n "[c d e f]""#).unwrap();
+        if let MusicLine::Music(ref cmd) = line {
+            let (notes, steps) = expand_music_line(cmd, None, 16).unwrap();
+            assert_eq!(notes.len(), 4);
+            assert_eq!(notes[0].step, 0);
+            assert_eq!(notes[1].step, 1);
+            assert_eq!(notes[2].step, 2);
+            assert_eq!(notes[3].step, 3);
+            assert!((notes[0].dur - 1.0).abs() < f64::EPSILON);
+            assert_eq!(steps, 4); // one beat
+        }
+    }
+
+    #[test]
     fn test_d_action_removed() {
         assert!(parse::parse_music_line(r#"kick: d "bd hh""#).is_err());
     }
 
     #[test]
     fn test_expand_degrees() {
+        // With key: numbers = scale degrees (0=root, 2=third, 4=fifth)
         let line = parse::parse_music_line(r#"bass: n "0 2 4""#).unwrap();
-        let scale = Scale::new("C", "minor").unwrap();
+        let scale = Scale::new("C", "minor").unwrap(); // root C3=48
         if let MusicLine::Music(ref cmd) = line {
             let (notes, _) = expand_music_line(cmd, Some(&scale), 16).unwrap();
-            assert_eq!(notes[0].key, 60); // C
-            assert_eq!(notes[1].key, 63); // Eb (minor third)
+            assert_eq!(notes[0].key, 60); // C3 Bitwig
+            assert_eq!(notes[1].key, 63); // Eb
             assert_eq!(notes[2].key, 67); // G
         }
     }
@@ -672,9 +800,9 @@ mod tests {
         if let MusicLine::Music(ref cmd) = line {
             assert_eq!(cmd.transpose, Some(2));
             let (notes, _) = expand_music_line(cmd, None, 16).unwrap();
-            assert_eq!(notes[0].key, 62); // D
-            assert_eq!(notes[1].key, 66); // F#
-            assert_eq!(notes[2].key, 69); // A
+            assert_eq!(notes[0].key, 62); // D3
+            assert_eq!(notes[1].key, 66); // F#3
+            assert_eq!(notes[2].key, 69); // A3
         }
     }
 
@@ -698,9 +826,9 @@ mod tests {
 
     #[test]
     fn test_expand_chord_major() {
-        // C4=60, F4=65, G4=67 (default octave 4)
+        // Bitwig C3 triad
         let notes = expand_chord("C F G", None, 16, 0).unwrap();
-        assert_eq!(notes.len(), 9); // 3 chords × 3 notes
+        assert_eq!(notes.len(), 9);
         assert_eq!(notes[0].key, 60);
         assert_eq!(notes[1].key, 64);
         assert_eq!(notes[2].key, 67);
@@ -708,20 +836,18 @@ mod tests {
 
     #[test]
     fn test_expand_chord_minor7() {
-        // A4 = 69, C5 = 72, E5 = 76, G5 = 79 (default octave 4 for chord roots)
         let notes = expand_chord("Am7", None, 16, 0).unwrap();
         assert_eq!(notes.len(), 4);
-        assert_eq!(notes[0].key, 69); // A4
-        assert_eq!(notes[3].key, 79); // G5
+        assert_eq!(notes[0].key, 69); // A3 Bitwig
+        assert_eq!(notes[3].key, 79); // G4
     }
 
     #[test]
     fn test_expand_chord_roman() {
         let scale = Scale::new("C", "minor").unwrap();
-        // i=Cm (C4=60), iv=Fm (F4=65), v=Gm (G4=67)
         let notes = expand_chord("i iv v", Some(&scale), 16, 0).unwrap();
         assert_eq!(notes.len(), 9);
-        assert_eq!(notes[0].key, 60); // C (root of i)
+        assert_eq!(notes[0].key, 60);
     }
 
     #[test]
@@ -741,7 +867,7 @@ mod tests {
             let (notes, steps) = expand_music_line(cmd, None, 8).unwrap();
             assert_eq!(steps, 8);
             assert_eq!(notes.len(), 8);
-            // C major triad: 60, 64, 67 cycling
+            // C major triad Bitwig C3: 60, 64, 67
             assert_eq!(notes[0].key, 60);
             assert_eq!(notes[1].key, 64);
             assert_eq!(notes[2].key, 67);

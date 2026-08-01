@@ -346,6 +346,15 @@ impl Client {
         self.send(self.req("scene.list"))
     }
 
+    /// Claim / name a scene row. `name` optional. Idempotent if name already exists.
+    pub fn scene_new(&self, name: Option<&str>) -> Result<Option<Value>, Error> {
+        let mut r = self.req("scene.new");
+        if let Some(n) = name {
+            r = r.field("name", n);
+        }
+        self.send(r)
+    }
+
     pub fn scene_launch(&self, r#ref: &str) -> Result<Option<Value>, Error> {
         self.send(self.req("scene.launch").field("ref", r#ref))
     }

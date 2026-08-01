@@ -104,4 +104,57 @@ public final class SceneService {
         result.addProperty("stopped", true);
         return result;
     }
+
+    /**
+     * Name / claim a scene row (Bitwig launcher row always exists as slots).
+     * If {@code name} already resolves, return that index (idempotent).
+     * Else pick first row with clipCount==0 (or first index), set name.
+     */
+    public JsonObject create(final String name) {
+        sceneBank.scrollPosition().set(0);
+        if (name != null && !name.isBlank()) {
+            final String want = name.trim();
+            for (int i = 0; i < size; i++) {
+                final Scene s = sceneBank.getScene(i);
+                if (!s.exists().get()) {
+                    continue;
+                }
+                final String n = s.name().get();
+                if (n != null && n.equalsIgnoreCase(want)) {
+                    final JsonObject result = new JsonObject();
+                    result.addProperty("index", i);
+                    result.addProperty("name", n);
+                    result.addProperty("existed", true);
+                    return result;
+                }
+            }
+        }
+
+        int target = -1;
+        for (int i = 0; i < size; i++) {
+            final Scene s = sceneBank.getScene(i);
+            if (!s.exists().get()) {
+                continue;
+            }
+            // Prefer empty rows (no clips launched content count)
+            if (s.clipCount().get() == 0) {
+                target = i;
+                break;
+            }
+        }
+        if (target < 0) {
+            // fall back to last index in bank
+            target = size - 1;
+        }
+
+        final Scene s = sceneBank.getScene(target);
+        if (name != null && !name.isBlank()) {
+            s.name().set(name.trim());
+        }
+        final JsonObject result = new JsonObject();
+        result.addProperty("index", target);
+        result.addProperty("name", s.name().get());
+        result.addProperty("existed", false);
+        return result;
+    }
 }
