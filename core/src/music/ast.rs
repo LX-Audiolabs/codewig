@@ -54,7 +54,7 @@ pub enum FluentStep {
     /// .beat(4_) or .beat:16(1,5,11,14)
     Beat(BeatSpec),
     /// .n("c e g")  — mini-notation for synth tracks
-    Pattern(String),
+    Pattern { pattern: String, mods: NoteMods },
     /// .mute()
     Mute,
     /// .clip(start) or .clip(stop) — launch/stop current clip on track
@@ -177,6 +177,18 @@ pub enum TrackRef {
     Index(i32),
 }
 
+/// Per-note expression / performance modifiers.
+/// Values are user-facing display units; execute normalizes before sending to Bitwig.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct NoteMods {
+    pub vel: Vec<Option<f64>>,      // 0..127
+    pub pressure: Vec<Option<f64>>, // 0..100 (%)
+    pub timbre: Vec<Option<f64>>,   // -100..100 (%)
+    pub pan: Vec<Option<f64>>,      // -100..100 (%)
+    pub gain: Vec<Option<f64>>,     // 0..100 (%)
+    pub chance: Vec<Option<f64>>,   // 0..100 (%)
+}
+
 /// A music command: target, action, pattern, params.
 #[derive(Debug, Clone, PartialEq)]
 pub struct MusicCmd {
@@ -186,6 +198,7 @@ pub struct MusicCmd {
     pub params: Vec<ParamSet>,
     pub transpose: Option<i32>,           // ^N
     pub scale_transpose: Option<i32>,     // ^^N
+    pub note_mods: NoteMods,
 }
 
 #[derive(Debug, Clone, PartialEq)]

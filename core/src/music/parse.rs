@@ -178,11 +178,10 @@ fn parse_music_cmd(input: &str) -> ParseResult<MusicLine> {
     // Parse target for track, @clip, :kit
     let target = parse_target(target_str)?;
 
-    // Parse the action + pattern + params from rest
+    // Parse the action + pattern + optional note expression modifiers + params from rest
     let (action, pattern, rest2) = parse_action_pattern(rest, s)?;
-
-    // Parse remaining params
-    let (params, transpose, scale_transpose) = parse_params(rest2, s)?;
+    let (note_mods, rest3) = parse_note_mods(rest2, s)?;
+    let (params, transpose, scale_transpose) = parse_params(rest3, s)?;
 
     Ok(MusicLine::Music(MusicCmd {
         target,
@@ -191,6 +190,7 @@ fn parse_music_cmd(input: &str) -> ParseResult<MusicLine> {
         params,
         transpose,
         scale_transpose,
+        note_mods,
     }))
 }
 
@@ -261,10 +261,10 @@ fn parse_shorthand(input: &str) -> ParseResult<MusicLine> {
 
     let (action, drum_kit) = parse_action_name(cmd)?;
 
-    // Find quoted pattern
+    // Find quoted pattern + optional note expression modifiers
     let (pattern, rest2) = extract_quoted(rest, s)?;
-
-    let (params, transpose, scale_transpose) = parse_params(rest2, s)?;
+    let (note_mods, rest3) = parse_note_mods(rest2, s)?;
+    let (params, transpose, scale_transpose) = parse_params(rest3, s)?;
 
     Ok(MusicLine::Music(MusicCmd {
         target: Target { track: String::new(), clip: None, drum_kit },
@@ -273,6 +273,7 @@ fn parse_shorthand(input: &str) -> ParseResult<MusicLine> {
         params,
         transpose,
         scale_transpose,
+        note_mods,
     }))
 }
 
@@ -447,6 +448,93 @@ fn parse_params(mut rest: &str, full_input: &str) -> ParseResult<(Vec<ParamSet>,
     }
 
     Ok((params, transpose, scale_transpose))
+}
+
+// ── Note expression modifiers ──────────────────────────────────────
+
+/// Parse consecutive `.vel(…)` / `.pres(…)` / `.tim(…)` / `.pan(…)` / `.gain(…)` / `.chnz(…)`
+/// suffixes after a pattern. Returns the consumed modifiers and the remaining input.
+fn parse_note_mods<'a>(input: &'a str, full_input: &str) -> ParseResult<(NoteMods, &'a str)> {
+    let mut mods = NoteMods::default();
+    let mut rest = input;
+
+    loop {
+        let trimmed = rest.trim_start();
+        if !trimmed.starts_with('.') {
+            break;
+        }
+        let after_dot = &trimmed[1..];
+        let Some(paren_pos) = after_dot.find('(') else {
+            break;
+        };
+        let name = &after_dot[..paren_pos];
+        if !matches!(name, "vel" | "pres" | "tim" | "pan" | "gain" | "chnz") {
+            break;
+        }
+        let (values, after_paren) = parse_paren_values(&after_dot[paren_pos + 1..], full_input)?;
+        match name {
+            "vel" => mods.vel = values,
+            "pres" => mods.pressure = values,
+            "tim" => mods.timbre = values,
+            "pan" => mods.pan = values,
+            "gain" => mods.gain = values,
+            "chnz" => mods.chance = values,
+            _ => unreachable!(),
+        }
+        rest = after_paren;
+    }
+
+    Ok((mods, rest))
+}
+
+/// Parse the contents of one parenthesized modifier: space-separated numbers or `~` for skip.
+fn parse_paren_values<'a>(input: &'a str, full_input: &str) -> ParseResult<(Vec<Option<f64>>, &'a str)> {
+    let s = input.trim_start();
+    let mut depth = 1usize;
+    let mut end = None;
+    for (i, ch) in s.char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(i);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let end = end.ok_or_else(|| {
+        ParseError::new(
+            "expected ')' after modifier values",
+            full_input.len().saturating_sub(s.len()),
+            full_input.to_string(),
+        )
+    })?;
+
+    let content = s[..end].trim();
+    let after = &s[end + 1..];
+    if content.is_empty() {
+        return Ok((Vec::new(), after));
+    }
+
+    let mut values = Vec::new();
+    for tok in content.split_whitespace() {
+        if tok == "~" {
+            values.push(None);
+        } else {
+            let v = tok.parse::<f64>().map_err(|_| {
+                ParseError::new(
+                    format!("invalid modifier value: '{tok}'"),
+                    full_input.len().saturating_sub(s.len()),
+                    full_input.to_string(),
+                )
+            })?;
+            values.push(Some(v));
+        }
+    }
+    Ok((values, after))
 }
 
 // ── Mini-notation parser ───────────────────────────────────────────
@@ -875,8 +963,9 @@ fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
             rest = r;
         } else if rest.starts_with("n(") || rest.starts_with("notes(") {
             let (pattern, r) = extract_paren_quoted(rest, s)?;
-            steps.push(FluentStep::Pattern(pattern));
-            rest = r;
+            let (mods, r2) = parse_note_mods(r, s)?;
+            steps.push(FluentStep::Pattern { pattern, mods });
+            rest = r2;
         } else if rest.starts_with("mute()") {
             steps.push(FluentStep::Mute);
             rest = &rest[6..];
@@ -1683,7 +1772,7 @@ mod tests {
             assert_eq!(cmd.steps.len(), 3);
             assert!(matches!(cmd.steps[0], FluentStep::Device(_)));
             assert!(matches!(cmd.steps[1], FluentStep::Add(_)));
-            assert!(matches!(cmd.steps[2], FluentStep::Pattern(_)));
+            assert!(matches!(cmd.steps[2], FluentStep::Pattern { .. }));
         } else { panic!("expected Fluent"); }
     }
 
@@ -1963,5 +2052,46 @@ mod tests {
     fn test_mini_superpose() {
         let pat = parse_mini_pattern("c e, g a").unwrap();
         assert_eq!(pat.sequences.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_note_mods_colon() {
+        let line = r#"bass: n "c e g".vel(80 60 100).pan(-50 0 50)"#;
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Music(cmd) = result {
+            assert_eq!(cmd.note_mods.vel, vec![Some(80.0), Some(60.0), Some(100.0)]);
+            assert_eq!(cmd.note_mods.pan, vec![Some(-50.0), Some(0.0), Some(50.0)]);
+        } else {
+            panic!("expected Music");
+        }
+    }
+
+    #[test]
+    fn test_parse_note_mods_skip() {
+        let line = r#"bass: n "c e g".vel(80 ~ 100)"#;
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Music(cmd) = result {
+            assert_eq!(cmd.note_mods.vel, vec![Some(80.0), None, Some(100.0)]);
+        } else {
+            panic!("expected Music");
+        }
+    }
+
+    #[test]
+    fn test_parse_fluent_note_mods() {
+        let line = r#"new track(bass).device(Polymer).n("c e g").vel(80).pres(50).chnz(75)"#;
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Fluent(cmd) = result {
+            assert_eq!(cmd.steps.len(), 2);
+            if let FluentStep::Pattern { mods, .. } = &cmd.steps[1] {
+                assert_eq!(mods.vel, vec![Some(80.0)]);
+                assert_eq!(mods.pressure, vec![Some(50.0)]);
+                assert_eq!(mods.chance, vec![Some(75.0)]);
+            } else {
+                panic!("expected Pattern step");
+            }
+        } else {
+            panic!("expected Fluent");
+        }
     }
 }

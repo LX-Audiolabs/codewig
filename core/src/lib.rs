@@ -426,24 +426,45 @@ fn notes_to_json(notes: &[NoteSpec]) -> Value {
         notes
             .iter()
             .map(|n| {
-                json!({
-                    "step": n.step,
-                    "key": n.key,
-                    "vel": n.vel,
-                    "dur": n.dur,
-                })
+                let mut m = Map::new();
+                m.insert("step".to_string(), json!(n.step));
+                m.insert("key".to_string(), json!(n.key));
+                m.insert("vel".to_string(), json!(n.vel));
+                m.insert("dur".to_string(), json!(n.dur));
+                if let Some(v) = n.pressure {
+                    m.insert("pressure".to_string(), json!(v));
+                }
+                if let Some(v) = n.timbre {
+                    m.insert("timbre".to_string(), json!(v));
+                }
+                if let Some(v) = n.pan {
+                    m.insert("pan".to_string(), json!(v));
+                }
+                if let Some(v) = n.gain {
+                    m.insert("gain".to_string(), json!(v));
+                }
+                if let Some(v) = n.chance {
+                    m.insert("chance".to_string(), json!(v));
+                }
+                Value::Object(m)
             })
             .collect(),
     )
 }
 
 /// One note for `clip.set-notes` / `clip.replace-notes`.
-#[derive(Debug, Clone, Copy)]
+/// Optional expression fields are wire-normalized values sent to the extension only when set.
+#[derive(Debug, Clone, Default)]
 pub struct NoteSpec {
     pub step: i32,
     pub key: i32,
     pub vel: i32,
     pub dur: f64,
+    pub pressure: Option<f64>,
+    pub timbre: Option<f64>,
+    pub pan: Option<f64>,
+    pub gain: Option<f64>,
+    pub chance: Option<f64>,
 }
 
 /// Run a batch of commands over a single connection, stopping at the first error.

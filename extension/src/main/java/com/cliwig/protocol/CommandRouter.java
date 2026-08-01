@@ -309,9 +309,21 @@ public final class CommandRouter {
                     requireInt(n, "step"),
                     requireInt(n, "key"),
                     intOr(n, "vel", 100),
-                    n.has("dur") && !n.get("dur").isJsonNull() ? n.get("dur").getAsDouble() : 1.0));
+                    n.has("dur") && !n.get("dur").isJsonNull() ? n.get("dur").getAsDouble() : 1.0,
+                    doubleOrNull(n, "pressure"),
+                    doubleOrNull(n, "timbre"),
+                    doubleOrNull(n, "pan"),
+                    doubleOrNull(n, "gain"),
+                    doubleOrNull(n, "chance")));
         }
         return out;
+    }
+
+    private static Double doubleOrNull(final JsonObject req, final String key) {
+        if (!req.has(key) || req.get(key).isJsonNull()) {
+            return null;
+        }
+        return req.get(key).getAsDouble();
     }
 
     private static double requireDouble(final JsonObject req, final String key) {

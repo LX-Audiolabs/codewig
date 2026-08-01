@@ -153,6 +153,7 @@ fn expand_event(
                     key: midi,
                     vel: 100,
                     dur: beat_dur,
+                    ..NoteSpec::default()
                 }],
                 beat,
             )
@@ -181,6 +182,7 @@ fn expand_event(
                     key,
                     vel: 100,
                     dur: beat_dur,
+                    ..NoteSpec::default()
                 }],
                 beat,
             )
@@ -193,6 +195,7 @@ fn expand_event(
                     key: 0,
                     vel: 0,
                     dur: beat_dur,
+                    ..NoteSpec::default()
                 }],
                 beat,
             )
@@ -240,6 +243,7 @@ fn expand_event(
                     key,
                     vel,
                     dur: sub_dur,
+                    ..NoteSpec::default()
                 });
             }
             (all_notes, beat)
@@ -284,6 +288,7 @@ fn expand_event(
                         key: midi,
                         vel: 100,
                         dur: step_dur,
+                        ..NoteSpec::default()
                     });
                 }
             }
@@ -454,7 +459,7 @@ fn apply_suffix(
             let mut hit_idx = 0u32;
             for (i, is_hit) in pattern.iter().enumerate() {
                 if *is_hit && hit_idx < notes.len() as u32 {
-                    let mut note = notes[hit_idx as usize];
+                    let mut note = notes[hit_idx as usize].clone();
                     note.step = _base_step + i as i32;
                     out.push(note);
                     hit_idx += 1;
@@ -548,6 +553,7 @@ pub fn expand_chord(
                 key: (root_midi + iv).clamp(0, 127),
                 vel: 100,
                 dur: beat,
+                ..NoteSpec::default()
             });
         }
     }
@@ -665,6 +671,7 @@ pub fn expand_arp(
                     key: notes[i as usize % n],
                     vel: 100,
                     dur: step_size,
+                    ..NoteSpec::default()
                 });
             }
         }
@@ -676,6 +683,7 @@ pub fn expand_arp(
                     key: notes[idx],
                     vel: 100,
                     dur: step_size,
+                    ..NoteSpec::default()
                 });
             }
         }
@@ -690,6 +698,7 @@ pub fn expand_arp(
                     key: notes[p],
                     vel: 100,
                     dur: step_size,
+                    ..NoteSpec::default()
                 });
             }
         }
@@ -702,6 +711,7 @@ pub fn expand_arp(
                     key: notes[idx],
                     vel: 100,
                     dur: step_size,
+                    ..NoteSpec::default()
                 });
             }
         }

@@ -350,6 +350,37 @@ fn resolve_write_slot(
     }
 }
 
+/// Apply user-facing note modifiers to expanded notes.
+///
+/// Display units:
+/// - `vel`: 0..127
+/// - `pressure` / `gain` / `chance`: 0..100 (%)
+/// - `timbre` / `pan`: -100..100 (%)
+///
+/// Stored as wire-normalized values on `NoteSpec`.
+fn apply_note_mods(notes: &mut [NoteSpec], mods: &super::ast::NoteMods) {
+    for (i, n) in notes.iter_mut().enumerate() {
+        if let Some(Some(v)) = mods.vel.get(i) {
+            n.vel = (*v as i32).clamp(0, 127);
+        }
+        if let Some(Some(v)) = mods.pressure.get(i) {
+            n.pressure = Some(v.clamp(0.0, 100.0) / 100.0);
+        }
+        if let Some(Some(v)) = mods.timbre.get(i) {
+            n.timbre = Some(v.clamp(-100.0, 100.0) / 100.0);
+        }
+        if let Some(Some(v)) = mods.pan.get(i) {
+            n.pan = Some(v.clamp(-100.0, 100.0) / 100.0);
+        }
+        if let Some(Some(v)) = mods.gain.get(i) {
+            n.gain = Some(v.clamp(0.0, 100.0) / 100.0);
+        }
+        if let Some(Some(v)) = mods.chance.get(i) {
+            n.chance = Some(v.clamp(0.0, 100.0) / 100.0);
+        }
+    }
+}
+
 fn write_notes(
     client: &Client,
     track: &str,
@@ -358,7 +389,7 @@ fn write_notes(
     notes: &[NoteSpec],
 ) -> Result<Option<Value>, String> {
     let slot = ensure_clip(client, track, slot, beats)?;
-    let playable: Vec<NoteSpec> = notes.iter().copied().filter(|n| n.vel > 0).collect();
+    let playable: Vec<NoteSpec> = notes.iter().cloned().filter(|n| n.vel > 0).collect();
     // One RPC: clear all + write (empty playable = clear only / rests)
     map(client.clip_replace_notes(track, slot, &playable))
 }
@@ -380,7 +411,7 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
         beats,
     )?;
 
-    let notes = match cmd.action {
+    let mut notes = match cmd.action {
         MusicAction::Chord => expand_chord(
             &cmd.pattern,
             session.scale.as_ref(),
@@ -395,6 +426,7 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
             notes
         }
     };
+    apply_note_mods(&mut notes, &cmd.note_mods);
 
     // +params need cursor track; pure note write uses track ref in clip.* — skip select
     if !cmd.params.is_empty() {
@@ -411,7 +443,7 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
     }
 
     // Notes path already resolved slot (incl. create); don't re-ensure without name.
-    let playable: Vec<NoteSpec> = notes.iter().copied().filter(|n| n.vel > 0).collect();
+    let playable: Vec<NoteSpec> = notes.iter().cloned().filter(|n| n.vel > 0).collect();
     map(client.clip_replace_notes(&track, slot, &playable))
 }
 
@@ -518,13 +550,14 @@ fn fluent(
                         key: midi,
                         vel: 100,
                         dur,
+                        ..NoteSpec::default()
                     })
                     .collect();
                 log.push(json!({
                     "beat": write_notes(client, &cmd.track, slot0, session.default_beats, &notes)?
                 }));
             }
-            FluentStep::Pattern(pat) => {
+            FluentStep::Pattern { pattern, mods } => {
                 let music = MusicCmd {
                     target: Target {
                         track: cmd.track.clone(),
@@ -532,14 +565,16 @@ fn fluent(
                         drum_kit: None,
                     },
                     action: MusicAction::Notes,
-                    pattern: pat.clone(),
+                    pattern: pattern.clone(),
                     params: vec![],
                     transpose: None,
                     scale_transpose: None,
+                    note_mods: NoteMods::default(),
                 };
-                let (notes, _) =
+                let (mut notes, _) =
                     expand_music_line(&music, session.scale.as_ref(), session.steps_per_bar)
                         .map_err(|e| e.to_string())?;
+                apply_note_mods(&mut notes, mods);
                 log.push(json!({
                     "notes": write_notes(client, &cmd.track, slot0, session.default_beats, &notes)?
                 }));

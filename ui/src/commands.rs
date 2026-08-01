@@ -360,7 +360,13 @@ fn parse_note(s: &str) -> Result<NoteSpec, String> {
         Some(d) => d.trim().parse().map_err(|_| format!("bad dur in '{s}'"))?,
         None => 1.0,
     };
-    Ok(NoteSpec { step, key, vel, dur })
+    Ok(NoteSpec {
+        step,
+        key,
+        vel,
+        dur,
+        ..NoteSpec::default()
+    })
 }
 
 fn parse_key(s: &str) -> Result<i32, String> {

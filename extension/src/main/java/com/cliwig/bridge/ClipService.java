@@ -3,6 +3,7 @@ package com.cliwig.bridge;
 import com.bitwig.extension.controller.api.Clip;
 import com.bitwig.extension.controller.api.ClipLauncherSlot;
 import com.bitwig.extension.controller.api.ClipLauncherSlotBank;
+import com.bitwig.extension.controller.api.NoteStep;
 import com.bitwig.extension.controller.api.SettableStringValue;
 import com.bitwig.extension.controller.api.StringValue;
 import com.bitwig.extension.controller.api.Track;
@@ -20,8 +21,13 @@ public final class ClipService {
     private final TrackService tracks;
     private final Clip cursorClip;
 
-    /** One note to write: step (16th grid), key (MIDI 0..127), velocity 1..127, duration in steps. */
-    public record NoteSpec(int step, int key, int vel, double dur) {
+    /**
+     * One note to write: step (16th grid), key (MIDI 0..127), velocity 1..127, duration in steps.
+     * Optional expression fields (pressure, timbre, pan, gain, chance) are wire-normalized 0..1
+     * (timbre/pan centered at 0); null means "do not touch".
+     */
+    public record NoteSpec(int step, int key, int vel, double dur,
+                           Double pressure, Double timbre, Double pan, Double gain, Double chance) {
     }
 
     public ClipService(final TrackService tracks, final Clip cursorClip) {
@@ -221,6 +227,26 @@ public final class ClipService {
             cursorClip.scrollToKey(n.key());
             cursorClip.scrollToStep(n.step());
             cursorClip.setStep(n.step(), n.key(), n.vel(), n.dur());
+
+            // Apply optional per-note expressions (MPE / chance / gain / pan).
+            final NoteStep ns = cursorClip.getStep(0, n.step(), n.key());
+            if (ns != null) {
+                if (n.pressure() != null) {
+                    ns.setPressure(n.pressure());
+                }
+                if (n.timbre() != null) {
+                    ns.setTimbre(n.timbre());
+                }
+                if (n.pan() != null) {
+                    ns.setPan(n.pan());
+                }
+                if (n.gain() != null) {
+                    ns.setGain(n.gain());
+                }
+                if (n.chance() != null) {
+                    ns.setChance(n.chance());
+                }
+            }
         }
     }
 
