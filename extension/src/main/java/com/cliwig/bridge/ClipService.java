@@ -144,6 +144,7 @@ public final class ClipService {
     /**
      * Write notes into a launcher clip via the cursor clip.
      * Slot must have content; each note is validated before writing.
+     * Does not clear existing steps — use {@link #replaceNotes} for full patterns.
      */
     public JsonObject setNotes(final String trackRef, final int slot, final List<NoteSpec> notes) {
         if (notes.isEmpty()) {
@@ -151,27 +152,29 @@ public final class ClipService {
         }
         final ClipLauncherSlot s = resolveSlotWithContent(trackRef, slot);
         s.select();
-        for (final NoteSpec n : notes) {
-            if (n.step() < 0) {
-                throw new IllegalArgumentException("step must be >= 0, got " + n.step());
-            }
-            if (n.key() < 0 || n.key() > 127) {
-                throw new IllegalArgumentException("key must be 0..127, got " + n.key());
-            }
-            if (n.vel() < 1 || n.vel() > 127) {
-                throw new IllegalArgumentException("vel must be 1..127, got " + n.vel());
-            }
-            if (n.dur() <= 0) {
-                throw new IllegalArgumentException("dur must be > 0, got " + n.dur());
-            }
-            // Writes outside the cursor viewport are dropped silently — scroll first
-            cursorClip.scrollToKey(n.key());
-            cursorClip.scrollToStep(n.step());
-            cursorClip.setStep(n.step(), n.key(), n.vel(), n.dur());
+        writeSteps(notes);
+        final JsonObject result = new JsonObject();
+        result.addProperty("track", trackRef);
+        result.addProperty("slot", slot);
+        result.addProperty("written", notes.size());
+        return result;
+    }
+
+    /**
+     * Clear all steps then write notes in one round-trip (one slot select).
+     * Empty notes = clear only. Primary path for live pattern rewrite.
+     */
+    public JsonObject replaceNotes(final String trackRef, final int slot, final List<NoteSpec> notes) {
+        final ClipLauncherSlot s = resolveSlotWithContent(trackRef, slot);
+        s.select();
+        cursorClip.clearSteps();
+        if (!notes.isEmpty()) {
+            writeSteps(notes);
         }
         final JsonObject result = new JsonObject();
         result.addProperty("track", trackRef);
         result.addProperty("slot", slot);
+        result.addProperty("cleared", "all");
         result.addProperty("written", notes.size());
         return result;
     }
@@ -195,6 +198,27 @@ public final class ClipService {
             result.addProperty("cleared", "all");
         }
         return result;
+    }
+
+    private void writeSteps(final List<NoteSpec> notes) {
+        for (final NoteSpec n : notes) {
+            if (n.step() < 0) {
+                throw new IllegalArgumentException("step must be >= 0, got " + n.step());
+            }
+            if (n.key() < 0 || n.key() > 127) {
+                throw new IllegalArgumentException("key must be 0..127, got " + n.key());
+            }
+            if (n.vel() < 1 || n.vel() > 127) {
+                throw new IllegalArgumentException("vel must be 1..127, got " + n.vel());
+            }
+            if (n.dur() <= 0) {
+                throw new IllegalArgumentException("dur must be > 0, got " + n.dur());
+            }
+            // Writes outside the cursor viewport are dropped silently — scroll first
+            cursorClip.scrollToKey(n.key());
+            cursorClip.scrollToStep(n.step());
+            cursorClip.setStep(n.step(), n.key(), n.vel(), n.dur());
+        }
     }
 
     private ClipLauncherSlot resolveSlotWithContent(final String trackRef, final int slot) {

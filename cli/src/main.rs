@@ -4,6 +4,7 @@ use cliwig_core::music::{execute_line, parse_music_line, MusicLine, MusicSession
 use cliwig_core::Client;
 use serde_json::{json, Map, Value};
 use std::process::ExitCode;
+use std::thread;
 use std::time::Duration;
 
 #[derive(Parser, Debug)]
@@ -342,6 +343,21 @@ fn run_with(
     Ok(())
 }
 
+/// Poll until track name appears (Bitwig create/rename is async).
+fn wait_track_named(client: &Client, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    for _ in 0..20 {
+        if let Ok(Some(list)) = client.track_list() {
+            if let Some(arr) = list.get("tracks").and_then(Value::as_array) {
+                if arr.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(name)) {
+                    return Ok(());
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    Err(format!("track '{name}' not visible after create").into())
+}
+
 /// Resolve the insert index for a new track. When no explicit index was given
 /// (`at == -1`), query `track.list` and count only instrument/audio tracks so
 /// the new track lands on the next free slot. Effect and master tracks are
@@ -517,12 +533,13 @@ fn dispatch(client: &Client, command: Commands) -> Result<Option<Value>, Box<dyn
                 slot,
                 notes,
             } => {
+                // replace = clear + write one RPC (live pattern rewrite)
                 let parsed: Result<Vec<Value>, _> = notes.iter().map(|s| parse_note(s)).collect();
                 let mut m = Map::new();
                 m.insert("track".into(), track.into());
                 m.insert("slot".into(), slot.into());
                 m.insert("notes".into(), Value::Array(parsed?));
-                ("clip.set-notes", m)
+                ("clip.replace-notes", m)
             }
             ClipCmd::ClearNotes {
                 track,
@@ -644,19 +661,19 @@ fn run_chain(
     let created = client.track_new(&kind, at, name.as_deref())?.unwrap_or(Value::Bool(true));
     eprintln!("track: {}", serde_json::to_string(&created)?);
 
-    std::thread::sleep(Duration::from_millis(120));
-
+    // Bitwig renames async — poll until name visible (was fixed 120ms sleep)
     if let Some(ref n) = name {
+        wait_track_named(client, n)?;
         let sel = client.track_select(n)?.unwrap_or(Value::Bool(true));
         eprintln!("select: {}", serde_json::to_string(&sel)?);
-        std::thread::sleep(Duration::from_millis(40));
+        thread::sleep(Duration::from_millis(15));
     }
 
     let mut added = Vec::new();
     for dev in &devices {
         let r = client.device_add(dev)?.unwrap_or(Value::Bool(true));
         added.push(json!({ "device": dev, "result": r }));
-        std::thread::sleep(Duration::from_millis(40));
+        thread::sleep(Duration::from_millis(15));
     }
 
     // Optional first empty clip for live switching

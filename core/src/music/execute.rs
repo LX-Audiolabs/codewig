@@ -83,8 +83,47 @@ fn map(r: Result<Option<Value>, Error>) -> Result<Option<Value>, String> {
     r.map_err(|e| e.to_string())
 }
 
-fn sleep_bridge() {
-    thread::sleep(Duration::from_millis(50));
+/// Poll until `name` appears in track.list (Bitwig creates/renames async).
+/// Fast path: returns as soon as ready; ceiling ~400ms.
+fn wait_track_named(client: &Client, name: &str) -> Result<(), String> {
+    for _ in 0..20 {
+        if let Ok(Some(list)) = client.track_list() {
+            if let Some(arr) = list.get("tracks").and_then(Value::as_array) {
+                if arr.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(name)) {
+                    return Ok(());
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(20));
+    }
+    Err(format!(
+        "track '{name}' not visible after create — try again or rename in Bitwig"
+    ))
+}
+
+/// Poll until launcher slot has content (after clip_new).
+fn wait_clip_content(client: &Client, track: &str, slot: i32) -> Result<(), String> {
+    for _ in 0..12 {
+        if let Ok(Some(list)) = client.clip_list(track) {
+            if let Some(arr) = list.get("clips").and_then(Value::as_array) {
+                if arr.iter().any(|c| {
+                    c.get("slot").and_then(Value::as_i64) == Some(slot as i64)
+                        && c.get("hasContent").and_then(Value::as_bool).unwrap_or(false)
+                }) {
+                    return Ok(());
+                }
+            }
+        }
+        thread::sleep(Duration::from_millis(15));
+    }
+    // Best-effort: Bitwig may still accept set-notes even if hasContent lagging.
+    Ok(())
+}
+
+/// Short settle only when next call needs Bitwig cursor focus (device chain).
+fn wait_cursor() {
+    // ponytail: fixed 15ms vs 50ms blanket; enough for select→device_add on localhost
+    thread::sleep(Duration::from_millis(15));
 }
 
 fn track_ref(r: &TrackRef) -> String {
@@ -223,7 +262,7 @@ fn ensure_clip(client: &Client, track: &str, slot: i32, beats: i32) -> Result<i3
     client
         .clip_new(track, Some(slot), beats, None)
         .map_err(|e| e.to_string())?;
-    sleep_bridge();
+    wait_clip_content(client, track, slot)?;
     Ok(slot)
 }
 
@@ -236,13 +275,8 @@ fn write_notes(
 ) -> Result<Option<Value>, String> {
     let slot = ensure_clip(client, track, slot, beats)?;
     let playable: Vec<NoteSpec> = notes.iter().copied().filter(|n| n.vel > 0).collect();
-    if playable.is_empty() {
-        return Ok(Some(json!({ "track": track, "slot": slot, "written": 0, "note": "only rests" })));
-    }
-    // Replace pattern: clear then set
-    let _ = client.clip_clear_notes(track, slot, None, None);
-    sleep_bridge();
-    map(client.clip_set_notes(track, slot, &playable))
+    // One RPC: clear all + write (empty playable = clear only / rests)
+    map(client.clip_replace_notes(track, slot, &playable))
 }
 
 fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<Option<Value>, String> {
@@ -251,11 +285,6 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
     } else {
         cmd.target.track.clone()
     };
-
-    client
-        .track_select(&track)
-        .map_err(|e| e.to_string())?;
-    sleep_bridge();
 
     let slot = session.default_slot;
     let beats = session.default_beats;
@@ -279,8 +308,12 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
         }
     };
 
-    // +params: snapshot on focused device (best-effort; no automation)
+    // +params need cursor track; pure note write uses track ref in clip.* — skip select
     if !cmd.params.is_empty() {
+        client
+            .track_select(&track)
+            .map_err(|e| e.to_string())?;
+        wait_cursor();
         let sets: Vec<(String, f64)> = cmd
             .params
             .iter()
@@ -316,21 +349,21 @@ fn chain(
     let created = client
         .track_new(&cmd.kind, at, Some(&cmd.name))
         .map_err(|e| e.to_string())?;
-    sleep_bridge();
+    wait_track_named(client, &cmd.name)?;
     client
         .track_select(&cmd.name)
         .map_err(|e| e.to_string())?;
-    sleep_bridge();
+    wait_cursor();
 
     let mut added = Vec::new();
     // Drum kit shell: insert Instrument Layer when kit requested and no devices
     if cmd.drum_kit.is_some() && cmd.devices.is_empty() {
         added.push(add_device(client, "layer")?);
-        sleep_bridge();
+        wait_cursor();
     }
     for d in &cmd.devices {
         added.push(add_device(client, d)?);
-        sleep_bridge();
+        wait_cursor();
     }
 
     let _ = ensure_clip(client, &cmd.name, session.default_slot, session.default_beats);
@@ -347,17 +380,29 @@ fn fluent(
     session: &mut MusicSession,
     cmd: &FluentCmd,
 ) -> Result<Option<Value>, String> {
+    let needs_cursor = cmd.steps.iter().any(|s| {
+        matches!(
+            s,
+            FluentStep::Device(_) | FluentStep::Add(_)
+        )
+    });
+
     if cmd.create {
         let at = resolve_track_at(client, -1)?;
         client
             .track_new("instrument", at, Some(&cmd.track))
             .map_err(|e| e.to_string())?;
-        sleep_bridge();
+        wait_track_named(client, &cmd.track)?;
     }
-    client
-        .track_select(&cmd.track)
-        .map_err(|e| e.to_string())?;
-    sleep_bridge();
+    // device_add / param need cursor; pure mute/clip/notes use track refs
+    if needs_cursor || cmd.create {
+        client
+            .track_select(&cmd.track)
+            .map_err(|e| e.to_string())?;
+        if needs_cursor {
+            wait_cursor();
+        }
+    }
 
     let mut log = Vec::new();
     let mut pending_notes: Option<Vec<NoteSpec>> = None;
@@ -369,7 +414,7 @@ fn fluent(
                     session.last_drum_midi = Some(midi);
                 }
                 log.push(json!({ "device": d.catalog_name, "result": add_device(client, &d.catalog_name)? }));
-                sleep_bridge();
+                wait_cursor();
             }
             FluentStep::Beat(b) => {
                 let midi = session.last_drum_midi.unwrap_or(36);
@@ -462,7 +507,7 @@ fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, String> {
     client
         .track_select(&cmd.track)
         .map_err(|e| e.to_string())?;
-    sleep_bridge();
+    wait_cursor();
 
     // Focus device by name if possible
     if let Ok(Some(list)) = client.device_list() {
@@ -478,7 +523,7 @@ fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, String> {
             }) {
                 if let Some(idx) = dev.get("index").and_then(Value::as_i64) {
                     let _ = client.device_select(idx as i32);
-                    sleep_bridge();
+                    wait_cursor();
                 }
             }
         }

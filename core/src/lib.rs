@@ -7,7 +7,9 @@ pub mod protocol;
 
 use protocol::{connect, send_request, Request, Response, DEFAULT_HOST, DEFAULT_PORT};
 use serde_json::{json, Map, Value};
+use std::cell::RefCell;
 use std::net::TcpStream;
+use std::thread;
 use std::time::Duration;
 use thiserror::Error;
 
@@ -34,11 +36,17 @@ impl Error {
 }
 
 /// Synchronous client for the CLIwig extension.
-#[derive(Debug, Clone)]
+///
+/// Holds one TCP stream and reuses it across requests (Bitwig settle cost is
+/// paid once per live connection). IO failure drops the stream and retries once.
+/// Clone is cheap config only — each clone starts without a shared socket.
+#[derive(Debug)]
 pub struct Client {
     host: String,
     port: u16,
     timeout: Duration,
+    // ponytail: persistent TCP; reconnect on dead stream (not in MusicSession — transport ≠ music state)
+    stream: RefCell<Option<TcpStream>>,
 }
 
 impl Default for Client {
@@ -47,6 +55,18 @@ impl Default for Client {
             host: DEFAULT_HOST.to_string(),
             port: DEFAULT_PORT,
             timeout: Duration::from_millis(2000),
+            stream: RefCell::new(None),
+        }
+    }
+}
+
+impl Clone for Client {
+    fn clone(&self) -> Self {
+        Self {
+            host: self.host.clone(),
+            port: self.port,
+            timeout: self.timeout,
+            stream: RefCell::new(None),
         }
     }
 }
@@ -57,7 +77,13 @@ impl Client {
             host: host.into(),
             port,
             timeout: Duration::from_millis(timeout_ms),
+            stream: RefCell::new(None),
         }
+    }
+
+    /// Drop the live socket (next send/ping reconnects). Used by UI reconnect.
+    pub fn reset(&self) {
+        *self.stream.borrow_mut() = None;
     }
 
     fn connect(&self) -> Result<TcpStream, Error> {
@@ -65,14 +91,53 @@ impl Client {
     }
 
     fn send(&self, req: Request) -> Result<Option<Value>, Error> {
-        let mut stream = self.connect()?;
-        let resp: Response = send_request(&mut stream, &req).map_err(|e| Error::Request(e.to_string()))?;
+        // First try existing socket; on transport error, reset + one fresh connect.
+        match self.send_once(&req, false) {
+            Ok(v) => Ok(v),
+            Err(Error::Request(_)) | Err(Error::Connection(_)) => self.send_once(&req, true),
+            Err(e) => Err(e),
+        }
+    }
+
+    fn send_once(&self, req: &Request, force_new: bool) -> Result<Option<Value>, Error> {
+        if force_new {
+            *self.stream.borrow_mut() = None;
+        }
+        let fresh = {
+            let mut slot = self.stream.borrow_mut();
+            if slot.is_none() {
+                *slot = Some(self.connect()?);
+                true
+            } else {
+                false
+            }
+        };
+
+        match self.exchange_held(req) {
+            Ok(v) => Ok(v),
+            // Bitwig RemoteConnection: receive callback may attach a tick late after accept.
+            Err(e) if fresh && matches!(e, Error::Request(_)) => {
+                thread::sleep(Duration::from_millis(15));
+                self.exchange_held(req).map_err(|_| e)
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn exchange_held(&self, req: &Request) -> Result<Option<Value>, Error> {
+        let mut slot = self.stream.borrow_mut();
+        let stream = slot
+            .as_mut()
+            .ok_or_else(|| Error::Connection("no stream".into()))?;
+        let resp: Response =
+            send_request(stream, req).map_err(|e| Error::Request(e.to_string()))?;
         if resp.ok {
             Ok(resp.result)
         } else {
             let err = resp
                 .error
                 .ok_or_else(|| Error::InvalidResponse("missing error body".into()))?;
+            // Protocol answered — keep the socket.
             Err(Error::from_response(err))
         }
     }
@@ -281,22 +346,27 @@ impl Client {
         slot: i32,
         notes: &[NoteSpec],
     ) -> Result<Option<Value>, Error> {
-        let notes_json: Vec<Value> = notes
-            .iter()
-            .map(|n| {
-                json!({
-                    "step": n.step,
-                    "key": n.key,
-                    "vel": n.vel,
-                    "dur": n.dur,
-                })
-            })
-            .collect();
         self.send(
             self.req("clip.set-notes")
                 .field("track", track)
                 .field("slot", slot)
-                .field("notes", Value::Array(notes_json)),
+                .field("notes", notes_to_json(notes)),
+        )
+    }
+
+    /// Clear all steps then write notes in one round-trip (`clip.replace-notes`).
+    /// Empty `notes` clears only. Prefer this for live pattern rewrite.
+    pub fn clip_replace_notes(
+        &self,
+        track: &str,
+        slot: i32,
+        notes: &[NoteSpec],
+    ) -> Result<Option<Value>, Error> {
+        self.send(
+            self.req("clip.replace-notes")
+                .field("track", track)
+                .field("slot", slot)
+                .field("notes", notes_to_json(notes)),
         )
     }
 
@@ -328,7 +398,23 @@ impl Client {
     }
 }
 
-/// One note for `clip.set-notes`.
+fn notes_to_json(notes: &[NoteSpec]) -> Value {
+    Value::Array(
+        notes
+            .iter()
+            .map(|n| {
+                json!({
+                    "step": n.step,
+                    "key": n.key,
+                    "vel": n.vel,
+                    "dur": n.dur,
+                })
+            })
+            .collect(),
+    )
+}
+
+/// One note for `clip.set-notes` / `clip.replace-notes`.
 #[derive(Debug, Clone, Copy)]
 pub struct NoteSpec {
     pub step: i32,

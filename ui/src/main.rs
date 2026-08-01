@@ -8,8 +8,9 @@ mod commands;
 slint::include_modules!();
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let client = Client::default();
-    // WIGSCRIPT session (key/scale) shared across sends
+    // One client for whole UI lifetime — persistent TCP inside Client.
+    let client = Rc::new(Client::default());
+    // WIGSCRIPT session (key/scale) shared across sends — not transport.
     let session = Rc::new(RefCell::new(MusicSession::default()));
 
     let ui = AppWindow::new()?;
@@ -18,10 +19,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ui.set_status(connection_status(&client).into());
 
     let reconnect_weak = ui.as_weak();
+    let client_reconnect = client.clone();
     ui.on_reconnect(move || {
         let ui = reconnect_weak.upgrade().unwrap();
-        let client = Client::default();
-        ui.set_status(connection_status(&client).into());
+        client_reconnect.reset();
+        ui.set_status(connection_status(&client_reconnect).into());
     });
 
     let insert_weak = ui.as_weak();
@@ -37,28 +39,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let session_send = session.clone();
+    let client_send = client.clone();
     ui.on_send_command(move || {
         let ui = ui_weak.upgrade().unwrap();
         let cmd = ui.get_command().to_string();
-        let client = Client::default();
         let mut sess = session_send.borrow_mut();
 
-        let result = commands::run(&client, &mut sess, &cmd);
+        let result = commands::run(&client_send, &mut sess, &cmd);
 
         let mut output = ui.get_output().to_string();
         output.push_str(&format!("♫ {}\n", cmd));
-        match result {
-            Ok(Some(v)) => output.push_str(&format!(
-                "{}\n",
-                serde_json::to_string_pretty(&v).unwrap()
-            )),
-            Ok(None) => output.push_str("ok\n"),
-            Err(e) => output.push_str(&format!("error: {}\n", e)),
+        match &result {
+            Ok(Some(v)) => {
+                output.push_str(&format!(
+                    "{}\n",
+                    serde_json::to_string_pretty(v).unwrap()
+                ));
+                // RPC succeeded → socket live; skip extra ping RTT
+                ui.set_status("connected".into());
+            }
+            Ok(None) => {
+                output.push_str("ok\n");
+                ui.set_status("connected".into());
+            }
+            Err(e) => {
+                output.push_str(&format!("error: {}\n", e));
+                // Re-check only on failure (may be disconnect)
+                ui.set_status(connection_status(&client_send).into());
+            }
         }
         ui.set_output(output.into());
         ui.set_command("".into());
-
-        ui.set_status(connection_status(&client).into());
     });
 
     ui.run()?;

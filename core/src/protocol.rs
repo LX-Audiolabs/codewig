@@ -109,7 +109,6 @@ pub fn connect(host: &str, port: u16, timeout: Duration) -> Result<TcpStream, St
     stream
         .set_write_timeout(Some(timeout))
         .map_err(|e| e.to_string())?;
-    // Bitwig RemoteConnection: settle so receive callback is attached.
-    std::thread::sleep(Duration::from_millis(50));
+    // No fixed settle sleep — Client retries first request if Bitwig callback not ready yet.
     Ok(stream)
 }

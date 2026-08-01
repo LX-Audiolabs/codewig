@@ -141,6 +141,13 @@ public final class CommandRouter {
                             requireInt(req, "slot"),
                             parseNotes(req)));
 
+                case "clip.replace-notes":
+                    // clear + write in one round-trip (live pattern rewrite)
+                    return Messages.ok(id, clips.replaceNotes(
+                            requireStr(req, "track"),
+                            requireInt(req, "slot"),
+                            parseNotesAllowEmpty(req)));
+
                 case "clip.clear-notes":
                     return Messages.ok(id, clips.clearNotes(
                             requireStr(req, "track"),
@@ -247,6 +254,15 @@ public final class CommandRouter {
 
     /** notes: array of {step:int, key:int (MIDI), vel:int 1..127 = 100, dur:double steps = 1.0} */
     private static java.util.List<com.cliwig.bridge.ClipService.NoteSpec> parseNotes(final JsonObject req) {
+        final java.util.List<com.cliwig.bridge.ClipService.NoteSpec> out = parseNotesAllowEmpty(req);
+        if (out.isEmpty()) {
+            throw new IllegalArgumentException("notes array empty");
+        }
+        return out;
+    }
+
+    /** Like parseNotes but allows empty array (replace-notes = clear only). */
+    private static java.util.List<com.cliwig.bridge.ClipService.NoteSpec> parseNotesAllowEmpty(final JsonObject req) {
         if (!req.has("notes") || !req.get("notes").isJsonArray()) {
             throw new IllegalArgumentException("missing 'notes' (array of {step,key,vel,dur})");
         }

@@ -264,7 +264,7 @@ fn dispatch_clip<'a>(
                 return Err("clip note: need notes (or WIGSCRIPT: bass: n \"c e g\")".into());
             }
             client
-                .clip_set_notes(&track, slot, &notes)
+                .clip_replace_notes(&track, slot, &notes)
                 .map_err(|e| e.to_string())
         }
         "clear-notes" => {
