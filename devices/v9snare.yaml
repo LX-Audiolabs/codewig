@@ -1,0 +1,61 @@
+# Bitwig stock mono drum — v9 Snare
+# Source: live param.list via Codewig Bridge (Bitwig 6.0.11)
+# Syntax:  snare&v9snare: decay(70) snappy(70) drive(20) click(50)
+
+id: v9snare
+bitwig_name: "v9 Snare"
+kind: bitwig
+path_hint:
+  windows: "%USERPROFILE%/Documents/Bitwig Studio/Library/Devices"
+  linux: "~/Bitwig Studio/Library/Devices"
+aliases:
+  - "v9 snare"
+  - "v9snare"
+  - "snare.v9"
+  - "snare v9"
+params:
+  tune:
+    # CONTENTS/TUNE
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["pitch", "p"]
+  decay:
+    # CONTENTS/DECAY
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+  drive:
+    # CONTENTS/DRIVE
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+  snappy:
+    # CONTENTS/NOISE — Bitwig UI: Snappy / Noise
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["noise", "snappy / noise", "snappy_noise"]
+  click:
+    # CONTENTS/CLICK
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+  tone:
+    # CONTENTS/TONE
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+  output:
+    # CONTENTS/OUTPUT
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["level", "vol", "volume"]
+  velocity:
+    # CONTENTS/VELOCITY_SENSITIVITY
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["vel", "velocity sensitivity", "velocity_sensitivity"]
+

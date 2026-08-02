@@ -1,4 +1,4 @@
-use codewig_core::music::param_catalog::{catalog, DeviceHostKind};
+use codewig_core::music::param_catalog::{catalog, reload_catalog, DeviceHostKind};
 use codewig_core::music::MusicSession;
 use codewig_core::Client;
 use std::cell::RefCell;
@@ -12,6 +12,85 @@ slint::include_modules!();
 /// Status probe only — short so offline Bitwig does not freeze the UI (commands keep 2s).
 const STATUS_TIMEOUT_MS: u64 = 250;
 
+/// Light list only — full param text via [`device_detail_for`] on click (keeps UI fast with big catalogs).
+fn device_entries_from_catalog() -> Vec<DeviceEntry> {
+    catalog()
+        .devices()
+        .iter()
+        .map(|d| {
+            let aliases = if d.aliases.is_empty() {
+                String::new()
+            } else {
+                d.aliases.join(", ")
+            };
+            let kind = match d.kind {
+                DeviceHostKind::Bitwig => "bitwig",
+                DeviceHostKind::Clap => "clap",
+            };
+            let n = d.params.len();
+            let summary = if n == 0 {
+                format!("{kind} · help only (raw wire OK)")
+            } else {
+                format!("{kind} · {n} params")
+            };
+            DeviceEntry {
+                name: d.bitwig_name.clone().into(),
+                aliases: aliases.into(),
+                syntax: format!(".device({})", d.bitwig_name).into(),
+                summary: summary.into(),
+            }
+        })
+        .collect()
+}
+
+/// Full parameter dump for one device (called when user selects it in the Devices tab).
+fn device_detail_for(name: &str) -> String {
+    let cat = catalog();
+    let Some(d) = cat.resolve(name) else {
+        return format!("Unknown device: {name}\n\nDrop a devices/*.yaml and hit ↻.");
+    };
+    let kind = match d.kind {
+        DeviceHostKind::Bitwig => "bitwig",
+        DeviceHostKind::Clap => "clap",
+    };
+    let mut detail = format!(
+        "{}\nid: {}\nkind: {}\nsource: {}\n\nParameters ({}):\n",
+        d.bitwig_name,
+        d.id,
+        kind,
+        d.source,
+        d.params.len()
+    );
+    if d.params.is_empty() {
+        detail.push_str(
+            "  (no param help yet)\n\
+             Raw WIGSCRIPT still works: track&device: Name(0.5)  // wire 0..1\n",
+        );
+    } else {
+        for p in &d.params {
+            let aliases = if p.aliases.is_empty() {
+                String::new()
+            } else {
+                format!(" ({})", p.aliases.join(", "))
+            };
+            let unit = if p.unit.is_empty() {
+                String::new()
+            } else {
+                format!(" {}", p.unit)
+            };
+            detail.push_str(&format!(
+                "  {}{}: {}..{}{}\n",
+                p.name, aliases, p.display.0, p.display.1, unit
+            ));
+        }
+    }
+    detail.push_str(&format!(
+        "\nWIGSCRIPT:\n  track&{}: param(50)\n",
+        d.id
+    ));
+    detail
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // One client for whole UI lifetime — persistent TCP inside Client.
     let client = Rc::new(Client::default());
@@ -21,55 +100,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
-    // Load param catalog (devices with a YAML definition) into the Devices tab.
-    let catalog = catalog();
-    let devices: Vec<DeviceEntry> = catalog
-        .devices()
-        .iter()
-        .map(|d| {
-            let aliases = if d.aliases.is_empty() {
-                String::new()
-            } else {
-                d.aliases.join(", ")
-            };
-            let mut detail = format!(
-                "{}\nkind: {}\nsource: {}\n\nParameters:\n",
-                d.bitwig_name,
-                match d.kind {
-                    DeviceHostKind::Bitwig => "bitwig",
-                    DeviceHostKind::Clap => "clap",
-                },
-                d.source
-            );
-            if d.params.is_empty() {
-                detail.push_str("  (none documented yet)\n");
-            } else {
-                for p in &d.params {
-                    let aliases = if p.aliases.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" ({}", p.aliases.join(", "))
-                    };
-                    let unit = if p.unit.is_empty() {
-                        String::new()
-                    } else {
-                        format!(" {}", p.unit)
-                    };
-                    detail.push_str(&format!(
-                        "  {}{}: {}..{}{}\n",
-                        p.name, aliases, p.display.0, p.display.1, unit
-                    ));
-                }
-            }
-            DeviceEntry {
-                name: d.bitwig_name.clone().into(),
-                aliases: aliases.into(),
-                syntax: format!(".device({})", d.bitwig_name).into(),
-                detail: detail.into(),
-            }
-        })
-        .collect();
-    ui.set_devices(slint::ModelRc::new(slint::VecModel::from(devices)));
+    // Devices tab = scan of devices/*.yaml (not compiled-in).
+    ui.set_devices(slint::ModelRc::new(slint::VecModel::from(
+        device_entries_from_catalog(),
+    )));
 
     // Non-blocking start: never wait on TCP before first frame.
     ui.set_status("checking…".into());
@@ -92,6 +126,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         haystack.to_lowercase().contains(&n)
     });
 
+    // Lazy device params — only when user clicks a device row
+    ui.on_device_detail(|name| device_detail_for(name.as_str()).into());
+
     let reconnect_weak = ui.as_weak();
     let client_reconnect = client.clone();
     ui.on_reconnect(move || {
@@ -99,6 +136,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         client_reconnect.reset();
         // Short probe on UI thread — max ~STATUS_TIMEOUT_MS, not 2s
         ui.set_status(connection_status().into());
+    });
+
+    let reload_weak = ui.as_weak();
+    ui.on_reload_devices(move || {
+        let n = reload_catalog();
+        let ui = reload_weak.upgrade().unwrap();
+        ui.set_devices(slint::ModelRc::new(slint::VecModel::from(
+            device_entries_from_catalog(),
+        )));
+        ui.set_status(format!("devices: reloaded {n}").into());
+        let user_dir = codewig_core::user_devices_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|| "(unknown)".into());
+        ui.set_help_text(
+            format!(
+                "Rescanned devices — {n} device(s).\n\
+                 User folder: {user_dir}\n\
+                 Drop a new YAML (bitwig|clap), click ↻ again.\n\
+                 Env: CODEWIG_HOME / CODEWIG_DEVICES_DIR"
+            )
+            .into(),
+        );
     });
 
     let insert_weak = ui.as_weak();

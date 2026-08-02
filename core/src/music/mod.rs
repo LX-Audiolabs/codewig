@@ -22,7 +22,8 @@ pub use device::{
     kit_devices, Device, DeviceKind, DRUM_DEVICES, INSERTABLE, MONO_DRUM_NOTE,
 };
 pub use param_catalog::{
-    catalog as param_catalog, DeviceHostKind, DeviceParamFile, ParamCatalog, ParamDef,
+    catalog as param_catalog, reload_catalog, DeviceHostKind, DeviceParamFile, ParamCatalog,
+    ParamDef,
 };
 pub use execute::{execute_line, MusicSession};
 pub use expand::{expand_arp, expand_chord, expand_music_line, ExpandError};

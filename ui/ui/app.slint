@@ -16,8 +16,8 @@ export struct DeviceEntry {
     aliases: string,
     /// Inserted on right-click.
     syntax: string,
-    /// Full help for the detail box (parameter catalog).
-    detail: string,
+    /// One-liner for the list only (param dump loaded on click via device-detail).
+    summary: string,
 }
 
 export component AppWindow inherits Window {
@@ -138,14 +138,14 @@ export component AppWindow inherits Window {
             name: ".device() / .add()",
             summary: "insert instrument or FX",
             syntax: ".device(Polymer)",
-            detail: "Insert a Bitwig stock/library device (open resolve — not a closed allowlist).\n\nSyntax:\n  .device(Polymer)\n  .device(v9 kick)\n  .add(Delay+)\n  .device(layer)\n\nExamples:\n  new track(b).device(Polymer).add(Delay+)\n  new track(kick).device(v9 kick).beat(4_)\n\nResolve paths: known UUID names, library .bwdevice, raw UUID.\nDevices tab lists only entries with devices/*.yaml (params documented).\n\nOut of scope:\n  Sampler  Drum Machine\n\nDrums: one track = one mono module = one MIDI for clip hits.\nNot GM multi-pad (bd/hh/sd).",
+            detail: "Insert any resolvable Bitwig/library device (name, alias, UUID, .bwdevice).\n\nSyntax:\n  .device(Polymer)\n  .device(v9 kick)\n  .add(Delay+)\n\nExamples:\n  new track(b).device(Polymer).add(Delay+)\n  new track(kick).device(v9 kick).beat(4_)\n\nDevices tab = optional HELP for devices with devices/*.yaml — not an allowlist.\nYou can insert devices that are not listed.\n\nOut of scope for insert:\n  Sampler  Drum Machine\n\nDrums: one track = one mono module. Not GM multi-pad (bd/hh/sd).",
             tag: "device",
         },
         {
             name: ": params",
             summary: "snapshot device parameters",
             syntax: "kick&v9kick: decay(50)",
-            detail: "Set params on a device that already exists — one value now (snapshot).\nNeeds devices/<id>.yaml for that device (display → wire 0..1).\nNo ramps, sequences, or automation.\n\nSyntax:\n  track&device: param(val) other(val)\n\nExamples:\n  kick&v9kick: decay(50) pitch(40)\n\nNo YAML → insert may work, params do not.",
+            detail: "Set params on a device that already exists — one snapshot (no ramps).\n\nWith devices/*.yaml (Devices tab help):\n  track&device: param(displayVal)  — e.g. decay(50) if display is 0..100\n\nWithout YAML (raw, like CLI):\n  track&SomePlugin: cutoff(0.7)  — value is wire 0..1\n  (identifier names; spaces → use codewig-cli param set --name \"…\")\n\nDevices tab = cheat sheet for sensible coding targets.\nComplex devices / presets → Bitwig UI or codewig-cli raw.\n\nSyntax:\n  track&device: param(val) other(val)",
             tag: "device",
         },
         {
@@ -240,13 +240,17 @@ export component AppWindow inherits Window {
     callback reconnect();
     callback insert-command(string);
     callback show-help(string);
+    /// Rescan devices/*.yaml and refresh Devices tab.
+    callback reload-devices();
+    /// Lazy: full parameter list for one device (by bitwig name / id / alias).
+    pure callback device-detail(name: string) -> string;
     /// Substring match (case-insensitive). Slint has no string.contains — Rust implements it.
     pure callback text-matches(haystack: string, needle: string) -> bool;
 
     changed active-tab => {
         help-text = active-tab == "commands"
             ? "Click a command to see details. Right-click to insert syntax."
-            : "Click a device to see its parameters. Right-click to insert the device name.";
+            : "YAML catalog (devices/). Click = load params · Right-click = insert · ↻ = reload";
     }
 
     // LX AudioLabs-inspired dark theme
@@ -380,7 +384,7 @@ export component AppWindow inherits Window {
                     vertical-stretch: 0;
                 }
 
-                // Tabs: Commands | Devices
+                // Tabs: Commands | Devices | reload catalog
                 HorizontalBox {
                     height: 28px;
                     spacing: 3px;
@@ -399,6 +403,26 @@ export component AppWindow inherits Window {
                         border-radius: 4px;
                         TouchArea { clicked => { root.active-tab = "devices"; } }
                         Text { x: 8px; y: 4px; text: "Devices"; font-size: 11px; color: root.active-tab == "devices" ? text : muted; }
+                    }
+                    // Rescan devices/*.yaml (drop a new YAML → click reload)
+                    tab-reload := Rectangle {
+                        height: 24px; width: 28px;
+                        background: reload-ta.has-hover ? hover : tag-bg;
+                        border-radius: 4px;
+                        reload-ta := TouchArea {
+                            clicked => {
+                                root.active-tab = "devices";
+                                root.reload-devices();
+                            }
+                        }
+                        Text {
+                            x: 0px; y: 0px; width: 100%; height: 100%;
+                            text: "↻";
+                            font-size: 14px;
+                            color: muted;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
                     }
                 }
 
@@ -550,7 +574,7 @@ export component AppWindow inherits Window {
                                     root.ref-filter == ""
                                     || root.text-matches(entry.name, root.ref-filter)
                                     || root.text-matches(entry.aliases, root.ref-filter)
-                                    || root.text-matches(entry.detail, root.ref-filter);
+                                    || root.text-matches(entry.summary, root.ref-filter);
                                 height: shown ? 30px : 0px;
                                 width: 100%;
                                 visible: shown;
@@ -563,7 +587,8 @@ export component AppWindow inherits Window {
                                     height: 100%;
                                     pointer-event(event) => {
                                         if event.button == PointerEventButton.left && event.kind == PointerEventKind.down {
-                                            root.show-help(entry.detail);
+                                            // Lazy: full param dump only when selected
+                                            root.show-help(root.device-detail(entry.name));
                                         }
                                         if event.button == PointerEventButton.right && event.kind == PointerEventKind.down {
                                             root.insert-command(entry.syntax);
@@ -590,7 +615,7 @@ export component AppWindow inherits Window {
                                     y: 0px;
                                     width: parent.width - 180px;
                                     height: 100%;
-                                    text: entry.aliases;
+                                    text: entry.summary;
                                     font-size: 11px;
                                     color: muted;
                                     wrap: no-wrap;

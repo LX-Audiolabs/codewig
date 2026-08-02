@@ -3,7 +3,10 @@
 //! Provides a synchronous TCP+JSON client for the Codewig Bitwig extension.
 
 pub mod music;
+pub mod paths;
 pub mod protocol;
+
+pub use paths::{ensure_user_layout, user_data_dir, user_devices_dir, APP_DIR_NAME};
 
 use protocol::{connect, send_request, Request, Response, DEFAULT_HOST, DEFAULT_PORT};
 use serde_json::{json, Map, Value};
@@ -283,6 +286,11 @@ impl Client {
 
     pub fn param_list(&self) -> Result<Option<Value>, Error> {
         self.send(self.req("param.list"))
+    }
+
+    /// `source`: `"direct"` | `"remote"` | `"all"` (Bitwig Remote Controls pages).
+    pub fn param_list_source(&self, source: &str) -> Result<Option<Value>, Error> {
+        self.send(self.req("param.list").field("source", source))
     }
 
     pub fn param_set_name_value(&self, name: &str, value: f64) -> Result<Option<Value>, Error> {

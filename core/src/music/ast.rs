@@ -47,7 +47,7 @@ pub struct FluentCmd {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FluentStep {
-    /// `.device(Polymer)` / `.device(kick.v9)` — allowlist insert
+    /// `.device(Polymer)` / `.device(kick.v9)` — insert by name (open resolve)
     Device(DeviceSpec),
     /// .add(Delay+)
     Add(DeviceSpec),

@@ -1,0 +1,62 @@
+# Bitwig stock mono drum — v9 Hat Open
+# Source: live param.list via Codewig Bridge (Bitwig 6.0.11)
+# Syntax:  oh&v9hatopen: decay(70) impact(50) density(50)
+
+id: v9hatopen
+bitwig_name: "v9 Hat Open"
+kind: bitwig
+path_hint:
+  windows: "%USERPROFILE%/Documents/Bitwig Studio/Library/Devices"
+  linux: "~/Bitwig Studio/Library/Devices"
+aliases:
+  - "v9 hat open"
+  - "v9hatopen"
+  - "hat open.v9"
+  - "hatopen.v9"
+params:
+  tune:
+    # CONTENTS/TUNE
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["pitch", "p"]
+  decay:
+    # CONTENTS/DECAY
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+  impact:
+    # CONTENTS/IMPACT
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+  density:
+    # CONTENTS/DENSITY
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+  width:
+    # CONTENTS/WIDTH — Stereo Width
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["stereo", "stereo width", "stereo_width"]
+  variation:
+    # CONTENTS/SOUND_VARIATION
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["sound variation", "sound_variation", "var"]
+  output:
+    # CONTENTS/OUTPUT
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["level", "vol", "volume"]
+  velocity:
+    # CONTENTS/VELOCITY_SENSITIVITY
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["vel", "velocity sensitivity", "velocity_sensitivity"]
+

@@ -632,7 +632,7 @@ fn fluent(
 }
 
 fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, String> {
-    // Catalog maps display units → wire 0..1; unknown / empty device → hard error.
+    // YAML optional: display→wire when documented; else raw wire 0..1 passthrough.
     let sets = super::param_catalog::catalog()
         .map_param_sets(&cmd.device.catalog_name, &cmd.params)?;
 

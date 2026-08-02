@@ -1,6 +1,20 @@
-# Bitwig stock mono drum — param support for WIGSCRIPT
-# Syntax:  kick&v9kick: decay(50) pitch(40)
-# Display 0–100 → wire 0–1
+# Bitwig stock mono drum — v9 Kick (TR-909 inspired)
+# Source: live param.list via Codewig Bridge (Bitwig 6.0.11)
+# Syntax:  kick&v9kick: decay(50) punch(70) tune(45)
+#
+# Direct params (id → display name):
+#   CONTENTS/TUNE                 → Tune
+#   CONTENTS/DECAY                → Decay
+#   CONTENTS/PUNCH                → Punch
+#   CONTENTS/TONE                 → Shape
+#   CONTENTS/NOISE                → Buzz
+#   CONTENTS/CLICK                → Click
+#   CONTENTS/COMPRESSION          → Compression
+#   CONTENTS/OUTPUT               → Output
+#   CONTENTS/VELOCITY_SENSITIVITY → Velocity Sensitivity
+# Toggles (Keytracking / Consistent Sound) omitted — knobs/sliders only.
+#
+# Display 0–100 → wire 0–1.
 
 id: v9kick
 bitwig_name: "v9 Kick"
@@ -14,12 +28,56 @@ aliases:
   - "kick.v9"
   - "kick v9"
 params:
+  # ── faceplate knobs (9) ──────────────────────────────────────────
+  tune:
+    # CONTENTS/TUNE — ±1 octave (wire center 0.5 = default)
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["pitch", "p"]
   decay:
+    # CONTENTS/DECAY
     wire: [0, 1]
     display: [0, 100]
     unit: "%"
-  pitch:
+  punch:
+    # CONTENTS/PUNCH
     wire: [0, 1]
     display: [0, 100]
     unit: "%"
-    aliases: ["p"]
+  shape:
+    # CONTENTS/TONE (Bitwig UI name: Shape)
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["tone"]
+  buzz:
+    # CONTENTS/NOISE (Bitwig UI name: Buzz)
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["noise"]
+  click:
+    # CONTENTS/CLICK
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+  compression:
+    # CONTENTS/COMPRESSION — suppressed envelope character
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["comp"]
+  output:
+    # CONTENTS/OUTPUT
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["level", "vol", "volume"]
+  velocity:
+    # CONTENTS/VELOCITY_SENSITIVITY
+    wire: [0, 1]
+    display: [0, 100]
+    unit: "%"
+    aliases: ["vel", "velocity sensitivity", "velocity_sensitivity"]
+

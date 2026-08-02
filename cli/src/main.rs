@@ -216,7 +216,12 @@ enum DeviceCmd {
 
 #[derive(Subcommand, Debug)]
 enum ParamCmd {
-    List,
+    /// List parameters (`--source remote` = Remote Controls only)
+    List {
+        /// direct | remote | all  (default: direct)
+        #[arg(long, default_value = "direct")]
+        source: String,
+    },
     /// Set one or more direct parameters
     Set {
         /// Parameter name
@@ -488,7 +493,11 @@ fn dispatch(client: &Client, command: Commands) -> Result<Option<Value>, Box<dyn
             }
         },
         Commands::Param { action } => match action {
-            ParamCmd::List => ("param.list", Map::new()),
+            ParamCmd::List { source } => {
+                let mut m = Map::new();
+                m.insert("source".into(), source.into());
+                ("param.list", m)
+            }
             ParamCmd::Set {
                 name,
                 id,

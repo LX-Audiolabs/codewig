@@ -123,16 +123,64 @@ pub static DRUM_DEVICES: &[Device] = &[
     Device { name: "v8 Rimshot", kind: DeviceKind::Drum, alias: "v8rimshot", params: &["decay", "pitch"] },
     Device { name: "v8 Snare", kind: DeviceKind::Drum, alias: "v8snare", params: &["decay", "pitch"] },
     Device { name: "v8 Tom", kind: DeviceKind::Drum, alias: "v8tom", params: &["decay", "pitch"] },
-    Device { name: "v9 Clap", kind: DeviceKind::Drum, alias: "v9clap", params: &["decay", "tone"] },
-    Device { name: "v9 Crash", kind: DeviceKind::Drum, alias: "v9crash", params: &["decay", "tone"] },
-    Device { name: "v9 Hat Closed", kind: DeviceKind::Drum, alias: "v9hatclosed", params: &["decay", "tone"] },
-    Device { name: "v9 Hat Open", kind: DeviceKind::Drum, alias: "v9hatopen", params: &["decay", "tone"] },
-    // Param names/ranges: devices/v9kick.yaml (source of truth for WIGSCRIPT params).
-    Device { name: "v9 Kick", kind: DeviceKind::Drum, alias: "v9kick", params: &["decay", "pitch"] },
-    Device { name: "v9 Ride", kind: DeviceKind::Drum, alias: "v9ride", params: &["decay", "tone"] },
-    Device { name: "v9 Rimshot", kind: DeviceKind::Drum, alias: "v9rimshot", params: &["decay", "pitch"] },
-    Device { name: "v9 Snare", kind: DeviceKind::Drum, alias: "v9snare", params: &["decay", "pitch"] },
-    Device { name: "v9 Tom", kind: DeviceKind::Drum, alias: "v9tom", params: &["decay", "pitch"] },
+    // Param names/ranges: devices/v9clap.yaml (source of truth).
+    // YAML = knobs/sliders only (no toggles). Source of truth: devices/*.yaml
+    Device {
+        name: "v9 Clap",
+        kind: DeviceKind::Drum,
+        alias: "v9clap",
+        params: &["tune", "decay", "flam", "width", "variation", "output", "velocity"],
+    },
+    Device {
+        name: "v9 Crash",
+        kind: DeviceKind::Drum,
+        alias: "v9crash",
+        params: &["tune", "decay", "impact", "density", "width", "variation", "output", "velocity"],
+    },
+    Device {
+        name: "v9 Hat Closed",
+        kind: DeviceKind::Drum,
+        alias: "v9hatclosed",
+        params: &["tune", "decay", "impact", "density", "width", "variation", "output", "velocity"],
+    },
+    Device {
+        name: "v9 Hat Open",
+        kind: DeviceKind::Drum,
+        alias: "v9hatopen",
+        params: &["tune", "decay", "impact", "density", "width", "variation", "output", "velocity"],
+    },
+    Device {
+        name: "v9 Kick",
+        kind: DeviceKind::Drum,
+        alias: "v9kick",
+        params: &[
+            "tune", "decay", "punch", "shape", "buzz", "click", "compression", "output", "velocity",
+        ],
+    },
+    Device {
+        name: "v9 Ride",
+        kind: DeviceKind::Drum,
+        alias: "v9ride",
+        params: &["tune", "decay", "impact", "density", "width", "variation", "output", "velocity"],
+    },
+    Device {
+        name: "v9 Rimshot",
+        kind: DeviceKind::Drum,
+        alias: "v9rimshot",
+        params: &["tune", "tone", "output", "velocity"],
+    },
+    Device {
+        name: "v9 Snare",
+        kind: DeviceKind::Drum,
+        alias: "v9snare",
+        params: &["tune", "decay", "drive", "snappy", "click", "tone", "output", "velocity"],
+    },
+    Device {
+        name: "v9 Tom",
+        kind: DeviceKind::Drum,
+        alias: "v9tom",
+        params: &["tune", "decay", "tone", "shape", "snap", "punch", "output", "velocity"],
+    },
 ];
 
 /// Trigger MIDI for monophonic Bitwig drum **modules** (not Drum Machine pads).

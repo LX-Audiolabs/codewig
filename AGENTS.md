@@ -7,7 +7,7 @@
 | Priority | Where |
 |----------|--------|
 | 1 | `core/src/music/{parse,ast,execute,device,expand,param_catalog}.rs` |
-| 1 | `devices/*.yaml` (param catalog — bitwig\|clap only) |
+| 1 | `devices/*.yaml` (param catalog — disk scan / UI ↻ reload; bitwig\|clap only) |
 | 1 | `extension/.../DeviceCatalog.java` (insert resolve: UUID / library file) |
 | 1 | `ui/src/commands.rs`, `cli/src/main.rs` (`eval`) |
 | 2 | Root `README.md` |
@@ -32,11 +32,11 @@
 1. **Bare Tidal lines are not the REPL** — invalid: `c e g`. Valid: `bass: n "c e g"` (quotes).
 2. **WIGSCRIPT is primary**. CLI: `codewig-cli eval "same line"`.
 3. **UI + CLI → `codewig-core` TCP `:9470`** (Codewig.bwextension). UI does not shell out to `codewig-cli`.
-4. **Devices** — **insert** any resolvable Bitwig stock/library device (name / UUID / `.bwdevice`). **UI list + params** only for `devices/*.yaml`. No Sampler / Drum Machine. No `d "bd hh"`.
+4. **Devices** — **insert** any resolvable Bitwig/library name (UUID / `.bwdevice`). No Sampler / Drum Machine. No `d "bd hh"`. **`devices/*.yaml` = optional help** (UI Devices tab), not an allowlist.
 5. **`research/` gitignored** — code wins.
 6. Live focus: **clips / scenes / mute**.
-7. **Params = snapshot only** (`param.set`). Display ranges from `devices/*.yaml` → wire `0..1`. No YAML / empty `params` → no param support (insert may still work).
-8. **Param catalog scope** = Bitwig devices + CLAP (system paths later). **No** VST3/LV2. No Bitwig plugin-path queries.
+7. **Params = snapshot only** (`param.set`). With YAML: display ranges + aliases → wire `0..1`. Without YAML: raw wire `0..1` + Bitwig param name (same as CLI). Knobs/sliders only in help YAMLs — no presets/browser.
+8. **Help catalog** = curated useful surfaces (v9, simple synths). Complex UIs (Delay-4, Grids…) — Bitwig UI or raw CLI, no help entry required.
 9. **Param address** = `track&device:` — not track alone, not `@` (reserved scene/clip).
 10. **Timed mute OK**: `mute(x) N` / `@bar`.
 11. **`>` passthrough** only UI/CLI entry, not `execute_line`.

@@ -64,8 +64,10 @@ lead@verse: n "e c g"
 lead: arp:up "Cm7"
 lead: chord "C Am F G"
 
-# Param — track × device only (& not @). Needs devices/*.yaml for that device
-kick&v9kick: decay(50) pitch(40)
+# Param — track × device (& not @). YAML optional (help + display ranges)
+kick&v9kick: decay(50) punch(40)
+# Without YAML: wire 0..1 + Bitwig param name as typed
+# someClap&foo: cutoff(0.7)
 
 # Performance
 new scene(verse)
@@ -101,14 +103,13 @@ Not a closed hard-coded allowlist of nine names.
 
 | | Rule |
 |---|------|
-| **Insert** | Any **Bitwig** stock/library device the bridge can resolve: display name, alias, library `.bwdevice`, or raw UUID. Common names (Polymer, Delay+, `v9 kick`, …) have fast paths; others resolve via Library/devices. |
-| **UI Devices tab** | Only devices that have a **`devices/*.yaml`** file are **listed**. |
-| **Params** (`track&device:`) | Only with a YAML catalog entry (display range → wire `0..1`). No YAML → insert may still work, **params do not**. |
-| **Out of scope** | Sampler, Drum Machine (multi-pad / samples). No kit syntax (`:909`), no hit-map `d "bd hh"`. No VST3/LV2 param catalog. |
+| **Insert** | Any resolvable Bitwig/library name (alias, `.bwdevice`, UUID). Not an allowlist. |
+| **UI Devices tab** | **Help only** — devices with `devices/*.yaml` (sensible coding targets). You can still drive unlisted devices. |
+| **Params** (`track&device:`) | With YAML: display ranges + aliases. Without: raw wire **0..1** + param name (CLI-style). |
+| **Not for help YAML** | Presets, browsers, ultra-complex UIs (e.g. Delay-4) — use Bitwig UI or raw CLI. |
+| **Out of scope** | Sampler / Drum Machine insert. No `d "bd hh"`. No VST3/LV2 help catalog. |
 
-Add param support for a device → drop `devices/<id>.yaml` (see `devices/README.md`). Then it appears in the UI and accepts `track&device:` sets.
-
-Polymer: insert + notes OK; **params deferred** (YAML present but empty until a fixed subset is documented).
+Add a help entry → drop `devices/<id>.yaml` (see `devices/README.md`) → appears in Devices tab.
 
 ---
 

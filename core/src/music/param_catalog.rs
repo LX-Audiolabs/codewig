@@ -1,25 +1,20 @@
 //! File-based device param catalog (`devices/*.yaml`).
 //!
 //! Scope v1:
-//! - **bitwig** stock/library devices (curated YAML)
-//! - **clap** only (system paths later / extra folders via UI someday)
-//! - **No** VST3 / LV2; no Bitwig plugin-path queries
+//! - **bitwig** stock/library devices (YAML in `devices/`)
+//! - **clap** (drop a YAML for any CLAP — no plugin path queries)
+//! - **No** VST3 / LV2
 //!
-//! - File present → param-aware (even if `params: {}`).
-//! - No file → params unsupported (insert may still work via open Bitwig resolve).
-//! - UI Devices tab lists only devices that have a YAML file.
-//! - Load: embedded defaults, then runtime dirs (later overrides by `id`).
+//! - **Source of truth = YAML on disk**, not compiled-in embeds.
+//! - Scan dirs at load / reload (`CODEWIG_DEVICES_DIR`, `./devices`, next to exe, …).
+//! - Later files override earlier ones with the same `id`.
+//! - File present → listed in UI + param-aware (even if `params: {}`).
+//! - No file → insert may still work; params unsupported.
 
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
-
-/// Embedded shipped devices (always available without a `devices/` folder).
-const EMBEDDED: &[(&str, &str)] = &[
-    ("v9kick", include_str!("../../../devices/v9kick.yaml")),
-    ("polymer", include_str!("../../../devices/polymer.yaml")),
-];
+use std::sync::{OnceLock, RwLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceHostKind {
@@ -58,11 +53,11 @@ pub struct DeviceParamFile {
     pub path_hint: Option<PathHint>,
     pub aliases: Vec<String>,
     pub params: Vec<ParamDef>,
-    /// Source path or `embedded:<id>`.
+    /// Source path of the YAML file.
     pub source: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ParamCatalog {
     devices: Vec<DeviceParamFile>,
 }
@@ -117,37 +112,45 @@ impl ParamCatalog {
         }
     }
 
-    /// Resolve param sets for execute: `(canonical_name, wire_value)`.
+    /// Resolve param sets for execute: `(bitwig_name, wire_0..1)`.
+    ///
+    /// YAML catalog is **optional help**, not an allowlist:
+    /// - Device + param in catalog → display range → wire, aliases, full UI labels.
+    /// - Missing device / empty params / unknown param → pass through as **wire 0..1**
+    ///   (same as raw `param set` on the CLI). Values outside 0..1 error with a hint.
     pub fn map_param_sets(
         &self,
         device: &str,
         sets: &[(String, f64)],
     ) -> Result<Vec<(String, f64)>, String> {
-        let Some(dev) = self.resolve(device) else {
-            return Err(format!(
-                "device '{device}' not in param catalog — add devices/<id>.yaml \
-                 (kind: bitwig|clap only; insert may still work)"
-            ));
-        };
-        if dev.params.is_empty() {
-            return Err(format!(
-                "device '{}' ({}) has no documented params yet — see devices/{}.yaml",
-                dev.bitwig_name, dev.id, dev.id
-            ));
-        }
+        let dev = self.resolve(device);
         let mut out = Vec::with_capacity(sets.len());
-        for (name, display) in sets {
-            let Some(p) = self.resolve_param(dev, name) else {
-                let known: Vec<&str> = dev.params.iter().map(|p| p.name.as_str()).collect();
-                return Err(format!(
-                    "param '{name}' unknown on {} — known: {}",
-                    dev.bitwig_name,
-                    known.join(", ")
-                ));
-            };
-            out.push((p.name.clone(), Self::display_to_wire(p, *display)));
+        for (name, value) in sets {
+            if let Some(dev) = dev {
+                if let Some(p) = self.resolve_param(dev, name) {
+                    // Help path: aliases + display→wire
+                    let wire_name = bitwig_match_name(p);
+                    out.push((wire_name, Self::display_to_wire(p, *value)));
+                    continue;
+                }
+            }
+            // Open path: name as typed, value already wire-normalized
+            out.push(wire_passthrough(name, *value)?);
         }
         Ok(out)
+    }
+}
+
+/// Raw wire set when no YAML mapping applies. Value must already be 0..1.
+fn wire_passthrough(name: &str, v: f64) -> Result<(String, f64), String> {
+    if (0.0..=1.0).contains(&v) {
+        Ok((name.to_string(), v))
+    } else {
+        Err(format!(
+            "param '{name}': value {v} is outside wire 0..1. \
+             Without a devices/*.yaml entry, use raw 0..1 (CLI style). \
+             Add YAML for display ranges (e.g. 0..100) and aliases."
+        ))
     }
 }
 
@@ -256,13 +259,39 @@ fn norm(s: &str) -> String {
         .replace('+', "plus")
 }
 
+/// Name sent to Bitwig `param.set` — full UI label when available via alias.
+fn bitwig_match_name(p: &ParamDef) -> String {
+    p.aliases
+        .iter()
+        .filter(|a| a.contains(' '))
+        .max_by_key(|a| a.len())
+        .cloned()
+        .unwrap_or_else(|| p.name.clone())
+}
+
 // ── Load ───────────────────────────────────────────────────────────
 
-fn candidate_dirs() -> Vec<PathBuf> {
+/// Dirs scanned in order. **Later dirs override same `id`.**
+///
+/// Product path first is seeded via [`crate::paths::ensure_user_layout`];
+/// repo/`./devices` still win when developing (loaded later).
+pub fn candidate_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    if let Ok(p) = std::env::var("CODEWIG_DEVICES_DIR") {
-        dirs.push(PathBuf::from(p));
+    // Explicit override (same as user_devices when CODEWIG_DEVICES_DIR is set)
+    if let Ok(p) = std::env::var(crate::paths::ENV_DEVICES_DIR) {
+        let p = p.trim();
+        if !p.is_empty() {
+            dirs.push(PathBuf::from(p));
+        }
     }
+    // Per-user install location (created + seeded on ensure)
+    if let Some(d) = crate::paths::user_devices_dir() {
+        // Avoid double-push when CODEWIG_DEVICES_DIR already set to the same path
+        if dirs.last().map(|x| x != &d).unwrap_or(true) {
+            dirs.push(d);
+        }
+    }
+    // Dev / portable: next to cwd and binary
     dirs.push(PathBuf::from("devices"));
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
@@ -277,6 +306,8 @@ fn candidate_dirs() -> Vec<PathBuf> {
         dirs.push(cwd.join("../devices"));
         dirs.push(cwd.join("../../devices"));
     }
+    // Dev: repo devices/ next to core crate (last → overrides user when developing)
+    dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../devices"));
     dirs
 }
 
@@ -297,6 +328,14 @@ fn load_dir(dir: &Path, into: &mut HashMap<String, DeviceParamFile>) {
         if !is_yaml(&path) {
             continue;
         }
+        // Skip docs / non-device files
+        if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("README.yaml") || n.eq_ignore_ascii_case("README.yml"))
+        {
+            continue;
+        }
         let Ok(text) = std::fs::read_to_string(&path) else {
             continue;
         };
@@ -312,45 +351,77 @@ fn load_dir(dir: &Path, into: &mut HashMap<String, DeviceParamFile>) {
     }
 }
 
+/// Scan disk and build a catalog (no global write).
+/// Ensures `%LOCALAPPDATA%\Codewig\devices` (etc.) exists and is seeded first.
 pub fn load_catalog() -> ParamCatalog {
+    // Create user layout + seed factory YAMLs (no overwrite of user files).
+    if let Err(e) = crate::paths::ensure_user_layout() {
+        eprintln!("param catalog: user layout: {e}");
+    }
+
     let mut map: HashMap<String, DeviceParamFile> = HashMap::new();
-
-    for (id, text) in EMBEDDED {
-        match parse_device_yaml(text, &format!("embedded:{id}")) {
-            Ok(dev) => {
-                map.insert(dev.id.clone(), dev);
-            }
-            Err(e) => eprintln!("param catalog: embedded {id}: {e}"),
-        }
-    }
-
+    let mut seen_dirs = Vec::new();
     for dir in candidate_dirs() {
-        if dir.is_dir() {
-            load_dir(&dir, &mut map);
+        let Ok(canon) = dir.canonicalize() else {
+            if dir.is_dir() {
+                load_dir(&dir, &mut map);
+                seen_dirs.push(dir.display().to_string());
+            }
+            continue;
+        };
+        if !canon.is_dir() {
+            continue;
         }
+        if seen_dirs.iter().any(|s| s == &canon.display().to_string()) {
+            continue;
+        }
+        seen_dirs.push(canon.display().to_string());
+        load_dir(&canon, &mut map);
     }
-
     let mut devices: Vec<_> = map.into_values().collect();
     devices.sort_by(|a, b| a.id.cmp(&b.id));
     ParamCatalog { devices }
 }
 
-/// Process-wide catalog (embedded + dir scan).
-pub fn catalog() -> &'static ParamCatalog {
-    static CAT: OnceLock<ParamCatalog> = OnceLock::new();
-    CAT.get_or_init(load_catalog)
+fn global() -> &'static RwLock<ParamCatalog> {
+    static CAT: OnceLock<RwLock<ParamCatalog>> = OnceLock::new();
+    CAT.get_or_init(|| RwLock::new(load_catalog()))
+}
+
+/// Snapshot of the process-wide catalog (clone — cheap, lock released).
+pub fn catalog() -> ParamCatalog {
+    global()
+        .read()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
+/// Rescan `devices/` dirs and replace the global catalog.
+/// Returns the number of device entries loaded.
+pub fn reload_catalog() -> usize {
+    let cat = load_catalog();
+    let n = cat.devices.len();
+    *global().write().unwrap_or_else(|e| e.into_inner()) = cat;
+    n
+}
+
+/// Load only from an explicit directory (tests / tools).
+pub fn catalog_from_dir(dir: &Path) -> ParamCatalog {
+    let mut map = HashMap::new();
+    load_dir(dir, &mut map);
+    let mut devices: Vec<_> = map.into_values().collect();
+    devices.sort_by(|a, b| a.id.cmp(&b.id));
+    ParamCatalog { devices }
 }
 
 #[cfg(test)]
-pub fn catalog_from_embedded_only() -> ParamCatalog {
-    let mut map: HashMap<String, DeviceParamFile> = HashMap::new();
-    for (id, text) in EMBEDDED {
-        let dev = parse_device_yaml(text, &format!("embedded:{id}")).expect(id);
-        map.insert(dev.id.clone(), dev);
-    }
-    let mut devices: Vec<_> = map.into_values().collect();
-    devices.sort_by(|a, b| a.id.cmp(&b.id));
-    ParamCatalog { devices }
+fn repo_devices_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../devices")
+}
+
+#[cfg(test)]
+pub fn catalog_from_repo_devices() -> ParamCatalog {
+    catalog_from_dir(&repo_devices_dir())
 }
 
 #[cfg(test)]
@@ -358,44 +429,170 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_v9kick_embedded() {
-        let cat = catalog_from_embedded_only();
-        let d = cat.resolve("v9 kick").expect("v9 kick");
-        assert_eq!(d.bitwig_name, "v9 Kick");
-        assert_eq!(d.kind, DeviceHostKind::Bitwig);
-        assert!(cat.resolve_param(d, "decay").is_some());
-        assert!(cat.resolve_param(d, "pitch").is_some());
-        assert!(cat.resolve_param(d, "p").is_some());
+    fn all_v9_family_from_devices_dir() {
+        let cat = catalog_from_repo_devices();
+        // knobs/sliders only — no keytrack/consistent toggles
+        let expected: &[(&str, &str, usize)] = &[
+            ("v9kick", "v9 Kick", 9),
+            ("v9clap", "v9 Clap", 7),
+            ("v9snare", "v9 Snare", 8),
+            ("v9tom", "v9 Tom", 8),
+            ("v9rimshot", "v9 Rimshot", 4),
+            ("v9hatclosed", "v9 Hat Closed", 8),
+            ("v9hatopen", "v9 Hat Open", 8),
+            ("v9crash", "v9 Crash", 8),
+            ("v9ride", "v9 Ride", 8),
+        ];
+        for &(id, bitwig, n) in expected {
+            let d = cat.resolve(id).unwrap_or_else(|| panic!("missing {id}"));
+            assert_eq!(d.bitwig_name, bitwig);
+            assert_eq!(d.params.len(), n, "{id} param count");
+            assert!(cat.resolve_param(d, "output").is_some(), "{id} output");
+            assert!(
+                cat.resolve_param(d, "keytrack").is_none(),
+                "{id} must not list keytrack toggle"
+            );
+        }
+        let rim = cat.resolve("v9rimshot").unwrap();
+        assert!(cat.resolve_param(rim, "decay").is_none());
+        assert!(cat.resolve_param(rim, "tone").is_some());
+        let sn = cat.resolve("v9snare").unwrap();
+        assert!(cat.resolve_param(sn, "noise").is_some());
+        let tom = cat.resolve("v9tom").unwrap();
+        assert!(cat.resolve_param(tom, "snap").is_some());
+        assert!(cat.resolve_param(tom, "click").is_some());
     }
 
     #[test]
-    fn polymer_empty_params() {
-        let cat = catalog_from_embedded_only();
+    fn parse_v9clap_from_disk() {
+        let cat = catalog_from_repo_devices();
+        let d = cat.resolve("v9 clap").expect("v9 clap");
+        assert_eq!(d.bitwig_name, "v9 Clap");
+        assert_eq!(d.params.len(), 7);
+        for name in [
+            "tune",
+            "decay",
+            "flam",
+            "width",
+            "variation",
+            "output",
+            "velocity",
+        ] {
+            assert!(
+                cat.resolve_param(d, name).is_some(),
+                "missing param {name}"
+            );
+        }
+        assert!(cat.resolve_param(d, "stereo").is_some());
+        assert!(cat.resolve_param(d, "var").is_some());
+        let sets = cat
+            .map_param_sets(
+                "v9clap",
+                &[("decay".into(), 50.0), ("flam".into(), 40.0)],
+            )
+            .unwrap();
+        assert_eq!(sets[0].0, "decay");
+        assert!((sets[0].1 - 0.5).abs() < 1e-9);
+        assert_eq!(sets[1].0, "flam");
+        assert!((sets[1].1 - 0.4).abs() < 1e-9);
+    }
+
+    #[test]
+    fn parse_v9kick_from_disk() {
+        let cat = catalog_from_repo_devices();
+        let d = cat.resolve("v9 kick").expect("v9 kick");
+        assert_eq!(d.bitwig_name, "v9 Kick");
+        assert_eq!(d.kind, DeviceHostKind::Bitwig);
+        // 9 knobs only (no toggles)
+        assert_eq!(d.params.len(), 9);
+        for name in [
+            "tune",
+            "decay",
+            "punch",
+            "shape",
+            "buzz",
+            "click",
+            "compression",
+            "output",
+            "velocity",
+        ] {
+            assert!(
+                cat.resolve_param(d, name).is_some(),
+                "missing param {name}"
+            );
+        }
+        // legacy aliases
+        assert!(cat.resolve_param(d, "pitch").is_some());
+        assert!(cat.resolve_param(d, "p").is_some());
+        assert!(cat.resolve_param(d, "tone").is_some());
+        assert!(cat.resolve_param(d, "noise").is_some());
+    }
+
+    #[test]
+    fn polymer_empty_params_passthrough_wire() {
+        let cat = catalog_from_repo_devices();
         let d = cat.resolve("poly").expect("polymer");
         assert!(d.params.is_empty());
+        // empty YAML params → wire 0..1, not a hard block
+        let sets = cat
+            .map_param_sets("Polymer", &[("cutoff".into(), 0.3)])
+            .unwrap();
+        assert_eq!(sets[0].0, "cutoff");
+        assert!((sets[0].1 - 0.3).abs() < 1e-9);
+        // display-style 50 without YAML → error (must be wire)
         let err = cat
             .map_param_sets("Polymer", &[("cutoff".into(), 50.0)])
             .unwrap_err();
-        assert!(err.contains("no documented params"));
+        assert!(err.contains("0..1"), "{err}");
+    }
+
+    #[test]
+    fn unknown_device_wire_passthrough() {
+        let cat = catalog_from_repo_devices();
+        let sets = cat
+            .map_param_sets("SomeClap", &[("Filter Cutoff".into(), 0.7)])
+            .unwrap();
+        assert_eq!(sets[0].0, "Filter Cutoff");
+        assert!((sets[0].1 - 0.7).abs() < 1e-9);
     }
 
     #[test]
     fn display_percent_to_wire() {
-        let cat = catalog_from_embedded_only();
+        let cat = catalog_from_repo_devices();
         let sets = cat
-            .map_param_sets("v9kick", &[("decay".into(), 50.0), ("pitch".into(), 100.0)])
+            .map_param_sets(
+                "v9kick",
+                &[
+                    ("decay".into(), 50.0),
+                    ("pitch".into(), 100.0), // alias → tune
+                    ("punch".into(), 0.0),
+                ],
+            )
             .unwrap();
+        // short keys when no spaced alias
         assert_eq!(sets[0].0, "decay");
         assert!((sets[0].1 - 0.5).abs() < 1e-9);
+        // pitch alias → param tune (no spaced alias preferred beyond "tune")
+        assert_eq!(sets[1].0, "tune");
         assert!((sets[1].1 - 1.0).abs() < 1e-9);
+        assert_eq!(sets[2].0, "punch");
+        assert!((sets[2].1 - 0.0).abs() < 1e-9);
     }
 
     #[test]
-    fn unknown_device() {
-        let cat = catalog_from_embedded_only();
+    fn unknown_device_display_value_errors() {
+        let cat = catalog_from_repo_devices();
+        // no YAML → 50 is not valid wire
         assert!(cat
-            .map_param_sets("Surge XT", &[("cutoff".into(), 1.0)])
+            .map_param_sets("Surge XT", &[("cutoff".into(), 50.0)])
             .is_err());
+    }
+
+    #[test]
+    fn reload_rescans_disk() {
+        let n = reload_catalog();
+        assert!(n >= 9, "expected v9 family + polymer, got {n}");
+        assert!(catalog().resolve("v9kick").is_some());
     }
 
     #[test]

@@ -118,7 +118,8 @@ public final class CommandRouter {
                     return Messages.ok(id, devices.delete(requireInt(req, "index")));
 
                 case "param.list":
-                    return Messages.ok(id, params.list());
+                    // source: direct (default) | remote | all
+                    return Messages.ok(id, params.list(str(req, "source", "direct")));
 
                 case "param.set":
                     return Messages.ok(id, params.set(req));
