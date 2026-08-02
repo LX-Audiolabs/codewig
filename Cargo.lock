@@ -901,7 +901,7 @@ dependencies = [
 
 [[package]]
 name = "codewig-cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "clap",
  "clap_complete",
@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "codewig-core"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "rand",
  "serde",
@@ -924,7 +924,7 @@ dependencies = [
 
 [[package]]
 name = "codewig-live"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "codewig-core",
  "serde_json",
