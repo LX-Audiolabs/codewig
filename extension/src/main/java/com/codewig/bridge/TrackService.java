@@ -30,8 +30,6 @@ public final class TrackService {
     private final TransportService transport;
     private final List<ScheduledMute> muteQueue = new ArrayList<>();
 
-    private volatile int trackCount;
-
     public TrackService(final ControllerHost host, final TransportService transport) {
         this.host = host;
         this.transport = transport;
@@ -41,7 +39,6 @@ public final class TrackService {
         this.cursorTrack = host.createCursorTrack("CODEWIG_CURSOR", "Codewig Cursor", 0, SCENE_SLOTS, true);
 
         trackBank.itemCount().markInterested();
-        trackBank.itemCount().addValueObserver(c -> trackCount = c);
 
         cursorTrack.name().markInterested();
         cursorTrack.position().markInterested();

@@ -11,10 +11,11 @@
 //! - File present → listed in UI + param-aware (even if `params: {}`).
 //! - No file → insert may still work; params unsupported.
 
+use super::device::norm;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{OnceLock, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeviceHostKind {
@@ -60,11 +61,18 @@ pub struct DeviceParamFile {
 #[derive(Debug, Default, Clone)]
 pub struct ParamCatalog {
     devices: Vec<DeviceParamFile>,
+    /// Non-fatal load problems (skipped YAML files, user-layout seed) from the scan.
+    load_errors: Vec<String>,
 }
 
 impl ParamCatalog {
     pub fn devices(&self) -> &[DeviceParamFile] {
         &self.devices
+    }
+
+    /// Non-fatal problems hit while scanning `devices/*.yaml` (bad files were skipped).
+    pub fn load_errors(&self) -> &[String] {
+        &self.load_errors
     }
 
     pub fn resolve(&self, name: &str) -> Option<&DeviceParamFile> {
@@ -212,7 +220,7 @@ fn parse_kind(s: &str) -> Result<DeviceHostKind, String> {
 pub fn parse_device_yaml(content: &str, source: &str) -> Result<DeviceParamFile, String> {
     let content = content.trim_start_matches('\u{feff}');
     let y: DeviceYaml =
-        serde_yaml::from_str(content).map_err(|e| format!("{source}: yaml: {e}"))?;
+        serde_norway::from_str(content).map_err(|e| format!("{source}: yaml: {e}"))?;
     let kind = parse_kind(&y.kind).map_err(|e| format!("{source}: {e}"))?;
 
     let mut params = Vec::new();
@@ -250,15 +258,6 @@ pub fn parse_device_yaml(content: &str, source: &str) -> Result<DeviceParamFile,
     })
 }
 
-fn norm(s: &str) -> String {
-    s.to_lowercase()
-        .replace(' ', "")
-        .replace('-', "")
-        .replace('_', "")
-        .replace('.', "")
-        .replace('+', "plus")
-}
-
 /// Name sent to Bitwig `param.set` — full UI label when available via alias.
 fn bitwig_match_name(p: &ParamDef) -> String {
     p.aliases
@@ -273,7 +272,8 @@ fn bitwig_match_name(p: &ParamDef) -> String {
 
 /// Dirs scanned in order. **Later dirs override same `id`.**
 ///
-/// Product path first is seeded via [`crate::paths::ensure_user_layout`];
+/// Product path first is seeded via [`crate::paths::ensure_user_layout`]
+/// (called at startup, or lazily on first global catalog access);
 /// repo/`./devices` still win when developing (loaded later).
 pub fn candidate_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
@@ -318,7 +318,7 @@ fn is_yaml(path: &Path) -> bool {
     )
 }
 
-fn load_dir(dir: &Path, into: &mut HashMap<String, DeviceParamFile>) {
+fn load_dir(dir: &Path, into: &mut HashMap<String, DeviceParamFile>, errors: &mut Vec<String>) {
     let rd = match std::fs::read_dir(dir) {
         Ok(r) => r,
         Err(_) => return,
@@ -345,26 +345,24 @@ fn load_dir(dir: &Path, into: &mut HashMap<String, DeviceParamFile>) {
                 into.insert(dev.id.clone(), dev);
             }
             Err(e) => {
-                eprintln!("param catalog: skip {src}: {e}");
+                errors.push(format!("skip {src}: {e}"));
             }
         }
     }
 }
 
-/// Scan disk and build a catalog (no global write).
-/// Ensures `%LOCALAPPDATA%\Codewig\devices` (etc.) exists and is seeded first.
+/// Scan disk and build a catalog (no global write). **Read-only** — creates
+/// and seeds nothing. The user layout is created once at startup
+/// ([`crate::paths::ensure_user_layout`], called from cli/ui `main`) or lazily
+/// on first global catalog access (see [`catalog`]).
 pub fn load_catalog() -> ParamCatalog {
-    // Create user layout + seed factory YAMLs (no overwrite of user files).
-    if let Err(e) = crate::paths::ensure_user_layout() {
-        eprintln!("param catalog: user layout: {e}");
-    }
-
     let mut map: HashMap<String, DeviceParamFile> = HashMap::new();
+    let mut errors = Vec::new();
     let mut seen_dirs = Vec::new();
     for dir in candidate_dirs() {
         let Ok(canon) = dir.canonicalize() else {
             if dir.is_dir() {
-                load_dir(&dir, &mut map);
+                load_dir(&dir, &mut map, &mut errors);
                 seen_dirs.push(dir.display().to_string());
             }
             continue;
@@ -376,20 +374,34 @@ pub fn load_catalog() -> ParamCatalog {
             continue;
         }
         seen_dirs.push(canon.display().to_string());
-        load_dir(&canon, &mut map);
+        load_dir(&canon, &mut map, &mut errors);
     }
     let mut devices: Vec<_> = map.into_values().collect();
     devices.sort_by(|a, b| a.id.cmp(&b.id));
-    ParamCatalog { devices }
+    ParamCatalog {
+        devices,
+        load_errors: errors,
+    }
 }
 
-fn global() -> &'static RwLock<ParamCatalog> {
-    static CAT: OnceLock<RwLock<ParamCatalog>> = OnceLock::new();
-    CAT.get_or_init(|| RwLock::new(load_catalog()))
+fn global() -> &'static RwLock<Arc<ParamCatalog>> {
+    static CAT: OnceLock<RwLock<Arc<ParamCatalog>>> = OnceLock::new();
+    CAT.get_or_init(|| {
+        // Lazy fallback for library users that never called
+        // [`crate::paths::ensure_user_layout`] at startup: create + seed the user
+        // layout on first global catalog access. cli/ui `main` ensure explicitly,
+        // so there this is a no-op. Seed errors surface via `load_errors`.
+        let seed_err = crate::paths::ensure_user_layout().err();
+        let mut cat = load_catalog();
+        if let Some(e) = seed_err {
+            cat.load_errors.push(format!("user layout: {e}"));
+        }
+        RwLock::new(Arc::new(cat))
+    })
 }
 
-/// Snapshot of the process-wide catalog (clone — cheap, lock released).
-pub fn catalog() -> ParamCatalog {
+/// Snapshot of the process-wide catalog (Arc clone — cheap, lock released).
+pub fn catalog() -> Arc<ParamCatalog> {
     global()
         .read()
         .unwrap_or_else(|e| e.into_inner())
@@ -401,17 +413,21 @@ pub fn catalog() -> ParamCatalog {
 pub fn reload_catalog() -> usize {
     let cat = load_catalog();
     let n = cat.devices.len();
-    *global().write().unwrap_or_else(|e| e.into_inner()) = cat;
+    *global().write().unwrap_or_else(|e| e.into_inner()) = Arc::new(cat);
     n
 }
 
 /// Load only from an explicit directory (tests / tools).
 pub fn catalog_from_dir(dir: &Path) -> ParamCatalog {
     let mut map = HashMap::new();
-    load_dir(dir, &mut map);
+    let mut errors = Vec::new();
+    load_dir(dir, &mut map, &mut errors);
     let mut devices: Vec<_> = map.into_values().collect();
     devices.sort_by(|a, b| a.id.cmp(&b.id));
-    ParamCatalog { devices }
+    ParamCatalog {
+        devices,
+        load_errors: errors,
+    }
 }
 
 #[cfg(test)]
@@ -431,6 +447,11 @@ mod tests {
     #[test]
     fn all_v9_family_from_devices_dir() {
         let cat = catalog_from_repo_devices();
+        assert!(
+            cat.load_errors().is_empty(),
+            "repo devices must load clean: {:?}",
+            cat.load_errors()
+        );
         // knobs/sliders only — no keytrack/consistent toggles
         let expected: &[(&str, &str, usize)] = &[
             ("v9kick", "v9 Kick", 9),
@@ -590,9 +611,18 @@ mod tests {
 
     #[test]
     fn reload_rescans_disk() {
+        // First global access triggers the lazy user-layout seed — keep it out
+        // of the real user dir by pointing CODEWIG_HOME at a temp dir.
+        // Only env writer in this test binary; the temp name contains
+        // "Codewig", so concurrent env *readers* (paths tests) stay green.
+        let tmp = std::env::temp_dir().join(format!("Codewig-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::env::set_var(crate::paths::ENV_HOME, &tmp);
         let n = reload_catalog();
+        std::env::remove_var(crate::paths::ENV_HOME);
         assert!(n >= 9, "expected v9 family + polymer, got {n}");
         assert!(catalog().resolve("v9kick").is_some());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

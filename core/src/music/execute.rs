@@ -4,13 +4,38 @@
 //! Wire protocol stays in [`Client`]; only line → Client calls live here.
 
 use super::ast::*;
-use super::device::{catalog_to_bitwig, catalog_to_drum};
-use super::expand::{expand_chord, expand_music_line};
-use super::scale::Scale;
+use super::device::{catalog_to_bitwig, catalog_to_drum, is_banned};
+use super::expand::{expand_chord, expand_music_line, ExpandError};
+use super::scale::{Scale, ScaleError};
 use crate::{Client, Error, NoteSpec};
 use serde_json::{json, Value};
 use std::thread;
 use std::time::Duration;
+
+/// Structured error for [`execute_line`] and its helpers.
+///
+/// [`Error::Extension`] keeps the extension error code; frontends can fall back
+/// to `format!("{e}")` for display without losing it.
+#[derive(thiserror::Error, Debug)]
+pub enum ExecuteError {
+    #[error("{0}")]
+    Scale(#[from] ScaleError),
+    #[error("{0}")]
+    Expand(#[from] ExpandError),
+    /// Transport / protocol / extension error from the bridge client.
+    #[error(transparent)]
+    Client(#[from] Error),
+    /// YAML param catalog mapping failed (e.g. display value outside wire 0..1).
+    #[error("{0}")]
+    Catalog(String),
+    /// User-input / semantic error (missing track, unknown scene, passthrough in core, …).
+    #[error("{0}")]
+    Usage(String),
+}
+
+fn usage(msg: impl Into<String>) -> ExecuteError {
+    ExecuteError::Usage(msg.into())
+}
 
 /// Session state across WIGSCRIPT lines (key/scale, last drum MIDI for `.beat`).
 #[derive(Debug, Clone)]
@@ -19,7 +44,7 @@ pub struct MusicSession {
     pub steps_per_bar: u32,
     pub default_beats: i32,
     pub default_slot: i32,
-    /// Trigger MIDI for monophonic drum module (`.beat` / `d` hits). Always one key — not GM pads.
+    /// Trigger MIDI for monophonic drum module (`.beat`). Always one key — not GM pads.
     pub last_drum_midi: Option<i32>,
 }
 
@@ -44,14 +69,14 @@ pub fn execute_line(
     client: &Client,
     session: &mut MusicSession,
     line: MusicLine,
-) -> Result<Option<Value>, String> {
+) -> Result<Option<Value>, ExecuteError> {
     match line {
         MusicLine::Empty => Ok(None),
-        MusicLine::Transport(TransportCmd::Play) => map(client.play()),
-        MusicLine::Transport(TransportCmd::Stop) => map(client.stop()),
-        MusicLine::Tempo(bpm) => map(client.set_tempo(bpm)),
+        MusicLine::Transport(TransportCmd::Play) => Ok(client.play()?),
+        MusicLine::Transport(TransportCmd::Stop) => Ok(client.stop()?),
+        MusicLine::Tempo(bpm) => Ok(client.set_tempo(bpm)?),
         MusicLine::Key { root, scale } => {
-            session.scale = Some(Scale::new(&root, &scale).map_err(|e| e)?);
+            session.scale = Some(Scale::new(&root, &scale)?);
             Ok(Some(json!({
                 "key": root,
                 "scale": scale,
@@ -59,9 +84,9 @@ pub fn execute_line(
             })))
         }
         MusicLine::ModeSwitch(mode) => Ok(Some(json!({ "mode": mode, "note": "UI/CLI mode is cosmetic here" }))),
-        MusicLine::PassThrough(cmd) => Err(format!(
+        MusicLine::PassThrough(cmd) => Err(usage(format!(
             "passthrough `> {cmd}` not handled in execute_line — use UI/CLI entry (commands::run / codewig-cli eval), or drop `>`"
-        )),
+        ))),
         MusicLine::Mute(cmd) => mute(client, &cmd, true),
         MusicLine::Unmute(cmd) => mute(client, &cmd, false),
         MusicLine::Scene(cmd) => scene(client, &cmd),
@@ -75,13 +100,10 @@ pub fn execute_line(
     }
 }
 
-fn map(r: Result<Option<Value>, Error>) -> Result<Option<Value>, String> {
-    r.map_err(|e| e.to_string())
-}
-
 /// Poll until `name` appears in track.list (Bitwig creates/renames async).
 /// Fast path: returns as soon as ready; ceiling ~400ms.
-fn wait_track_named(client: &Client, name: &str) -> Result<(), String> {
+/// Shared by WIGSCRIPT `chain`/fluent and `codewig-cli chain`.
+pub fn wait_track_named(client: &Client, name: &str) -> Result<(), ExecuteError> {
     for _ in 0..20 {
         if let Ok(Some(list)) = client.track_list() {
             if let Some(arr) = list.get("tracks").and_then(Value::as_array) {
@@ -92,13 +114,13 @@ fn wait_track_named(client: &Client, name: &str) -> Result<(), String> {
         }
         thread::sleep(Duration::from_millis(20));
     }
-    Err(format!(
+    Err(usage(format!(
         "track '{name}' not visible after create — try again or rename in Bitwig"
-    ))
+    )))
 }
 
 /// Poll until launcher slot has content (after clip_new).
-fn wait_clip_content(client: &Client, track: &str, slot: i32) -> Result<(), String> {
+fn wait_clip_content(client: &Client, track: &str, slot: i32) -> Result<(), ExecuteError> {
     for _ in 0..25 {
         if let Ok(Some(list)) = client.clip_list(track) {
             if let Some(arr) = list.get("clips").and_then(Value::as_array) {
@@ -112,68 +134,66 @@ fn wait_clip_content(client: &Client, track: &str, slot: i32) -> Result<(), Stri
         }
         thread::sleep(Duration::from_millis(20));
     }
-    Err(format!(
+    Err(usage(format!(
         "clip on '{track}' slot {slot} still empty after create — retry or check Bitwig launcher"
-    ))
+    )))
 }
 
 /// Resolve scene row: index primary, name via scene.list.
-fn resolve_scene_index(client: &Client, scene: &SceneRef) -> Result<i32, String> {
+fn resolve_scene_index(client: &Client, scene: &SceneRef) -> Result<i32, ExecuteError> {
     match scene {
         SceneRef::Index(i) => {
             if *i < 0 {
-                return Err(format!("scene index must be >= 0, got {i}"));
+                return Err(usage(format!("scene index must be >= 0, got {i}")));
             }
             Ok(*i)
         }
         SceneRef::Name(name) => {
             let list = client
-                .scene_list()
-                .map_err(|e| e.to_string())?
-                .ok_or("scene.list empty")?;
+                .scene_list()?
+                .ok_or_else(|| usage("scene.list empty"))?;
             let arr = list
                 .get("scenes")
                 .and_then(Value::as_array)
-                .ok_or("scene.list missing scenes")?;
+                .ok_or_else(|| usage("scene.list missing scenes"))?;
             for s in arr {
                 let n = s.get("name").and_then(Value::as_str).unwrap_or("");
                 if n.eq_ignore_ascii_case(name) {
                     let idx = s
                         .get("index")
                         .and_then(Value::as_i64)
-                        .ok_or("scene missing index")? as i32;
+                        .ok_or_else(|| usage("scene missing index"))? as i32;
                     return Ok(idx);
                 }
             }
-            Err(format!(
+            Err(usage(format!(
                 "unknown scene '{name}' — create first: new scene({name})"
-            ))
+            )))
         }
     }
 }
 
-fn scene_new(client: &Client, name: Option<&str>) -> Result<Option<Value>, String> {
-    map(client.scene_new(name))
+fn scene_new(client: &Client, name: Option<&str>) -> Result<Option<Value>, ExecuteError> {
+    Ok(client.scene_new(name)?)
 }
 
 fn scene_track_clip(
     client: &Client,
     session: &mut MusicSession,
     cmd: &SceneTrackClipCmd,
-) -> Result<Option<Value>, String> {
+) -> Result<Option<Value>, ExecuteError> {
     let slot = resolve_scene_index(client, &cmd.scene)?;
     match &cmd.action {
         SceneClipAction::New { name } => {
             // Bitwig cell: create empty clip at track × scene row
-            client
-                .clip_new(
-                    &cmd.track,
-                    Some(slot),
-                    session.default_beats,
-                    name.as_deref(),
-                )
-                .map_err(|e| e.to_string())?;
-            // Content may lag; note writes also auto-create in extension now
+            client.clip_new(
+                &cmd.track,
+                Some(slot),
+                session.default_beats,
+                name.as_deref(),
+            )?;
+            // best-effort: content may lag; note writes also auto-create in extension now,
+            // so a lagging poll must not fail the line
             let _ = wait_clip_content(client, &cmd.track, slot);
             Ok(Some(json!({
                 "track": cmd.track,
@@ -183,8 +203,8 @@ fn scene_track_clip(
                 "name": name,
             })))
         }
-        SceneClipAction::Start => map(client.clip_launch(&cmd.track, slot)),
-        SceneClipAction::Stop => map(client.clip_stop(&cmd.track)),
+        SceneClipAction::Start => Ok(client.clip_launch(&cmd.track, slot)?),
+        SceneClipAction::Stop => Ok(client.clip_stop(&cmd.track)?),
     }
 }
 
@@ -201,14 +221,14 @@ fn track_ref(r: &TrackRef) -> String {
     }
 }
 
-fn mute(client: &Client, cmd: &MuteCmd, on: bool) -> Result<Option<Value>, String> {
+fn mute(client: &Client, cmd: &MuteCmd, on: bool) -> Result<Option<Value>, ExecuteError> {
     use super::ast::MuteQuantize;
     let refs: Vec<String> = cmd.refs.iter().map(track_ref).collect();
     let q = match cmd.quantize {
         MuteQuantize::Now => None,
         MuteQuantize::Bar => Some("bar"),
     };
-    map(client.track_mute_timed(&refs, on, cmd.bars, q))
+    Ok(client.track_mute_timed(&refs, on, cmd.bars, q)?)
 }
 
 fn scene_ref_str(r: &SceneRef) -> String {
@@ -218,20 +238,20 @@ fn scene_ref_str(r: &SceneRef) -> String {
     }
 }
 
-fn scene(client: &Client, cmd: &SceneCmd) -> Result<Option<Value>, String> {
+fn scene(client: &Client, cmd: &SceneCmd) -> Result<Option<Value>, ExecuteError> {
     // Index primary, name secondary — one wire RPC via SceneBank (not N× clip.launch).
     let r = scene_ref_str(&cmd.scene);
     match cmd.action {
-        LaunchAction::Start => map(client.scene_launch(&r)),
-        LaunchAction::Stop => map(client.scene_stop(&r)),
+        LaunchAction::Start => Ok(client.scene_launch(&r)?),
+        LaunchAction::Stop => Ok(client.scene_stop(&r)?),
     }
 }
 
-fn clip_ctrl(client: &Client, cmd: &ClipCtrlCmd) -> Result<Option<Value>, String> {
+fn clip_ctrl(client: &Client, cmd: &ClipCtrlCmd) -> Result<Option<Value>, ExecuteError> {
     let mut results = Vec::new();
     for r in &cmd.refs {
         let track = if r.track.is_empty() {
-            return Err("clip ref missing track name".into());
+            return Err(usage("clip ref missing track name"));
         } else {
             r.track.clone()
         };
@@ -240,13 +260,13 @@ fn clip_ctrl(client: &Client, cmd: &ClipCtrlCmd) -> Result<Option<Value>, String
                 results.push(json!({
                     "track": track,
                     "slot": r.slot,
-                    "result": client.clip_launch(&track, r.slot).map_err(|e| e.to_string())?,
+                    "result": client.clip_launch(&track, r.slot)?,
                 }));
             }
             LaunchAction::Stop => {
                 results.push(json!({
                     "track": track,
-                    "result": client.clip_stop(&track).map_err(|e| e.to_string())?,
+                    "result": client.clip_stop(&track)?,
                 }));
             }
         }
@@ -254,18 +274,20 @@ fn clip_ctrl(client: &Client, cmd: &ClipCtrlCmd) -> Result<Option<Value>, String
     Ok(Some(json!({ "clips": results })))
 }
 
-fn resolve_track_at(client: &Client, at: i32) -> Result<i32, String> {
+/// Resolve the insert index for a new track. `at < 0` = append after the last
+/// instrument/audio track (effect/master tracks do not count).
+/// Shared by WIGSCRIPT chain/fluent and `codewig-cli track new` / `chain`.
+pub fn resolve_track_at(client: &Client, at: i32) -> Result<i32, ExecuteError> {
     if at >= 0 {
         return Ok(at);
     }
     let list = client
-        .track_list()
-        .map_err(|e| e.to_string())?
-        .ok_or("track.list empty")?;
+        .track_list()?
+        .ok_or_else(|| usage("track.list empty"))?;
     let tracks = list
         .get("tracks")
         .and_then(Value::as_array)
-        .ok_or("track.list missing tracks")?;
+        .ok_or_else(|| usage("track.list missing tracks"))?;
     let count = tracks
         .iter()
         .filter(|t| {
@@ -281,7 +303,7 @@ fn resolve_track_at(client: &Client, at: i32) -> Result<i32, String> {
     Ok(count as i32)
 }
 
-fn ensure_clip(client: &Client, track: &str, slot: i32, beats: i32) -> Result<i32, String> {
+fn ensure_clip(client: &Client, track: &str, slot: i32, beats: i32) -> Result<i32, ExecuteError> {
     ensure_clip_at(client, track, slot, beats, None)
 }
 
@@ -291,34 +313,32 @@ fn ensure_clip_at(
     slot: i32,
     beats: i32,
     name: Option<&str>,
-) -> Result<i32, String> {
+) -> Result<i32, ExecuteError> {
     // If slot already has content, reuse.
-    match client.clip_list(track) {
-        Ok(Some(list)) => {
-            if let Some(arr) = list.get("clips").and_then(Value::as_array) {
-                if let Some(c) = arr.iter().find(|c| {
-                    c.get("slot").and_then(Value::as_i64) == Some(slot as i64)
-                }) {
-                    let has = c
-                        .get("hasContent")
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false);
-                    if has {
-                        return Ok(slot);
-                    }
+    if let Ok(Some(list)) = client.clip_list(track) {
+        if let Some(arr) = list.get("clips").and_then(Value::as_array) {
+            if let Some(c) = arr
+                .iter()
+                .find(|c| c.get("slot").and_then(Value::as_i64) == Some(slot as i64))
+            {
+                let has = c
+                    .get("hasContent")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                if has {
+                    return Ok(slot);
                 }
             }
         }
-        Ok(None) | Err(_) => {}
     }
-    client
-        .clip_new(track, Some(slot), beats, name)
-        .map_err(|e| e.to_string())?;
-    // Poll; extension replace-notes also auto-creates if still racing
+    client.clip_new(track, Some(slot), beats, name)?;
+    // Poll; the extension errors on an empty slot (no silent auto-create),
+    // so retry the create once if the first one is still racing.
     match wait_clip_content(client, track, slot) {
         Ok(()) => Ok(slot),
         Err(_) => {
-            // one retry create
+            // best-effort: one retry create; if the slot is still empty the
+            // following note write errors in the extension — user sees it there
             let _ = client.clip_new(track, Some(slot), beats, name);
             wait_clip_content(client, track, slot).map(|_| slot).or(Ok(slot))
         }
@@ -333,9 +353,9 @@ fn resolve_write_slot(
     clip: &Option<ClipRef>,
     default_slot: i32,
     beats: i32,
-) -> Result<i32, String> {
+) -> Result<i32, ExecuteError> {
     match clip {
-        None | Some(ClipRef::Launch) => ensure_clip(client, track, default_slot, beats),
+        None => ensure_clip(client, track, default_slot, beats),
         Some(ClipRef::Slot(i)) => ensure_clip(client, track, *i, beats),
         Some(ClipRef::Name(name)) => {
             let name = name.trim();
@@ -387,16 +407,16 @@ fn write_notes(
     slot: i32,
     beats: i32,
     notes: &[NoteSpec],
-) -> Result<Option<Value>, String> {
+) -> Result<Option<Value>, ExecuteError> {
     let slot = ensure_clip(client, track, slot, beats)?;
-    let playable: Vec<NoteSpec> = notes.iter().cloned().filter(|n| n.vel > 0).collect();
+    let playable: Vec<NoteSpec> = notes.iter().filter(|n| n.vel > 0).cloned().collect();
     // One RPC: clear all + write (empty playable = clear only / rests)
-    map(client.clip_replace_notes(track, slot, &playable))
+    Ok(client.clip_replace_notes(track, slot, &playable)?)
 }
 
-fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<Option<Value>, String> {
+fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<Option<Value>, ExecuteError> {
     let track = if cmd.target.track.is_empty() {
-        return Err("music line needs a track name, e.g. bass: n \"c e g\"".into());
+        return Err(usage("music line needs a track name, e.g. bass: n \"c e g\""));
     } else {
         cmd.target.track.clone()
     };
@@ -417,12 +437,10 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
             session.scale.as_ref(),
             session.steps_per_bar,
             0,
-        )
-        .map_err(|e| e.to_string())?,
+        )?,
         MusicAction::Notes | MusicAction::Arp(_) => {
             let (notes, _) =
-                expand_music_line(cmd, session.scale.as_ref(), session.steps_per_bar)
-                    .map_err(|e| e.to_string())?;
+                expand_music_line(cmd, session.scale.as_ref(), session.steps_per_bar)?;
             notes
         }
     };
@@ -430,52 +448,48 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
 
     // +params need cursor track; pure note write uses track ref in clip.* — skip select
     if !cmd.params.is_empty() {
-        client
-            .track_select(&track)
-            .map_err(|e| e.to_string())?;
+        client.track_select(&track)?;
         wait_cursor();
         let sets: Vec<(String, f64)> = cmd
             .params
             .iter()
             .map(|p| (p.name.clone(), p.value))
             .collect();
-        let _ = client.param_set_multi(&sets);
+        client.param_set_multi(&sets)?;
     }
 
     // Notes path already resolved slot (incl. create); don't re-ensure without name.
-    let playable: Vec<NoteSpec> = notes.iter().cloned().filter(|n| n.vel > 0).collect();
-    map(client.clip_replace_notes(&track, slot, &playable))
+    let playable: Vec<NoteSpec> = notes.iter().filter(|n| n.vel > 0).cloned().collect();
+    Ok(client.clip_replace_notes(&track, slot, &playable)?)
 }
 
-fn add_device(client: &Client, catalog: &str) -> Result<Option<Value>, String> {
-    let n = catalog.to_lowercase().replace(' ', "").replace('-', "").replace('_', "");
+/// Insert one device by catalog/Bitwig/library name (alias resolution,
+/// Sampler/Drum-Machine guard). Shared by WIGSCRIPT and `codewig-cli chain`.
+pub fn add_device(client: &Client, catalog: &str) -> Result<Option<Value>, ExecuteError> {
     // Out of scope: multi-pad / sample hosts (not mono Bitwig modules).
-    if n.contains("sampler") || n.contains("drummachine") || n == "dm" {
-        return Err(format!(
+    // Single client-side guard; the extension re-checks (DeviceCatalog.isBanned).
+    if is_banned(catalog) {
+        return Err(usage(format!(
             "device '{catalog}' not insertable (Sampler / Drum Machine out of scope)"
-        ));
+        )));
     }
     // Known aliases → canonical Bitwig name; otherwise pass name through (UUID / library file).
     let name = catalog_to_bitwig(catalog).unwrap_or_else(|| catalog.trim().to_string());
     if name.is_empty() {
-        return Err("device name empty".into());
+        return Err(usage("device name empty"));
     }
-    map(client.device_add(&name))
+    Ok(client.device_add(&name)?)
 }
 
 fn chain(
     client: &Client,
     session: &mut MusicSession,
     cmd: &ChainCmd,
-) -> Result<Option<Value>, String> {
+) -> Result<Option<Value>, ExecuteError> {
     let at = resolve_track_at(client, -1)?;
-    let created = client
-        .track_new(&cmd.kind, at, Some(&cmd.name))
-        .map_err(|e| e.to_string())?;
+    let created = client.track_new(&cmd.kind, at, Some(&cmd.name))?;
     wait_track_named(client, &cmd.name)?;
-    client
-        .track_select(&cmd.name)
-        .map_err(|e| e.to_string())?;
+    client.track_select(&cmd.name)?;
     wait_cursor();
 
     let mut added = Vec::new();
@@ -489,6 +503,7 @@ fn chain(
         wait_cursor();
     }
 
+    // best-effort: starter clip is a convenience; track + devices are already live
     let _ = ensure_clip(client, &cmd.name, session.default_slot, session.default_beats);
 
     Ok(Some(json!({
@@ -498,11 +513,75 @@ fn chain(
     })))
 }
 
+/// Shared chain orchestration for `codewig-cli chain` (the WIGSCRIPT AST
+/// variant is [`chain`] above): create track, wait, select, insert devices in
+/// order, optional starter clip. `name` optional — without it Bitwig's default
+/// track name stays and no clip is created. Progress goes to stderr.
+pub fn run_chain(
+    client: &Client,
+    kind: &str,
+    name: Option<&str>,
+    at: i32,
+    devices: &[String],
+) -> Result<Value, ExecuteError> {
+    if devices.is_empty() {
+        return Err(usage("chain needs at least one device (e.g. Polymer Delay+)"));
+    }
+
+    let at = resolve_track_at(client, at)?;
+    let created = client
+        .track_new(kind, at, name)?
+        .unwrap_or(Value::Bool(true));
+    eprintln!("track: {created}");
+
+    // Bitwig renames async — poll until name visible
+    if let Some(n) = name {
+        wait_track_named(client, n)?;
+        let sel = client
+            .track_select(n)?
+            .unwrap_or(Value::Bool(true));
+        eprintln!("select: {sel}");
+        wait_cursor();
+    }
+
+    let mut added = Vec::new();
+    for dev in devices {
+        let r = add_device(client, dev)?.unwrap_or(Value::Bool(true));
+        added.push(json!({ "device": dev, "result": r }));
+        wait_cursor();
+    }
+
+    // Optional first empty clip for live switching
+    if let Some(n) = name {
+        match client.clip_new(n, None, 4, Some("A")) {
+            Ok(Some(clip)) => eprintln!("clip: {clip}"),
+            Ok(None) => eprintln!("clip: ok"),
+            Err(e) => eprintln!("clip note: {e} (create manually with: codewig-cli clip new {n})"),
+        }
+    }
+
+    Ok(json!({
+        "chain": {
+            "track_type": kind,
+            "name": name,
+            "at": at,
+            "devices": devices,
+        },
+        "added": added,
+        "next": [
+            "clip new <track> --name B   # more slots for live switch",
+            "clip launch <track> 0",
+            "param list / param set",
+            "track mute 1 3 6 / track solo 0 2",
+        ]
+    }))
+}
+
 fn fluent(
     client: &Client,
     session: &mut MusicSession,
     cmd: &FluentCmd,
-) -> Result<Option<Value>, String> {
+) -> Result<Option<Value>, ExecuteError> {
     let needs_cursor = cmd.steps.iter().any(|s| {
         matches!(
             s,
@@ -512,16 +591,12 @@ fn fluent(
 
     if cmd.create {
         let at = resolve_track_at(client, -1)?;
-        client
-            .track_new("instrument", at, Some(&cmd.track))
-            .map_err(|e| e.to_string())?;
+        client.track_new("instrument", at, Some(&cmd.track))?;
         wait_track_named(client, &cmd.track)?;
     }
     // device_add / param need cursor; pure mute/clip/notes use track refs
     if needs_cursor || cmd.create {
-        client
-            .track_select(&cmd.track)
-            .map_err(|e| e.to_string())?;
+        client.track_select(&cmd.track)?;
         if needs_cursor {
             wait_cursor();
         }
@@ -577,8 +652,7 @@ fn fluent(
                     note_mods: NoteMods::default(),
                 };
                 let (mut notes, _) =
-                    expand_music_line(&music, session.scale.as_ref(), session.steps_per_bar)
-                        .map_err(|e| e.to_string())?;
+                    expand_music_line(&music, session.scale.as_ref(), session.steps_per_bar)?;
                 apply_note_mods(&mut notes, mods);
                 log.push(json!({
                     "notes": write_notes(client, &cmd.track, slot0, session.default_beats, &notes)?
@@ -586,7 +660,7 @@ fn fluent(
             }
             FluentStep::Mute => {
                 log.push(json!({
-                    "mute": client.track_mute(&[cmd.track.clone()], true).map_err(|e| e.to_string())?
+                    "mute": client.track_mute(std::slice::from_ref(&cmd.track), true)?
                 }));
             }
             FluentStep::ClipAction(a) => {
@@ -594,12 +668,12 @@ fn fluent(
                 match a {
                     ClipAction::Start => {
                         log.push(json!({
-                            "clip": client.clip_launch(&cmd.track, slot0).map_err(|e| e.to_string())?
+                            "clip": client.clip_launch(&cmd.track, slot0)?
                         }));
                     }
                     ClipAction::Stop => {
                         log.push(json!({
-                            "clip": client.clip_stop(&cmd.track).map_err(|e| e.to_string())?
+                            "clip": client.clip_stop(&cmd.track)?
                         }));
                     }
                 }
@@ -614,12 +688,12 @@ fn fluent(
                     match cc.action {
                         LaunchAction::Start => {
                             log.push(json!({
-                                "clip": client.clip_launch(&track, r.slot).map_err(|e| e.to_string())?
+                                "clip": client.clip_launch(&track, r.slot)?
                             }));
                         }
                         LaunchAction::Stop => {
                             log.push(json!({
-                                "clip": client.clip_stop(&track).map_err(|e| e.to_string())?
+                                "clip": client.clip_stop(&track)?
                             }));
                         }
                     }
@@ -631,14 +705,14 @@ fn fluent(
     Ok(Some(json!({ "fluent": cmd.track, "create": cmd.create, "slot": slot0, "steps": log })))
 }
 
-fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, String> {
+fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, ExecuteError> {
     // YAML optional: display→wire when documented; else raw wire 0..1 passthrough.
-    let sets = super::param_catalog::catalog()
-        .map_param_sets(&cmd.device.catalog_name, &cmd.params)?;
+    let cat = super::param_catalog::catalog();
+    let sets = cat
+        .map_param_sets(&cmd.device.catalog_name, &cmd.params)
+        .map_err(ExecuteError::Catalog)?;
 
-    client
-        .track_select(&cmd.track)
-        .map_err(|e| e.to_string())?;
+    client.track_select(&cmd.track)?;
     wait_cursor();
 
     // Focus device by name if possible
@@ -646,8 +720,7 @@ fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, String> {
         if let Some(arr) = list.get("devices").and_then(Value::as_array) {
             let want = catalog_to_bitwig(&cmd.device.catalog_name)
                 .or_else(|| {
-                    super::param_catalog::catalog()
-                        .resolve(&cmd.device.catalog_name)
+                    cat.resolve(&cmd.device.catalog_name)
                         .map(|d| d.bitwig_name.clone())
                 })
                 .unwrap_or_else(|| cmd.device.catalog_name.clone());
@@ -659,6 +732,7 @@ fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, String> {
                     .unwrap_or(false)
             }) {
                 if let Some(idx) = dev.get("index").and_then(Value::as_i64) {
+                    // best-effort: param.set matches by name even without cursor focus
                     let _ = client.device_select(idx as i32);
                     wait_cursor();
                 }
@@ -666,7 +740,7 @@ fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, String> {
         }
     }
 
-    map(client.param_set_multi(&sets))
+    Ok(client.param_set_multi(&sets)?)
 }
 
 #[cfg(test)]
@@ -694,5 +768,25 @@ mod tests {
     fn scene_ref_str_index_and_name() {
         assert_eq!(scene_ref_str(&SceneRef::Index(2)), "2");
         assert_eq!(scene_ref_str(&SceneRef::Name("verse".into())), "verse");
+    }
+
+    #[test]
+    fn execute_error_keeps_extension_code() {
+        let e: ExecuteError = Error::Extension {
+            code: "NO_TRACK".into(),
+            msg: "no such track".into(),
+        }
+        .into();
+        assert!(matches!(e, ExecuteError::Client(_)));
+        let text = e.to_string();
+        assert!(text.contains("NO_TRACK"), "{text}");
+        assert!(text.contains("no such track"), "{text}");
+    }
+
+    #[test]
+    fn execute_error_from_scale_and_expand() {
+        let e: ExecuteError = Scale::new("C", "nope").unwrap_err().into();
+        assert!(matches!(e, ExecuteError::Scale(_)));
+        assert!(e.to_string().contains("unknown scale"), "{e}");
     }
 }

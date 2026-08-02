@@ -212,13 +212,21 @@ static INSERT_ALIASES: &[(&str, &str)] = &[
     ("saturator", "Saturator"),
 ];
 
-fn norm(s: &str) -> String {
+/// The one Rust-side name normalization (device + param catalog + execute).
+/// Keep in sync with Java `DeviceCatalog.key()` — same rules both sides:
+/// lowercase; strip space / `-` / `_` / `.`; `+` → `plus`.
+pub(crate) fn norm(s: &str) -> String {
     s.to_lowercase()
-        .replace(' ', "")
-        .replace('-', "")
-        .replace('_', "")
+        .replace([' ', '-', '_', '.'], "") // kick.v9 legacy → kickv9; prefer "v9 kick" / "v9kick"
         .replace('+', "plus")
-        .replace('.', "") // kick.v9 legacy → kickv9; prefer "v9 kick" / "v9kick"
+}
+
+/// Sampler / Drum Machine ban — the **single** Rust-side definition.
+/// Client-side early guard; the extension re-checks authoritatively
+/// (`DeviceCatalog.isBanned`). Deliberate double guard, same rule both sides.
+pub fn is_banned(name: &str) -> bool {
+    let n = norm(name);
+    n.contains("sampler") || n.contains("drummachine") || n == "dm"
 }
 
 /// Resolve device catalog → Bitwig library name + monophonic trigger MIDI.
@@ -227,7 +235,7 @@ fn norm(s: &str) -> String {
 /// Legacy: `kick.v9` still maps (`.` stripped by [`norm`]).
 pub fn catalog_to_drum(catalog: &str) -> Option<(&'static str, i32)> {
     let n = norm(catalog);
-    if n.contains("sampler") || n.contains("drummachine") {
+    if is_banned(catalog) {
         return None;
     }
     // Direct match: Bitwig name, alias, or compacted "v9kick"
@@ -238,7 +246,8 @@ pub fn catalog_to_drum(catalog: &str) -> Option<(&'static str, i32)> {
         return Some((d.name, MONO_DRUM_NOTE));
     }
     // Family+type without spaces already in name (v9hatclosed, v0zapkick, …)
-    // Legacy type+family: kickv9, hatv8, snarev9 (from kick.v9 after norm)
+    // Legacy type+family: kickv9, hatv8, snarev9 (from kick.v9 after norm).
+    // Alias set = union with Java `DeviceCatalog` DRUM_FILES — keep in sync.
     let name = match n.as_str() {
         "kickv0" | "v0kick" => "v0 Kick",
         "kickv1" | "v1kick" => "v1 Kick",
@@ -246,16 +255,19 @@ pub fn catalog_to_drum(catalog: &str) -> Option<(&'static str, i32)> {
         "kickv9" | "v9kick" | "kick909" => "v9 Kick",
         "hatv0" | "v0hat" => "v0 Hat",
         "hatv1" | "v1hat" => "v1 Hat",
-        "hatv8" | "v8hat" | "hat808" => "v8 Hat",
-        "hatv9" | "v9hat" | "v9hatclosed" | "hat909" => "v9 Hat Closed",
+        "hatv8" | "v8hat" | "v8hh" | "hat808" => "v8 Hat",
+        "hatv9" | "v9hat" | "v9hh" | "v9hatclosed" | "hat909" => "v9 Hat Closed",
         "v9hatopen" | "hatopen" => "v9 Hat Open",
         "snarev0" | "v0snare" => "v0 Snare",
         "snarev1" | "v1snare" => "v1 Snare",
-        "snarev8" | "v8snare" | "snare808" => "v8 Snare",
-        "snarev9" | "v9snare" | "snare909" => "v9 Snare",
+        "snarev8" | "v8snare" | "v8sn" | "snare808" => "v8 Snare",
+        "snarev9" | "v9snare" | "v9sn" | "snare909" => "v9 Snare",
         "clapv1" | "v1clap" => "v1 Clap",
-        "clapv8" | "v8clap" | "clap808" => "v8 Clap",
-        "clapv9" | "v9clap" | "clap909" => "v9 Clap",
+        "clapv8" | "v8clap" | "v8cp" | "clap808" => "v8 Clap",
+        "clapv9" | "v9clap" | "v9cp" | "clap909" => "v9 Clap",
+        // legacy percussion aliases (Java DeviceCatalog parity)
+        "v1perc" => "v1 Cowbell",
+        "v8perc" => "v8 Cowbell",
         "tomv0" | "v0tom" => "v0 Tom",
         "tomv1" | "v1tom" => "v1 Tom",
         "tomv8" | "v8tom" => "v8 Tom",
@@ -327,8 +339,7 @@ pub fn device_param_names(name: &str) -> Vec<String> {
 ///
 /// Drums resolve to library names (`v9 Kick`). Sampler / Drum Machine → `None`.
 pub fn catalog_to_bitwig(catalog: &str) -> Option<String> {
-    let n = norm(catalog);
-    if n.contains("sampler") || n.contains("drummachine") {
+    if is_banned(catalog) {
         return None;
     }
     if let Some(d) = find_device(catalog) {
@@ -340,62 +351,10 @@ pub fn catalog_to_bitwig(catalog: &str) -> Option<String> {
 /// Whether we have a known alias/canonical mapping (not a closed insert gate).
 /// Open insert still allows unknown names via the extension library resolve.
 pub fn is_insertable(catalog: &str) -> bool {
-    let n = norm(catalog);
-    if n.contains("sampler") || n.contains("drummachine") || n == "dm" {
+    if is_banned(catalog) {
         return false;
     }
     !catalog.trim().is_empty()
-}
-
-// Kit helpers
-
-pub fn default_kit_devices() -> Vec<(&'static str, i32)> {
-    vec![
-        ("v0 Kick", 36),
-        ("v0 Hat", 42),
-        ("v8 Snare", 40),
-        ("v8 Clap", 39),
-    ]
-}
-
-pub fn kit_808_devices() -> Vec<(&'static str, i32)> {
-    vec![
-        ("v8 Kick", 36),
-        ("v8 Hat", 42),
-        ("v8 Snare", 40),
-        ("v8 Clap", 39),
-        ("v8 Cowbell", 46),
-    ]
-}
-
-pub fn kit_909_devices() -> Vec<(&'static str, i32)> {
-    vec![
-        ("v9 Kick", 36),
-        ("v9 Hat Closed", 42),
-        ("v9 Snare", 40),
-        ("v9 Clap", 39),
-        ("v9 Ride", 46),
-        ("v9 Rimshot", 49),
-    ]
-}
-
-pub fn kit_retro_devices() -> Vec<(&'static str, i32)> {
-    vec![
-        ("v0 Kick", 36),
-        ("v0 Hat", 42),
-        ("v0 Cymbal", 49),
-        ("v0 Tom", 50),
-    ]
-}
-
-pub fn kit_devices(kit: &str) -> Option<Vec<(&'static str, i32)>> {
-    match kit {
-        "default" | "" => Some(default_kit_devices()),
-        "808" => Some(kit_808_devices()),
-        "909" => Some(kit_909_devices()),
-        "retro" => Some(kit_retro_devices()),
-        _ => None,
-    }
 }
 
 #[cfg(test)]
@@ -439,6 +398,31 @@ mod tests {
         assert_eq!(catalog_to_drum("v9 kick"), Some(("v9 Kick", MONO_DRUM_NOTE)));
         assert_eq!(catalog_to_drum("v8hat"), Some(("v8 Hat", MONO_DRUM_NOTE)));
         assert_eq!(catalog_to_drum("kick.v9"), Some(("v9 Kick", MONO_DRUM_NOTE)));
+    }
+
+    #[test]
+    fn drum_alias_union_with_java() {
+        // Union of both sides' alias sets — keep in sync with
+        // DeviceCatalog.java DRUM_FILES (and vice versa).
+        // Short names that were Rust-only:
+        assert_eq!(catalog_to_drum("snare"), Some(("v8 Snare", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("sd"), Some(("v8 Snare", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("clap"), Some(("v8 Clap", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("cp"), Some(("v8 Clap", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("cy"), Some(("v0 Cymbal", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("zap"), Some(("v0 Zap Kick", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("ride"), Some(("v9 Ride", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("rim"), Some(("v9 Rimshot", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("crash"), Some(("v9 Crash", MONO_DRUM_NOTE)));
+        // Aliases that were Java-only:
+        assert_eq!(catalog_to_drum("v9cp"), Some(("v9 Clap", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("v8cp"), Some(("v8 Clap", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("v8sn"), Some(("v8 Snare", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("v8hh"), Some(("v8 Hat", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("v9sn"), Some(("v9 Snare", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("v9hh"), Some(("v9 Hat Closed", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("v1perc"), Some(("v1 Cowbell", MONO_DRUM_NOTE)));
+        assert_eq!(catalog_to_drum("v8perc"), Some(("v8 Cowbell", MONO_DRUM_NOTE)));
     }
 
     #[test]

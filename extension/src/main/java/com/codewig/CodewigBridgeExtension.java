@@ -6,6 +6,7 @@ import com.bitwig.extension.controller.api.RemoteConnection;
 import com.bitwig.extension.controller.api.RemoteSocket;
 import com.bitwig.extension.controller.api.SettableStringValue;
 import com.codewig.bridge.ClipService;
+import com.codewig.bridge.DeviceCatalog;
 import com.codewig.bridge.DeviceService;
 import com.codewig.bridge.ParamService;
 import com.codewig.bridge.SceneService;
@@ -57,6 +58,7 @@ public class CodewigBridgeExtension extends ControllerExtension {
         listenPort = requestedPort;
 
         transportService = new TransportService(host);
+        DeviceCatalog.setHost(host);
         trackService = new TrackService(host, transportService);
         deviceService = new DeviceService(host, trackService.getCursorTrack());
         paramService = new ParamService(trackService.getCursorTrack(), deviceService.getCursorDevice());
@@ -116,9 +118,9 @@ public class CodewigBridgeExtension extends ControllerExtension {
                 final JsonObject req = Messages.parseRequest(json);
                 response = router.handle(req);
             } catch (final JsonSyntaxException e) {
-                response = Messages.error(null, "BAD_JSON", e.getMessage());
+                response = Messages.error("BAD_JSON", e.getMessage());
             } catch (final Exception e) {
-                response = Messages.error(null, "INTERNAL",
+                response = Messages.error("INTERNAL",
                         e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
             }
             try {
@@ -138,9 +140,5 @@ public class CodewigBridgeExtension extends ControllerExtension {
     @Override
     public void flush() {
         // no continuous MIDI surface
-    }
-
-    public TransportService getTransportService() {
-        return transportService;
     }
 }

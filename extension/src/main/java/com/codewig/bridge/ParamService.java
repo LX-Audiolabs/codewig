@@ -9,7 +9,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import com.bitwig.extension.controller.api.CursorDevice;
 import com.bitwig.extension.controller.api.CursorRemoteControlsPage;
 import com.bitwig.extension.controller.api.CursorTrack;
-import com.bitwig.extension.controller.api.Parameter;
 import com.bitwig.extension.controller.api.RemoteControl;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -82,11 +81,6 @@ public final class ParamService {
             p.name().markInterested();
             p.value().markInterested();
         }
-    }
-
-    /** Default = direct params (full dump). */
-    public JsonObject list() {
-        return listDirect();
     }
 
     /**

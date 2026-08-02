@@ -40,10 +40,8 @@ public final class CommandRouter {
     }
 
     public String handle(final JsonObject req) {
-        final JsonElement id = req.has("id") ? req.get("id") : null;
-
         if (!req.has("c") || !req.get("c").isJsonPrimitive()) {
-            return Messages.error(id, "BAD_REQUEST", "missing string field 'c' (command)");
+            return Messages.error("BAD_REQUEST", "missing string field 'c' (command)");
         }
 
         final String cmd = req.get("c").getAsString();
@@ -51,151 +49,151 @@ public final class CommandRouter {
         try {
             switch (cmd) {
                 case "ping":
-                    return Messages.ok(id);
+                    return Messages.ok();
 
                 case "status":
-                    return Messages.ok(id, transport.status(port));
+                    return Messages.ok(transport.status(port));
 
                 case "play":
                     transport.play();
-                    return Messages.ok(id);
+                    return Messages.ok();
 
                 case "stop":
                     transport.stop();
-                    return Messages.ok(id);
+                    return Messages.ok();
 
                 case "set":
-                    return handleSet(id, req);
+                    return handleSet(req);
 
                 case "track.new":
-                    return Messages.ok(id, tracks.create(
+                    return Messages.ok(tracks.create(
                             str(req, "type", "instrument"),
                             intOr(req, "at", -1),
                             str(req, "name", null)));
 
                 case "track.list":
-                    return Messages.ok(id, tracks.list());
+                    return Messages.ok(tracks.list());
 
                 case "track.select":
-                    return Messages.ok(id, tracks.select(requireStr(req, "ref")));
+                    return Messages.ok(tracks.select(requireStr(req, "ref")));
 
                 case "track.rename":
-                    return Messages.ok(id, tracks.rename(requireStr(req, "ref"), requireStr(req, "name")));
+                    return Messages.ok(tracks.rename(requireStr(req, "ref"), requireStr(req, "name")));
 
                 case "track.delete":
-                    return Messages.ok(id, tracks.delete(requireStr(req, "ref")));
+                    return Messages.ok(tracks.delete(requireStr(req, "ref")));
 
                 case "track.move":
-                    return Messages.ok(id, tracks.move(
+                    return Messages.ok(tracks.move(
                             requireStr(req, "ref"),
                             str(req, "before", null),
                             str(req, "after", null),
                             req.has("to") && !req.get("to").isJsonNull() ? req.get("to").getAsInt() : null));
 
                 case "track.mute":
-                    return Messages.ok(id, tracks.muteMany(
+                    return Messages.ok(tracks.muteMany(
                             requireRefs(req),
                             boolOr(req, "on", true),
                             optPositiveInt(req, "bars"),
                             str(req, "q", null)));
 
                 case "track.solo":
-                    return Messages.ok(id, tracks.soloMany(requireRefs(req), boolOr(req, "on", true)));
+                    return Messages.ok(tracks.soloMany(requireRefs(req), boolOr(req, "on", true)));
 
                 case "track.volume":
-                    return Messages.ok(id, tracks.setVolume(requireStr(req, "ref"), requireDouble(req, "v")));
+                    return Messages.ok(tracks.setVolume(requireStr(req, "ref"), requireDouble(req, "v")));
 
                 case "device.add":
-                    return Messages.ok(id, devices.add(requireStr(req, "name")));
+                    return Messages.ok(devices.add(requireStr(req, "name")));
 
                 case "device.list":
-                    return Messages.ok(id, devices.list());
+                    return Messages.ok(devices.list());
 
                 case "device.select":
-                    return Messages.ok(id, devices.select(requireInt(req, "index")));
+                    return Messages.ok(devices.select(requireInt(req, "index")));
 
                 case "device.delete":
-                    return Messages.ok(id, devices.delete(requireInt(req, "index")));
+                    return Messages.ok(devices.delete(requireInt(req, "index")));
 
                 case "param.list":
                     // source: direct (default) | remote | all
-                    return Messages.ok(id, params.list(str(req, "source", "direct")));
+                    return Messages.ok(params.list(str(req, "source", "direct")));
 
                 case "param.set":
-                    return Messages.ok(id, params.set(req));
+                    return Messages.ok(params.set(req));
 
                 case "clip.new":
-                    return Messages.ok(id, clips.createEmpty(
+                    return Messages.ok(clips.createEmpty(
                             requireStr(req, "track"),
                             intOr(req, "slot", -1),
                             intOr(req, "beats", 4),
                             str(req, "name", null)));
 
                 case "clip.list":
-                    return Messages.ok(id, clips.list(requireStr(req, "track")));
+                    return Messages.ok(clips.list(requireStr(req, "track")));
 
                 case "clip.launch":
-                    return Messages.ok(id, clips.launch(requireStr(req, "track"), requireInt(req, "slot")));
+                    return Messages.ok(clips.launch(requireStr(req, "track"), requireInt(req, "slot")));
 
                 case "clip.stop":
-                    return Messages.ok(id, clips.stopTrack(requireStr(req, "track")));
+                    return Messages.ok(clips.stopTrack(requireStr(req, "track")));
 
                 case "clip.set-notes":
-                    return Messages.ok(id, clips.setNotes(
+                    return Messages.ok(clips.setNotes(
                             requireStr(req, "track"),
                             requireInt(req, "slot"),
                             parseNotes(req)));
 
                 case "clip.replace-notes":
                     // clear + write in one round-trip (live pattern rewrite)
-                    return Messages.ok(id, clips.replaceNotes(
+                    return Messages.ok(clips.replaceNotes(
                             requireStr(req, "track"),
                             requireInt(req, "slot"),
                             parseNotesAllowEmpty(req)));
 
                 case "clip.clear-notes":
-                    return Messages.ok(id, clips.clearNotes(
+                    return Messages.ok(clips.clearNotes(
                             requireStr(req, "track"),
                             requireInt(req, "slot"),
                             optInt(req, "step"),
                             optInt(req, "key")));
 
                 case "scene.list":
-                    return Messages.ok(id, scenes.list());
+                    return Messages.ok(scenes.list());
 
                 case "scene.new":
-                    return Messages.ok(id, scenes.create(str(req, "name", null)));
+                    return Messages.ok(scenes.create(str(req, "name", null)));
 
                 case "scene.launch":
-                    return Messages.ok(id, scenes.launch(requireSceneRef(req)));
+                    return Messages.ok(scenes.launch(requireSceneRef(req)));
 
                 case "scene.stop":
-                    return Messages.ok(id, scenes.stop(requireSceneRef(req)));
+                    return Messages.ok(scenes.stop(requireSceneRef(req)));
 
                 default:
-                    return Messages.error(id, "UNKNOWN_COMMAND", "unknown command: " + cmd);
+                    return Messages.error("UNKNOWN_COMMAND", "unknown command: " + cmd);
             }
         } catch (final IllegalArgumentException e) {
-            return Messages.error(id, "BAD_REQUEST", e.getMessage());
+            return Messages.error("BAD_REQUEST", e.getMessage());
         } catch (final Exception e) {
-            return Messages.error(id, "INTERNAL", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+            return Messages.error("INTERNAL", e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
         }
     }
 
-    private String handleSet(final JsonElement id, final JsonObject req) {
+    private String handleSet(final JsonObject req) {
         if (!req.has("k") || !req.get("k").isJsonPrimitive()) {
-            return Messages.error(id, "BAD_REQUEST", "set requires string field 'k'");
+            return Messages.error("BAD_REQUEST", "set requires string field 'k'");
         }
         final String key = req.get("k").getAsString();
 
         if ("tempo".equals(key)) {
             if (!req.has("v")) {
-                return Messages.error(id, "BAD_REQUEST", "set tempo requires 'v' (bpm)");
+                return Messages.error("BAD_REQUEST", "set tempo requires 'v' (bpm)");
             }
             transport.setTempo(req.get("v").getAsDouble());
-            return Messages.ok(id);
+            return Messages.ok();
         }
-        return Messages.error(id, "UNKNOWN_KEY", "unknown set key: " + key);
+        return Messages.error("UNKNOWN_KEY", "unknown set key: " + key);
     }
 
     /** refs: JSON array, or comma-separated string in "refs" */

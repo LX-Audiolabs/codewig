@@ -199,9 +199,13 @@ public final class ClipService {
             cursorClip.scrollToStep(step);
             cursorClip.clearStep(step, key);
             result.addProperty("cleared", 1);
-        } else {
+        } else if (step == null && key == null) {
             cursorClip.clearSteps();
             result.addProperty("cleared", "all");
+        } else {
+            // Exactly one of step/key — never fall through to wiping the whole clip.
+            throw new IllegalArgumentException(
+                "clip.clear-notes: step and key must be given together (or neither to clear the whole clip)");
         }
         return result;
     }
@@ -256,12 +260,11 @@ public final class ClipService {
             throw new IllegalArgumentException("slot out of range 0.." + (TrackService.SCENE_SLOTS - 1));
         }
         final ClipLauncherSlotBank bank = t.clipLauncherSlotBank();
-        ClipLauncherSlot s = bank.getItemAt(slot);
-        if (!s.hasContent().get()) {
-            // Auto-create empty clip at this scene row (Bitwig cell track×scene)
-            bank.createEmptyClip(slot, 4);
-            s = bank.getItemAt(slot);
-        }
+        final ClipLauncherSlot s = bank.getItemAt(slot);
+        // No silent auto-create here (previously createEmptyClip(slot, 4) —
+        // wrong length for anything but 4-beat clips). Content ops expect an
+        // existing clip: Rust ensure_clip_at creates it at the exact slot with
+        // the requested beats before calling; anything else is a caller error.
         if (!s.hasContent().get()) {
             throw new IllegalArgumentException(
                     "slot " + slot + " is empty — create a clip first "

@@ -10,6 +10,8 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
+import com.bitwig.extension.controller.api.ControllerHost;
+
 /**
  * Device name resolution for {@code device.add}.
  * <p>
@@ -21,7 +23,9 @@ import java.util.UUID;
  * <p>
  * <b>Out of scope:</b> Sampler, Drum Machine (multi-pad / samples).
  * <p>
- * Case-insensitive lookup; spaces / hyphens / plus normalized.
+ * Case-insensitive lookup; spaces / hyphens / underscores / dots stripped,
+ * plus → "plus" (mirrors Rust {@code device::norm}). Alias sets are the union
+ * of both sides — keep in sync with Rust {@code device.rs}.
  */
 public final class DeviceCatalog {
     private static final Map<String, UUID> BY_UUID;
@@ -96,7 +100,12 @@ public final class DeviceCatalog {
         aliasDrum(d, "hh", "v0 Hat.bwdevice");
         aliasDrum(d, "hat", "v0 Hat.bwdevice");
         aliasDrum(d, "cymb", "v0 Cymbal.bwdevice");
+        aliasDrum(d, "cymbal", "v0 Cymbal.bwdevice");
+        aliasDrum(d, "cy", "v0 Cymbal.bwdevice");
         aliasDrum(d, "tom", "v0 Tom.bwdevice");
+        aliasDrum(d, "zap", "v0 Zap Kick.bwdevice");
+        aliasDrum(d, "zapkick", "v0 Zap Kick.bwdevice");
+        aliasDrum(d, "v0zap", "v0 Zap Kick.bwdevice");
 
         aliasDrum(d, "v1clap", "v1 Clap.bwdevice");
         aliasDrum(d, "v1cowbell", "v1 Cowbell.bwdevice");
@@ -121,6 +130,11 @@ public final class DeviceCatalog {
         aliasDrum(d, "v8cp", "v8 Clap.bwdevice");
         aliasDrum(d, "v8sn", "v8 Snare.bwdevice");
         aliasDrum(d, "v8hh", "v8 Hat.bwdevice");
+        // family-only short names default to v8 (Rust device.rs parity)
+        aliasDrum(d, "snare", "v8 Snare.bwdevice");
+        aliasDrum(d, "sd", "v8 Snare.bwdevice");
+        aliasDrum(d, "clap", "v8 Clap.bwdevice");
+        aliasDrum(d, "cp", "v8 Clap.bwdevice");
 
         aliasDrum(d, "v9clap", "v9 Clap.bwdevice");
         aliasDrum(d, "v9crash", "v9 Crash.bwdevice");
@@ -136,6 +150,11 @@ public final class DeviceCatalog {
         aliasDrum(d, "v9sn", "v9 Snare.bwdevice");
         aliasDrum(d, "v9tom", "v9 Tom.bwdevice");
         aliasDrum(d, "v9cp", "v9 Clap.bwdevice");
+        // family-only short names (Rust device.rs parity)
+        aliasDrum(d, "ride", "v9 Ride.bwdevice");
+        aliasDrum(d, "rim", "v9 Rimshot.bwdevice");
+        aliasDrum(d, "crash", "v9 Crash.bwdevice");
+        aliasDrum(d, "hatopen", "v9 Hat Open.bwdevice");
 
         // type.variant (kick.v9, hat.v8, …)
         aliasDrum(d, "kick.v0", "v0 Kick.bwdevice");
@@ -167,6 +186,11 @@ public final class DeviceCatalog {
         aliasDrum(d, "ride.v9", "v9 Ride.bwdevice");
         aliasDrum(d, "rim.v8", "v8 Rimshot.bwdevice");
         aliasDrum(d, "rim.v9", "v9 Rimshot.bwdevice");
+        aliasDrum(d, "snare.v0", "v0 Snare.bwdevice");
+        aliasDrum(d, "clap.808", "v8 Clap.bwdevice");
+        aliasDrum(d, "clap.909", "v9 Clap.bwdevice");
+        aliasDrum(d, "crash.v9", "v9 Crash.bwdevice");
+        aliasDrum(d, "cymbal.v0", "v0 Cymbal.bwdevice");
 
         DRUM_FILES = Collections.unmodifiableMap(d);
     }
@@ -186,12 +210,32 @@ public final class DeviceCatalog {
         m.put(key(aliasKey), file);
     }
 
+    /**
+     * The one Java-side name normalization — keep in sync with Rust
+     * {@code device::norm}: lowercase; strip space / {@code -} / {@code _} /
+     * {@code .} ({@code kick.v9} legacy → {@code kickv9}); {@code +} → {@code plus}.
+     */
     static String key(final String name) {
         return name.toLowerCase(Locale.ROOT)
                 .replace(" ", "")
                 .replace("-", "")
                 .replace("_", "")
+                .replace(".", "")
                 .replace("+", "plus");
+    }
+
+    /**
+     * Sampler / Drum Machine ban — the <b>single</b> Java-side definition,
+     * enforced server-side (authoritative). Rust re-checks client-side
+     * ({@code device::is_banned}) for early errors. Deliberate double guard,
+     * same rule both sides.
+     */
+    public static boolean isBanned(final String name) {
+        if (name == null) {
+            return false;
+        }
+        final String k = key(name.trim());
+        return k.contains("sampler") || k.contains("drummachine") || "dm".equals(k);
     }
 
     /** UUID devices (synths / layer / FX). {@code null} if not UUID-curated. */
@@ -242,11 +286,10 @@ public final class DeviceCatalog {
         if (name == null || name.isBlank()) {
             return null;
         }
-        final String k = key(name.trim());
-        // hard ban
-        if (k.contains("sampler") || k.contains("drummachine") || "dm".equals(k)) {
+        if (isBanned(name)) {
             return null;
         }
+        final String k = key(name.trim());
         final String file = DRUM_FILES.get(k);
         if (file == null) {
             return null;
@@ -268,8 +311,7 @@ public final class DeviceCatalog {
             return null;
         }
         final String trimmed = name.trim();
-        final String k = key(trimmed);
-        if (k.contains("sampler") || k.contains("drummachine") || "dm".equals(k)) {
+        if (isBanned(trimmed)) {
             return null;
         }
         final Path dir = devicesLibraryDir();
@@ -304,7 +346,28 @@ public final class DeviceCatalog {
                     .findFirst();
             return match.map(p -> p.toAbsolutePath().toString()).orElse(null);
         } catch (final Exception e) {
+            logScanFailureOnce(dir, e);
             return null;
+        }
+    }
+
+    /** Optional host for one-time scan error logging (set from extension init). */
+    private static volatile ControllerHost host;
+    private static volatile boolean scanFailureLogged;
+
+    public static void setHost(final ControllerHost h) {
+        host = h;
+    }
+
+    /** Library scan errors were silent — log once per extension lifetime. */
+    private static void logScanFailureOnce(final Path dir, final Exception e) {
+        if (scanFailureLogged) {
+            return;
+        }
+        scanFailureLogged = true;
+        final ControllerHost h = host;
+        if (h != null) {
+            h.errorln("Codewig: library device scan failed for " + dir + ": " + e);
         }
     }
 
@@ -315,20 +378,24 @@ public final class DeviceCatalog {
                 || resolveLibraryDeviceFile(name) != null;
     }
 
-    /** @deprecated use {@link #resolveUuid(String)} */
-    @Deprecated
-    public static UUID resolve(final String name) {
-        return resolveUuid(name);
-    }
-
-    public static Map<String, UUID> all() {
-        return BY_UUID;
-    }
-
     /**
      * Bitwig stock devices folder. Override with env {@code BITWIG_DEVICES}.
+     * Resolved once per extension lifetime (result incl. {@code null} cached —
+     * scanning the filesystem on every resolve was wasteful).
      */
-    static Path devicesLibraryDir() {
+    private static Path cachedDevicesDir;
+    private static boolean devicesDirResolved;
+
+    static synchronized Path devicesLibraryDir() {
+        if (devicesDirResolved) {
+            return cachedDevicesDir;
+        }
+        devicesDirResolved = true;
+        cachedDevicesDir = findDevicesLibraryDir();
+        return cachedDevicesDir;
+    }
+
+    private static Path findDevicesLibraryDir() {
         final String env = System.getenv("BITWIG_DEVICES");
         if (env != null && !env.isBlank()) {
             final Path p = Paths.get(env.trim());

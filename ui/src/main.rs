@@ -1,8 +1,7 @@
 use codewig_core::music::param_catalog::{catalog, reload_catalog, DeviceHostKind};
 use codewig_core::music::MusicSession;
 use codewig_core::Client;
-use std::cell::RefCell;
-use std::rc::Rc;
+use std::sync::mpsc;
 use std::thread;
 
 mod commands;
@@ -91,11 +90,19 @@ fn device_detail_for(name: &str) -> String {
     detail
 }
 
+/// Commands from the UI thread to the worker. `Client` and `MusicSession` are
+/// `!Send` (Rc/RefCell inside) — they live **in the worker thread**, only plain
+/// strings cross the channel.
+enum WorkerCmd {
+    Run(String),
+    Reconnect,
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // One client for whole UI lifetime — persistent TCP inside Client.
-    let client = Rc::new(Client::default());
-    // WIGSCRIPT session (key/scale) shared across sends — not transport.
-    let session = Rc::new(RefCell::new(MusicSession::default()));
+    // Create + seed the per-user layout once at startup (devices/*.yaml home).
+    if let Err(e) = codewig_core::ensure_user_layout() {
+        eprintln!("user layout: {e}");
+    }
 
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
@@ -117,6 +124,54 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     });
 
+    // Worker thread owns Client + MusicSession for the whole UI lifetime.
+    // RPC (2s timeout) and the 250ms status probe never run on the UI thread;
+    // results come back via invoke_from_event_loop.
+    let (tx, rx) = mpsc::channel::<WorkerCmd>();
+    let worker_weak = ui.as_weak();
+    thread::spawn(move || {
+        let client = Client::default();
+        let mut session = MusicSession::default();
+        for cmd in rx {
+            match cmd {
+                WorkerCmd::Run(line) => {
+                    let result = commands::run(&client, &mut session, &line);
+                    // RPC succeeded → socket live; re-check only on failure (short probe)
+                    let status = match &result {
+                        Ok(_) => "connected".to_string(),
+                        Err(_) => connection_status(),
+                    };
+                    let weak = worker_weak.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let Some(ui) = weak.upgrade() else { return };
+                        let mut output = ui.get_output().to_string();
+                        match &result {
+                            Ok(Some(v)) => {
+                                output.push_str(&format!(
+                                    "{}\n",
+                                    serde_json::to_string_pretty(v).unwrap()
+                                ));
+                            }
+                            Ok(None) => output.push_str("ok\n"),
+                            Err(e) => output.push_str(&format!("error: {e}\n")),
+                        }
+                        ui.set_output(output.into());
+                        ui.set_status(status.into());
+                    });
+                }
+                WorkerCmd::Reconnect => {
+                    client.reset();
+                    let status = connection_status();
+                    let weak = worker_weak.clone();
+                    let _ = slint::invoke_from_event_loop(move || {
+                        let Some(ui) = weak.upgrade() else { return };
+                        ui.set_status(status.into());
+                    });
+                }
+            }
+        }
+    });
+
     // Sidebar filter: substring match (Slint has no string.contains)
     ui.on_text_matches(|haystack, needle| {
         let n = needle.trim().to_lowercase();
@@ -130,18 +185,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ui.on_device_detail(|name| device_detail_for(name.as_str()).into());
 
     let reconnect_weak = ui.as_weak();
-    let client_reconnect = client.clone();
+    let tx_reconnect = tx.clone();
     ui.on_reconnect(move || {
-        let ui = reconnect_weak.upgrade().unwrap();
-        client_reconnect.reset();
-        // Short probe on UI thread — max ~STATUS_TIMEOUT_MS, not 2s
-        ui.set_status(connection_status().into());
+        let Some(ui) = reconnect_weak.upgrade() else { return };
+        ui.set_status("checking…".into());
+        let _ = tx_reconnect.send(WorkerCmd::Reconnect);
     });
 
     let reload_weak = ui.as_weak();
     ui.on_reload_devices(move || {
         let n = reload_catalog();
-        let ui = reload_weak.upgrade().unwrap();
+        let load_errors: Vec<String> = catalog().load_errors().to_vec();
+        let Some(ui) = reload_weak.upgrade() else { return };
         ui.set_devices(slint::ModelRc::new(slint::VecModel::from(
             device_entries_from_catalog(),
         )));
@@ -149,12 +204,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let user_dir = codewig_core::user_devices_dir()
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "(unknown)".into());
+        let errors = if load_errors.is_empty() {
+            String::new()
+        } else {
+            format!("\nYAML errors ({}):\n  {}", load_errors.len(), load_errors.join("\n  "))
+        };
         ui.set_help_text(
             format!(
                 "Rescanned devices — {n} device(s).\n\
                  User folder: {user_dir}\n\
                  Drop a new YAML (bitwig|clap), click ↻ again.\n\
-                 Env: CODEWIG_HOME / CODEWIG_DEVICES_DIR"
+                 Env: CODEWIG_HOME / CODEWIG_DEVICES_DIR{errors}"
             )
             .into(),
         );
@@ -162,45 +222,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let insert_weak = ui.as_weak();
     ui.on_insert_command(move |cmd| {
-        let ui = insert_weak.upgrade().unwrap();
+        let Some(ui) = insert_weak.upgrade() else { return };
         ui.set_command(cmd);
     });
 
     let help_weak = ui.as_weak();
     ui.on_show_help(move |help| {
-        let ui = help_weak.upgrade().unwrap();
+        let Some(ui) = help_weak.upgrade() else { return };
         ui.set_help_text(help);
     });
 
-    let session_send = session.clone();
-    let client_send = client.clone();
+    let tx_send = tx.clone();
     ui.on_send_command(move || {
-        let ui = ui_weak.upgrade().unwrap();
+        let Some(ui) = ui_weak.upgrade() else { return };
         let cmd = ui.get_command().to_string();
-        let mut sess = session_send.borrow_mut();
-
-        let result = commands::run(&client_send, &mut sess, &cmd);
-
+        // Echo immediately (UI thread); result arrives via the worker callback.
         let mut output = ui.get_output().to_string();
-        output.push_str(&format!("♫ {}\n", cmd));
-        match &result {
-            Ok(Some(v)) => {
-                output.push_str(&format!("{}\n", serde_json::to_string_pretty(v).unwrap()));
-                // RPC succeeded → socket live; skip extra ping RTT
-                ui.set_status("connected".into());
-            }
-            Ok(None) => {
-                output.push_str("ok\n");
-                ui.set_status("connected".into());
-            }
-            Err(e) => {
-                output.push_str(&format!("error: {}\n", e));
-                // Re-check only on failure (short probe — do not block UI 2s)
-                ui.set_status(connection_status().into());
-            }
-        }
+        output.push_str(&format!("♫ {cmd}\n"));
         ui.set_output(output.into());
         ui.set_command("".into());
+        let _ = tx_send.send(WorkerCmd::Run(cmd));
     });
 
     ui.run()?;

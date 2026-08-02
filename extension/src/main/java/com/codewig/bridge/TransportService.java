@@ -72,10 +72,6 @@ public final class TransportService {
         return tempo;
     }
 
-    public Transport getTransport() {
-        return transport;
-    }
-
     public boolean isPlaying() {
         return playing;
     }

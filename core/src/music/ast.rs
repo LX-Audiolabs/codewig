@@ -141,7 +141,7 @@ mod beat_tests {
 }
 
 /// Param snapshot on a device.
-/// Preferred: `kick&v9kick: decay(50) pitch(40)` (display units from `devices/*.md`).
+/// Preferred: `kick&v9kick: decay(50) pitch(40)` (display units from `devices/*.yaml`).
 /// Legacy: `t(kick).d(kick.v9): decay(50) pitch(40)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamCmd {
@@ -232,8 +232,6 @@ pub enum ClipRef {
     Slot(i32),
     /// Scene **row name** — `lead@verse` (secondary; resolve via scene.list).
     Name(String),
-    /// Legacy marker; treated as default slot on write.
-    Launch, // !
 }
 
 /// `s(verse).t(lead).c(new)` | `s(1).t(bass).c(new, intro)` | `.c(start)`
@@ -355,12 +353,4 @@ pub enum Suffix {
     RandomDrop(Option<f64>), // ? or ?0.3
     Octave(i32),       // :N
     Euclid { beats: u32, steps: u32, offset: Option<u32> }, // (beats,steps) or (beats,steps,offset)
-}
-
-// ── Chord types ────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Chord {
-    Named { root: String, quality: String },
-    Roman { degree: String, quality: String },
 }

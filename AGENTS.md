@@ -6,7 +6,7 @@
 
 | Priority | Where |
 |----------|--------|
-| 1 | `core/src/music/{parse,ast,execute,device,expand,param_catalog}.rs` |
+| 1 | `core/src/music/parse/{mod,line,fluent,mini}.rs`, `core/src/music/{ast,execute,device,expand,param_catalog}.rs` |
 | 1 | `devices/*.yaml` (param catalog — disk scan / UI ↻ reload; bitwig\|clap only) |
 | 1 | `extension/.../DeviceCatalog.java` (insert resolve: UUID / library file) |
 | 1 | `ui/src/commands.rs`, `cli/src/main.rs` (`eval`) |

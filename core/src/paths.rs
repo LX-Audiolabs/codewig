@@ -46,13 +46,20 @@ pub fn user_devices_dir() -> Option<PathBuf> {
 /// Seeds shipped factory YAMLs into user `devices/` when a file is not present yet
 /// (never overwrites user edits).
 ///
-/// Returns the devices directory path.
+/// Called **once explicitly at startup** (cli `main`, ui `main`). Library users
+/// that skip it get a lazy fallback on first global catalog access
+/// (`music::param_catalog`). Returns the devices directory path.
 pub fn ensure_user_layout() -> Result<PathBuf, String> {
     let root = user_data_dir().ok_or_else(|| {
         format!(
             "cannot resolve user data dir (set {ENV_HOME} or check LOCALAPPDATA / XDG_DATA_HOME / HOME)"
         )
     })?;
+    ensure_user_layout_at(&root)
+}
+
+/// [`ensure_user_layout`] with an explicit root (tests / tools) — no env lookup.
+pub fn ensure_user_layout_at(root: &Path) -> Result<PathBuf, String> {
     let devices = root.join("devices");
     fs::create_dir_all(&devices).map_err(|e| format!("create {}: {e}", devices.display()))?;
 
@@ -193,9 +200,13 @@ mod tests {
 
     #[test]
     fn ensure_layout_creates_devices() {
-        // Uses real user dir — safe: only create_dir_all + README + seed missing
-        let devices = ensure_user_layout().expect("layout");
+        // Isolated temp root — never the real user dir.
+        let root = std::env::temp_dir().join(format!("codewig-paths-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let devices = ensure_user_layout_at(&root).expect("layout");
         assert!(devices.is_dir());
-        assert!(devices.ends_with("devices") || devices.file_name().unwrap() == "devices");
+        assert_eq!(devices.file_name().unwrap(), "devices");
+        assert!(devices.join("README.txt").is_file());
+        let _ = fs::remove_dir_all(&root);
     }
 }

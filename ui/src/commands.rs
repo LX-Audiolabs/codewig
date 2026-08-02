@@ -6,8 +6,8 @@
 //! Fallback: legacy flat CLI tokens (`track mute kick`, `play`, …) for old habits
 //! and `> track list` passthrough.
 
-use codewig_core::music::{execute_line, parse_music_line, MusicLine, MusicSession};
-use codewig_core::{Client, NoteSpec};
+use codewig_core::music::{execute_line, key_to_midi, parse_music_line, MusicLine, MusicSession};
+use codewig_core::{parse_name_eq_value, parse_note_spec, Client, NoteSpec};
 use serde_json::Value;
 
 /// Run one input line. `session` holds key/scale across lines.
@@ -24,7 +24,8 @@ pub fn run(
     match parse_music_line(trimmed) {
         Ok(MusicLine::Empty) => Ok(None),
         Ok(MusicLine::PassThrough(cmd)) => legacy_cli(client, &cmd),
-        Ok(line) => execute_line(client, session, line),
+        // ExecuteError Display keeps the extension error code in the text.
+        Ok(line) => execute_line(client, session, line).map_err(|e| e.to_string()),
         // Not WIGSCRIPT → legacy flat commands (same words as `codewig-cli` without binary name)
         Err(_) => legacy_cli(client, trimmed),
     }
@@ -258,7 +259,7 @@ fn dispatch_clip<'a>(
             let slot: i32 = next_parse(&mut args, "slot")?;
             let mut notes: Vec<NoteSpec> = Vec::new();
             for spec in args {
-                notes.push(parse_note(spec)?);
+                notes.push(parse_note_spec(spec)?);
             }
             if notes.is_empty() {
                 return Err("clip note: need notes (or WIGSCRIPT: bass: n \"c e g\")".into());
@@ -275,7 +276,7 @@ fn dispatch_clip<'a>(
             while let Some(tok) = args.next() {
                 match tok {
                     "--step" => step = Some(next_parse(&mut args, "step")?),
-                    "--key" => key = Some(parse_key(&next_string(&mut args, "key")?)?),
+                    "--key" => key = Some(key_to_midi(&next_string(&mut args, "key")?).map_err(|e| e.to_string())?),
                     _ => return Err(format!("clip clear-notes: unexpected '{tok}'")),
                 }
             }
@@ -332,50 +333,4 @@ fn ensure_no_more<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), Str
         return Err(format!("unexpected argument '{tok}'"));
     }
     Ok(())
-}
-
-fn parse_name_eq_value(s: &str) -> Result<(String, f64), String> {
-    let (n, v) = s
-        .split_once('=')
-        .ok_or_else(|| format!("expected name=value, got '{s}'"))?;
-    let val: f64 = v.parse().map_err(|_| format!("bad value in '{s}'"))?;
-    Ok((n.trim().to_string(), val))
-}
-
-fn parse_note(s: &str) -> Result<NoteSpec, String> {
-    let parts: Vec<&str> = s.split(':').collect();
-    if parts.len() < 2 || parts.len() > 4 {
-        return Err(format!("expected step:key[:vel[:dur]], got '{s}'"));
-    }
-    let step: i32 = parts[0]
-        .trim()
-        .parse()
-        .map_err(|_| format!("bad step in '{s}'"))?;
-    let key = parse_key(parts[1])?;
-    let vel: i32 = match parts.get(2) {
-        Some(v) => v.trim().parse().map_err(|_| format!("bad vel in '{s}'"))?,
-        None => 100,
-    };
-    let dur: f64 = match parts.get(3) {
-        Some(d) => d.trim().parse().map_err(|_| format!("bad dur in '{s}'"))?,
-        None => 1.0,
-    };
-    Ok(NoteSpec {
-        step,
-        key,
-        vel,
-        dur,
-        ..NoteSpec::default()
-    })
-}
-
-fn parse_key(s: &str) -> Result<i32, String> {
-    let s = s.trim();
-    if let Ok(n) = s.parse::<i32>() {
-        if !(0..=127).contains(&n) {
-            return Err(format!("key must be 0..127, got {n}"));
-        }
-        return Ok(n);
-    }
-    codewig_core::music::note_to_midi(s).map_err(|e| e)
 }

@@ -69,8 +69,9 @@ public final class DeviceService {
             throw new IllegalArgumentException("device name empty");
         }
         final String name = deviceName.trim();
-        final String k = DeviceCatalog.key(name);
-        if (k.contains("sampler") || k.contains("drummachine") || "dm".equals(k)) {
+        // Server-side authoritative guard (single definition in DeviceCatalog);
+        // the Rust client checks the same rule earlier (device::is_banned).
+        if (DeviceCatalog.isBanned(name)) {
             throw new IllegalArgumentException(
                     "device '" + name + "' not insertable (Sampler / Drum Machine out of scope)");
         }

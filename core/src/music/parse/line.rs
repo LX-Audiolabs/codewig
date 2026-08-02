@@ -1,42 +1,9 @@
-//! WIGSCRIPT line parser + mini-notation parser.
-//!
-//! Parses strings like:
-//! - `bass: n "c e g" +cutoff:0.3`
-//! - `!bass Polymer Filter Delay-2`
-//! - Percussion: fluent `.beat(4_)` (not Strudel hit markers bd/hh)
+//! WIGSCRIPT line dispatch: `target: cmd "pattern" +params`, transport,
+//! mute/unmute, scenes/clips, `track&device:` param lines.
 
-use super::ast::*;
-use std::fmt;
-
-/// Error from parsing a WIGSCRIPT line or mini-notation pattern.
-#[derive(Debug)]
-pub struct ParseError {
-    pub msg: String,
-    pub pos: usize,
-    pub input: String,
-}
-
-impl fmt::Display for ParseError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "parse error at {}: {}", self.pos, self.msg)?;
-        if !self.input.is_empty() {
-            write!(f, "\n  {}\n  {:>width$}", self.input, "^", width = self.pos + 2)?;
-        }
-        Ok(())
-    }
-}
-
-impl std::error::Error for ParseError {}
-
-impl ParseError {
-    fn new(msg: impl Into<String>, pos: usize, input: impl Into<String>) -> Self {
-        Self { msg: msg.into(), pos, input: input.into() }
-    }
-}
-
-type ParseResult<T> = Result<T, ParseError>;
-
-// ── WIGSCRIPT line parser ──────────────────────────────────────────
+use super::super::ast::*;
+use super::fluent::{parse_device_in_paren, parse_fluent, parse_paren_arg};
+use super::{ParseError, ParseResult};
 
 /// Parse a single REPL line into a [`MusicLine`].
 pub fn parse_music_line(input: &str) -> ParseResult<MusicLine> {
@@ -181,7 +148,8 @@ fn parse_music_cmd(input: &str) -> ParseResult<MusicLine> {
     // Parse the action + pattern + optional note expression modifiers + params from rest
     let (action, pattern, rest2) = parse_action_pattern(rest, s)?;
     let (note_mods, rest3) = parse_note_mods(rest2, s)?;
-    let (params, transpose, scale_transpose) = parse_params(rest3, s)?;
+    let (params, transpose, scale_transpose, rest4) = parse_params(rest3, s)?;
+    reject_trailing(rest4, s)?;
 
     Ok(MusicLine::Music(MusicCmd {
         target,
@@ -264,7 +232,8 @@ fn parse_shorthand(input: &str) -> ParseResult<MusicLine> {
     // Find quoted pattern + optional note expression modifiers
     let (pattern, rest2) = extract_quoted(rest, s)?;
     let (note_mods, rest3) = parse_note_mods(rest2, s)?;
-    let (params, transpose, scale_transpose) = parse_params(rest3, s)?;
+    let (params, transpose, scale_transpose, rest4) = parse_params(rest3, s)?;
+    reject_trailing(rest4, s)?;
 
     Ok(MusicLine::Music(MusicCmd {
         target: Target { track: String::new(), clip: None, drum_kit },
@@ -334,7 +303,7 @@ fn parse_action_pattern<'a>(rest: &'a str, full_input: &str) -> ParseResult<(Mus
 }
 
 /// Extract a double-quoted string, returning content and remaining input.
-fn extract_quoted<'a>(input: &'a str, full_input: &str) -> ParseResult<(String, &'a str)> {
+pub(crate) fn extract_quoted<'a>(input: &'a str, full_input: &str) -> ParseResult<(String, &'a str)> {
     let trimmed = input.trim_start();
     if !trimmed.starts_with('"') {
         return Err(ParseError::new(
@@ -372,7 +341,10 @@ fn extract_quoted<'a>(input: &'a str, full_input: &str) -> ParseResult<(String, 
     }
 }
 
-fn parse_params(mut rest: &str, full_input: &str) -> ParseResult<(Vec<ParamSet>, Option<i32>, Option<i32>)> {
+/// parse_params output: params, transpose, scale-transpose, remaining input.
+type ParamsOut<'a> = (Vec<ParamSet>, Option<i32>, Option<i32>, &'a str);
+
+fn parse_params<'a>(mut rest: &'a str, full_input: &str) -> ParseResult<ParamsOut<'a>> {
     let mut params = Vec::new();
     let mut transpose: Option<i32> = None;
     let mut scale_transpose: Option<i32> = None;
@@ -439,7 +411,7 @@ fn parse_params(mut rest: &str, full_input: &str) -> ParseResult<(Vec<ParamSet>,
                 return Err(ParseError::new("^ requires number", full_input.len() - rest.len(), full_input.to_string()));
             }
         } else if rest.starts_with('!') && rest.len() <= 2 {
-            // `!` at end = launch — handled in parse_target
+            // Lone trailing `!` (legacy launch marker) — reject_trailing tolerates it
             break;
         } else {
             break;
@@ -447,14 +419,28 @@ fn parse_params(mut rest: &str, full_input: &str) -> ParseResult<(Vec<ParamSet>,
         rest = rest.trim_start();
     }
 
-    Ok((params, transpose, scale_transpose))
+    Ok((params, transpose, scale_transpose, rest))
+}
+
+/// Reject leftover input after pattern + params (`bass: n "c e" quatsch`).
+/// A lone trailing `!` (launch marker) stays allowed.
+fn reject_trailing(rest: &str, full_input: &str) -> ParseResult<()> {
+    let trailing = rest.trim();
+    if !trailing.is_empty() && trailing != "!" {
+        return Err(ParseError::new(
+            format!("unexpected trailing input: '{trailing}'"),
+            full_input.len() - rest.trim_start().len(),
+            full_input.to_string(),
+        ));
+    }
+    Ok(())
 }
 
 // ── Note expression modifiers ──────────────────────────────────────
 
 /// Parse consecutive `.vel(…)` / `.pres(…)` / `.tim(…)` / `.pan(…)` / `.gain(…)` / `.chnz(…)`
 /// suffixes after a pattern. Returns the consumed modifiers and the remaining input.
-fn parse_note_mods<'a>(input: &'a str, full_input: &str) -> ParseResult<(NoteMods, &'a str)> {
+pub(crate) fn parse_note_mods<'a>(input: &'a str, full_input: &str) -> ParseResult<(NoteMods, &'a str)> {
     let mut mods = NoteMods::default();
     let mut rest = input;
 
@@ -535,482 +521,6 @@ fn parse_paren_values<'a>(input: &'a str, full_input: &str) -> ParseResult<(Vec<
         }
     }
     Ok((values, after))
-}
-
-// ── Mini-notation parser ───────────────────────────────────────────
-
-/// Parse a mini-notation pattern string (the content between quotes in `n "..."`).
-pub fn parse_mini_pattern(input: &str) -> ParseResult<Pattern> {
-    let tokens = tokenize(input)?;
-    let mut parser = MiniParser::new(tokens, input);
-    parser.parse_pattern()
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum Token {
-    NoteName(String),    // "c4", "eb", "f#"
-    Number(i32),
-    Float(f64),
-    LBracket,
-    RBracket,
-    LAngle,
-    RAngle,
-    LBrace,
-    RBrace,
-    LParen,
-    RParen,
-    Star,
-    Slash,
-    Bang,
-    Underscore,
-    Question,
-    At,
-    Pipe,
-    Tilde,
-    Dot,
-    Comma,
-    Colon,
-    Percent,
-}
-
-fn tokenize(input: &str) -> ParseResult<Vec<(Token, usize)>> {
-    let mut tokens = Vec::new();
-    let chars: Vec<char> = input.chars().collect();
-    let mut i = 0;
-
-    while i < chars.len() {
-        let ch = chars[i];
-        let pos = i;
-
-        match ch {
-            ' ' | '\t' | '\n' => { i += 1; continue; }
-            '[' => { tokens.push((Token::LBracket, pos)); i += 1; }
-            ']' => { tokens.push((Token::RBracket, pos)); i += 1; }
-            '<' => { tokens.push((Token::LAngle, pos)); i += 1; }
-            '>' => { tokens.push((Token::RAngle, pos)); i += 1; }
-            '{' => { tokens.push((Token::LBrace, pos)); i += 1; }
-            '}' => { tokens.push((Token::RBrace, pos)); i += 1; }
-            '(' => { tokens.push((Token::LParen, pos)); i += 1; }
-            ')' => { tokens.push((Token::RParen, pos)); i += 1; }
-            '*' => { tokens.push((Token::Star, pos)); i += 1; }
-            '/' => { tokens.push((Token::Slash, pos)); i += 1; }
-            '!' => { tokens.push((Token::Bang, pos)); i += 1; }
-            '_' => { tokens.push((Token::Underscore, pos)); i += 1; }
-            '?' => { tokens.push((Token::Question, pos)); i += 1; }
-            '@' => { tokens.push((Token::At, pos)); i += 1; }
-            '|' => { tokens.push((Token::Pipe, pos)); i += 1; }
-            '~' => { tokens.push((Token::Tilde, pos)); i += 1; }
-            '.' => { tokens.push((Token::Dot, pos)); i += 1; }
-            ',' => { tokens.push((Token::Comma, pos)); i += 1; }
-            ':' => { tokens.push((Token::Colon, pos)); i += 1; }
-            '%' => { tokens.push((Token::Percent, pos)); i += 1; }
-
-            // Number
-            '0'..='9' | '-' => {
-                let start = i;
-                if ch == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
-                    i += 1;
-                }
-                let mut has_dot = false;
-                while i < chars.len() {
-                    let c = chars[i];
-                    if c.is_ascii_digit() {
-                        i += 1;
-                    } else if c == '.' && !has_dot && i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
-                        has_dot = true;
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                }
-                let num_str: String = chars[start..i].iter().collect();
-                if has_dot {
-                    if let Ok(f) = num_str.parse::<f64>() {
-                        tokens.push((Token::Float(f), pos));
-                    } else {
-                        return Err(ParseError::new(format!("invalid float: {num_str}"), pos, input.to_string()));
-                    }
-                } else {
-                    tokens.push((Token::Number(num_str.parse().unwrap_or(0)), pos));
-                }
-            }
-
-            // Note name (c4, eb, …) — no Strudel hit markers (bd/hh)
-            'a'..='z' | 'A'..='Z' => {
-                let start = i;
-                while i < chars.len() {
-                    let c = chars[i];
-                    if c.is_alphanumeric() || c == '#' || c == 'b' {
-                        i += 1;
-                    } else {
-                        break;
-                    }
-                }
-                let word: String = chars[start..i].iter().collect();
-                tokens.push((Token::NoteName(word), pos));
-            }
-
-            _ => {
-                return Err(ParseError::new(
-                    format!("unexpected character: '{ch}'"), pos, input.to_string()));
-            }
-        }
-    }
-
-    Ok(tokens)
-}
-
-struct MiniParser {
-    tokens: Vec<(Token, usize)>,
-    input: String,
-    pos: usize,
-}
-
-impl MiniParser {
-    fn new(tokens: Vec<(Token, usize)>, input: &str) -> Self {
-        Self { tokens, input: input.to_string(), pos: 0 }
-    }
-
-    fn peek(&self) -> Option<&Token> {
-        self.tokens.get(self.pos).map(|(t, _)| t)
-    }
-
-    fn peek_pos(&self) -> usize {
-        self.tokens.get(self.pos).map(|(_, p)| *p).unwrap_or(self.input.len())
-    }
-
-    fn advance(&mut self) -> Option<(Token, usize)> {
-        let item = self.tokens.get(self.pos).cloned();
-        self.pos += 1;
-        item
-    }
-
-    fn err(&self, msg: impl Into<String>) -> ParseError {
-        ParseError::new(msg, self.peek_pos(), self.input.clone())
-    }
-
-    fn parse_pattern(&mut self) -> ParseResult<Pattern> {
-        let mut sequences = Vec::new();
-        sequences.push(self.parse_sequence()?);
-        while self.peek() == Some(&Token::Comma) {
-            self.advance();
-            sequences.push(self.parse_sequence()?);
-        }
-        if self.peek().is_some() {
-            return Err(self.err(format!("unexpected token after pattern: {:?}", self.peek())));
-        }
-        Ok(Pattern { sequences })
-    }
-
-    fn parse_sequence(&mut self) -> ParseResult<Sequence> {
-        let mut events = Vec::new();
-        loop {
-            match self.peek() {
-                None | Some(Token::Comma) | Some(Token::RBracket)
-                    | Some(Token::RAngle) | Some(Token::RBrace)
-                    | Some(Token::RParen) | Some(Token::Pipe) => break,
-                Some(Token::Dot) => {
-                    self.advance(); // skip dot separator
-                    continue;
-                }
-                _ => {
-                    events.push(self.parse_event()?);
-                }
-            }
-        }
-        Ok(Sequence { events })
-    }
-
-    fn parse_event(&mut self) -> ParseResult<Event> {
-        let atom = self.parse_atom()?;
-        let mut suffixes = Vec::new();
-        loop {
-            match self.peek() {
-                Some(Token::Star) => {
-                    self.advance();
-                    let n = self.expect_number("*")?;
-                    suffixes.push(Suffix::Repeat(n as u32));
-                }
-                Some(Token::Slash) => {
-                    self.advance();
-                    let n = self.expect_number("/")?;
-                    suffixes.push(Suffix::Slow(n as u32));
-                }
-                Some(Token::Bang) => {
-                    self.advance();
-                    let n = self.expect_number("!")?;
-                    suffixes.push(Suffix::Replicate(n as u32));
-                }
-                Some(Token::Underscore) => {
-                    self.advance();
-                    suffixes.push(Suffix::Elongate);
-                }
-                Some(Token::Question) => {
-                    self.advance();
-                    // Check for optional probability
-                    if let Some(Token::Float(p)) = self.peek() {
-                        let p = *p;
-                        self.advance();
-                        suffixes.push(Suffix::RandomDrop(Some(p)));
-                    } else {
-                        suffixes.push(Suffix::RandomDrop(None));
-                    }
-                }
-                Some(Token::At) => {
-                    self.advance();
-                    let n = self.expect_number("@")?;
-                    suffixes.push(Suffix::ElongateN(n as u32));
-                }
-                Some(Token::Colon) => {
-                    self.advance();
-                    let n = self.expect_number(":")?;
-                    suffixes.push(Suffix::Octave(n));
-                }
-                Some(Token::LParen) => {
-                    self.advance();
-                    let beats = self.expect_number("euclid beats")? as u32;
-                    self.expect_comma()?;
-                    let steps = self.expect_number("euclid steps")? as u32;
-                    let offset = if self.peek() == Some(&Token::Comma) {
-                        self.advance();
-                        Some(self.expect_number("euclid offset")? as u32)
-                    } else {
-                        None
-                    };
-                    if self.peek() == Some(&Token::RParen) {
-                        self.advance();
-                    }
-                    suffixes.push(Suffix::Euclid { beats, steps, offset });
-                }
-                _ => break,
-            }
-        }
-        Ok(Event { atom, suffixes })
-    }
-
-    fn parse_atom(&mut self) -> ParseResult<Atom> {
-        match self.peek() {
-            Some(Token::NoteName(name)) => {
-                let name = name.clone();
-                self.advance();
-                Ok(Atom::Note(name))
-            }
-            Some(Token::Number(n)) => {
-                let n = *n;
-                self.advance();
-                Ok(Atom::Midi(n))
-            }
-            Some(Token::Tilde) => {
-                self.advance();
-                Ok(Atom::Rest)
-            }
-            Some(Token::LBracket) => {
-                self.advance();
-                let mut seqs = Vec::new();
-                seqs.push(self.parse_sequence()?);
-
-                // Check for random choice | inside brackets
-                if self.peek() == Some(&Token::Pipe) {
-                    self.advance();
-                    let mut atoms = Vec::new();
-                    // Extract atoms from the first sequence
-                    for ev in &seqs[0].events {
-                        atoms.push(ev.atom.clone());
-                    }
-                    loop {
-                        atoms.push(self.parse_atom()?);
-                        match self.peek() {
-                            Some(Token::Pipe) => { self.advance(); }
-                            Some(Token::RBracket) => break,
-                            _ => return Err(self.err("expected | or ] in random choice")),
-                        }
-                    }
-                    // Consume RBracket
-                    if self.peek() == Some(&Token::RBracket) {
-                        self.advance();
-                    }
-                    return Ok(Atom::RandomChoice(atoms));
-                }
-
-                while self.peek() == Some(&Token::Comma) {
-                    self.advance();
-                    seqs.push(self.parse_sequence()?);
-                }
-                if self.peek() == Some(&Token::RBracket) {
-                    self.advance();
-                } else {
-                    return Err(self.err("expected ]"));
-                }
-                Ok(Atom::Group(seqs))
-            }
-            Some(Token::LAngle) => {
-                self.advance();
-                let mut alts: Vec<Vec<Sequence>> = Vec::new();
-                let current = vec![self.parse_sequence()?];
-                alts.push(current);
-
-                while self.peek() != Some(&Token::RAngle) && self.peek().is_some() {
-                    let next = vec![self.parse_sequence()?];
-                    alts.push(next);
-                }
-                if self.peek() == Some(&Token::RAngle) {
-                    self.advance();
-                }
-                Ok(Atom::Alternate(alts))
-            }
-            Some(Token::LBrace) => {
-                self.advance();
-                let mut polys: Vec<Vec<Sequence>> = Vec::new();
-                let current = vec![self.parse_sequence()?];
-                polys.push(current);
-
-                while self.peek() == Some(&Token::Comma) {
-                    self.advance();
-                    let next = vec![self.parse_sequence()?];
-                    polys.push(next);
-                }
-
-                // Check for %N subdivision
-                let subdivision = if self.peek() == Some(&Token::Percent) {
-                    self.advance();
-                    Some(self.expect_number("%")? as u32)
-                } else {
-                    None
-                };
-
-                if self.peek() == Some(&Token::RBrace) {
-                    self.advance();
-                }
-
-                if let Some(n) = subdivision {
-                    Ok(Atom::Subdivide(polys[0].clone(), n))
-                } else {
-                    Ok(Atom::Polymetric(polys))
-                }
-            }
-            Some(Token::LParen) => {
-                self.advance();
-                let beats = self.expect_number("euclid beats")? as u32;
-                self.expect_comma()?;
-                let steps = self.expect_number("euclid steps")? as u32;
-                let offset = if self.peek() == Some(&Token::Comma) {
-                    self.advance();
-                    Some(self.expect_number("euclid offset")? as u32)
-                } else {
-                    None
-                };
-                if self.peek() == Some(&Token::RParen) {
-                    self.advance();
-                } else {
-                    return Err(self.err("expected ) after euclid"));
-                }
-                Ok(Atom::Euclid { beats, steps, offset })
-            }
-            _ => Err(self.err("expected note, drum, number, ~, [, <, {, or ("))
-        }
-    }
-
-    fn expect_number(&mut self, context: &str) -> ParseResult<i32> {
-        match self.advance() {
-            Some((Token::Number(n), _)) => Ok(n),
-            Some((tok, _)) => Err(self.err(format!("expected number after {context}, got {:?}", tok))),
-            None => Err(self.err(format!("expected number after {context}, got end of input"))),
-        }
-    }
-
-    fn expect_comma(&mut self) -> ParseResult<()> {
-        match self.advance() {
-            Some((Token::Comma, _)) => Ok(()),
-            Some((tok, _)) => Err(self.err(format!("expected comma, got {:?}", tok))),
-            None => Err(self.err("expected comma, got end of input")),
-        }
-    }
-}
-
-// ── Fluent parser ──────────────────────────────────────────────────
-
-/// Parse `new track(kick).device(v9 kick).beat(4_).mute().clip(start)`
-fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
-    let s = input;
-    let create = s.starts_with("new ");
-
-    // Extract track name from `new track(name)` or `t(name)`
-    let rest = if create {
-        s.strip_prefix("new track(").or_else(|| s.strip_prefix("new t("))
-    } else {
-        s.strip_prefix("t(").or_else(|| s.strip_prefix("track("))
-    }.ok_or_else(|| ParseError::new("expected 'new track(' or 't('", 0, s.to_string()))?;
-
-    let (track_name, mut rest) = parse_paren_arg(rest, s, 0)?;
-
-    let mut steps = Vec::new();
-
-    while !rest.is_empty() && rest.starts_with('.') {
-        rest = &rest[1..]; // skip dot
-
-        if rest.starts_with("device(") || rest.starts_with("d(") {
-            let (dev, r) = parse_device_step(rest, s)?;
-            steps.push(FluentStep::Device(dev));
-            rest = r;
-        } else if rest.starts_with("add(") {
-            let after = rest.strip_prefix("add(").unwrap();
-            let (dev, r) = parse_device_in_paren(after, s)?;
-            steps.push(FluentStep::Add(dev));
-            rest = r;
-        } else if rest.starts_with("beat") {
-            let (beat, r) = parse_beat_step(rest, s)?;
-            steps.push(FluentStep::Beat(beat));
-            rest = r;
-        } else if rest.starts_with("n(") || rest.starts_with("notes(") {
-            let (pattern, r) = extract_paren_quoted(rest, s)?;
-            let (mods, r2) = parse_note_mods(r, s)?;
-            steps.push(FluentStep::Pattern { pattern, mods });
-            rest = r2;
-        } else if rest.starts_with("mute()") {
-            steps.push(FluentStep::Mute);
-            rest = &rest[6..];
-        } else if rest.starts_with("clip(") || rest.starts_with("c(") {
-            let after = rest.find('(').map(|i| &rest[i+1..]).unwrap_or("");
-            let closing = after.find(')').ok_or_else(||
-                ParseError::new("expected ')' after clip/c", s.len() - rest.len(), s.to_string()))?;
-            let content = after[..closing].trim();
-            // Check if content is a slot number or "start"/"stop"
-            if content == "start" || content == "stop" || content == "launch" {
-                // .clip(start) → ClipAction
-                let action = match content {
-                    "start" | "launch" => ClipAction::Start,
-                    "stop" => ClipAction::Stop,
-                    _ => unreachable!(),
-                };
-                steps.push(FluentStep::ClipAction(action));
-                rest = &after[closing + 1..];
-            } else {
-                // .c(0) or .c(0,1) → ClipCtrl with slot refs
-                let refs: Result<Vec<ClipCtrlRef>, _> = content.split(',')
-                    .map(|r| r.trim())
-                    .filter(|r| !r.is_empty())
-                    .map(|r| {
-                        let slot: i32 = r.parse().map_err(|_|
-                            ParseError::new(format!("invalid slot: '{r}'"), s.len() - rest.len(), s.to_string()))?;
-                        Ok(ClipCtrlRef { track: String::new(), slot })
-                    })
-                    .collect();
-                let refs = refs?;
-                let after_paren = &after[closing + 1..];
-                let action = parse_launch_action(after_paren, s)?;
-                steps.push(FluentStep::ClipCtrl(ClipCtrlCmd { refs, action }));
-                // Advance past the .start/.stop text
-                let action_len = after_paren.chars().take_while(|c| !c.is_whitespace()).count();
-                rest = &after_paren[action_len..];
-            }
-        } else {
-            return Err(ParseError::new(
-                format!("unknown fluent step: '.{}'", rest.chars().take(10).collect::<String>()),
-                s.len() - rest.len(), s.to_string()));
-        }
-    }
-
-    Ok(MusicLine::Fluent(FluentCmd { create, track: track_name, steps }))
 }
 
 /// Parse `kick&v9kick: decay(50) pitch(40)` or `kick&v9kick: +decay(50) +pitch(40)`.
@@ -1113,7 +623,6 @@ fn parse_param_assignments(rest: &str, full: &str) -> ParseResult<Vec<(String, f
 
 /// Parse `mute(kick)` / `mute(kick) 4` / `mute(kick) @bar` / `mute(kick) 4 @bar`
 fn parse_mute_cmd(rest: &str, unmute: bool, full_input: &str) -> ParseResult<MusicLine> {
-    use super::ast::MuteQuantize;
 
     let rest = rest.trim();
     let closing = rest.find(')').ok_or_else(|| {
@@ -1212,114 +721,6 @@ fn parse_mute_cmd(rest: &str, unmute: bool, full_input: &str) -> ParseResult<Mus
         Ok(MusicLine::Unmute(cmd))
     } else {
         Ok(MusicLine::Mute(cmd))
-    }
-}
-
-fn parse_paren_arg<'a>(input: &'a str, full_input: &str, _offset: usize) -> ParseResult<(String, &'a str)> {
-    let closing = input.find(')').ok_or_else(||
-        ParseError::new("expected ')' after argument", full_input.len() - input.len(), full_input.to_string()))?;
-    let name = input[..closing].trim().to_string();
-    Ok((name, &input[closing + 1..]))
-}
-
-fn parse_device_step<'a>(input: &'a str, full_input: &str) -> ParseResult<(DeviceSpec, &'a str)> {
-    let after = input.strip_prefix("device(").or_else(|| input.strip_prefix("d("))
-        .unwrap();
-    parse_device_in_paren(after, full_input)
-}
-
-fn parse_device_in_paren<'a>(after: &'a str, full_input: &str) -> ParseResult<(DeviceSpec, &'a str)> {
-    let closing = after.find(')').ok_or_else(||
-        ParseError::new("expected ')' after device name", full_input.len() - after.len(), full_input.to_string()))?;
-    let name = after[..closing].trim().to_string();
-    Ok((DeviceSpec { catalog_name: name }, &after[closing + 1..]))
-}
-
-fn parse_beat_step<'a>(input: &'a str, full_input: &str) -> ParseResult<(BeatSpec, &'a str)> {
-    let rest = input.strip_prefix("beat").unwrap();
-
-    // beat:16(1,5,11,14)  — explicit
-    if let Some(after_colon) = rest.strip_prefix(':') {
-        let paren = after_colon.find('(').ok_or_else(||
-            ParseError::new("expected '(positions)' after beat:N", full_input.len() - input.len(), full_input.to_string()))?;
-        let grid_str = &after_colon[..paren];
-        let grid: u32 = grid_str.parse().map_err(|_|
-            ParseError::new(format!("invalid grid size: '{grid_str}'"), full_input.len() - input.len(), full_input.to_string()))?;
-
-        let after_paren = &after_colon[paren + 1..];
-        let closing = after_paren.find(')').ok_or_else(||
-            ParseError::new("expected ')' after beat positions", full_input.len() - input.len(), full_input.to_string()))?;
-        let pos_str = &after_paren[..closing];
-        let positions: Result<Vec<u32>, _> = pos_str.split(',').map(|s| s.trim().parse::<u32>()).collect();
-        let mut positions = positions.map_err(|_|
-            ParseError::new(format!("invalid beat positions: '{pos_str}'"), full_input.len() - input.len(), full_input.to_string()))?;
-        // Accept 1-based counts (1..grid) like musicians type; store 0-based for Bitwig.
-        if !positions.is_empty()
-            && positions.iter().all(|&p| p >= 1 && p <= grid)
-            && positions.iter().any(|&p| p == grid || p > 0)
-        {
-            // If any 0 present, leave as 0-based; only convert pure 1..=grid sets
-            if !positions.contains(&0) {
-                for p in &mut positions {
-                    *p -= 1;
-                }
-            }
-        }
-
-        Ok((BeatSpec::Explicit { grid, positions }, &after_paren[closing + 1..]))
-    } else if rest.starts_with('(') {
-        // beat(4_) or beat(off)
-        let closing = rest.find(')').ok_or_else(||
-            ParseError::new("expected ')' after beat shorthand", full_input.len() - input.len(), full_input.to_string()))?;
-        let shorthand = &rest[1..closing].trim();
-        let spec = parse_beat_shorthand(shorthand, full_input, input)?;
-        Ok((spec, &rest[closing + 1..]))
-    } else {
-        Err(ParseError::new("expected beat(4_) or beat:16(...)", full_input.len() - input.len(), full_input.to_string()))
-    }
-}
-
-fn parse_beat_shorthand(s: &str, full_input: &str, input: &str) -> ParseResult<BeatSpec> {
-    match s {
-        "4_" => Ok(BeatSpec::FourToFloor),
-        "2_4" => Ok(BeatSpec::HalfNotes),
-        "off" => Ok(BeatSpec::Offbeat),
-        "bk2" => Ok(BeatSpec::Break2),
-        _ => Err(ParseError::new(
-            format!("unknown beat shorthand: '{s}'. Use 4_, 2_4, off, bk2, or beat:16(1,5,...)"),
-            full_input.len() - input.len(), full_input.to_string())),
-    }
-}
-
-#[allow(dead_code)]
-fn parse_clip_action<'a>(after: &'a str, full_input: &str) -> ParseResult<(ClipAction, &'a str)> {
-    let closing = after.find(')').ok_or_else(||
-        ParseError::new("expected ')' after clip action", full_input.len() - after.len(), full_input.to_string()))?;
-    let action_str = &after[..closing].trim();
-    let action = match *action_str {
-        "start" => ClipAction::Start,
-        "stop" => ClipAction::Stop,
-        _ => return Err(ParseError::new(
-            format!("unknown clip action: '{action_str}'. Use 'start' or 'stop'"),
-            full_input.len() - after.len(), full_input.to_string())),
-    };
-    Ok((action, &after[closing + 1..]))
-}
-
-/// Extract content from `name("pattern")` — for `n("c e g")` inside fluent chain.
-fn extract_paren_quoted<'a>(input: &'a str, full_input: &str) -> ParseResult<(String, &'a str)> {
-    let after = input.find('(').map(|i| &input[i+1..]).unwrap_or("");
-    let after = after.trim_start();
-    if after.starts_with('"') {
-        let (content, remainder) = extract_quoted(after, full_input)?;
-        // remainder starts after closing quote — need to skip the closing paren
-        let remainder = remainder.trim_start();
-        let remainder = remainder.strip_prefix(')').unwrap_or(remainder);
-        Ok((content, remainder))
-    } else {
-        let closing = after.find(')').ok_or_else(||
-            ParseError::new("expected ')' after pattern", full_input.len() - after.len(), full_input.to_string()))?;
-        Ok((after[..closing].trim().to_string(), &after[closing + 1..]))
     }
 }
 
@@ -1546,7 +947,7 @@ fn parse_clip_ctrl_cmd(input: &str) -> ParseResult<MusicLine> {
     Ok(MusicLine::ClipCtrl(ClipCtrlCmd { refs, action }))
 }
 
-fn parse_launch_action(rest: &str, full_input: &str) -> ParseResult<LaunchAction> {
+pub(crate) fn parse_launch_action(rest: &str, full_input: &str) -> ParseResult<LaunchAction> {
     let rest = rest.trim_start();
     if rest == ".start" || rest == ".launch" {
         Ok(LaunchAction::Start)
@@ -1564,7 +965,6 @@ fn parse_launch_action(rest: &str, full_input: &str) -> ParseResult<LaunchAction
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_parse_note_pattern() {
         let line = r#"bass: n "c e g""#;
@@ -1729,53 +1129,6 @@ mod tests {
             panic!("expected arp:down");
         }
     }
-
-    // ── Fluent parser tests ──────────────────────────────────────
-
-    #[test]
-    fn test_parse_fluent_create() {
-        let line = "new track(kick).device(kick.v9).beat(4_).mute().clip(start)";
-        let result = parse_music_line(line).unwrap();
-        if let MusicLine::Fluent(cmd) = result {
-            assert!(cmd.create);
-            assert_eq!(cmd.track, "kick");
-            assert_eq!(cmd.steps.len(), 4);
-            assert!(matches!(cmd.steps[0], FluentStep::Device(_)));
-            assert!(matches!(cmd.steps[1], FluentStep::Beat(BeatSpec::FourToFloor)));
-            assert!(matches!(cmd.steps[2], FluentStep::Mute));
-            assert!(matches!(cmd.steps[3], FluentStep::ClipAction(ClipAction::Start)));
-        } else {
-            panic!("expected Fluent, got {:?}", result);
-        }
-    }
-
-    #[test]
-    fn test_parse_fluent_explicit_beat() {
-        let line = "new track(hat).device(hat.v8).beat:16(1,5,9,13)";
-        let result = parse_music_line(line).unwrap();
-        if let MusicLine::Fluent(cmd) = result {
-            assert_eq!(cmd.track, "hat");
-            if let FluentStep::Beat(BeatSpec::Explicit { grid, positions }) = &cmd.steps[1] {
-                assert_eq!(*grid, 16);
-                // 1-based input 1,5,9,13 → stored 0-based 0,4,8,12
-                assert_eq!(*positions, vec![0, 4, 8, 12]);
-            } else { panic!("expected Beat::Explicit"); }
-        } else { panic!("expected Fluent"); }
-    }
-
-    #[test]
-    fn test_parse_fluent_synth() {
-        let line = "new track(bass).device(Polymer).add(Delay-2).n(\"0 2 4 0\")";
-        let result = parse_music_line(line).unwrap();
-        if let MusicLine::Fluent(cmd) = result {
-            assert_eq!(cmd.track, "bass");
-            assert_eq!(cmd.steps.len(), 3);
-            assert!(matches!(cmd.steps[0], FluentStep::Device(_)));
-            assert!(matches!(cmd.steps[1], FluentStep::Add(_)));
-            assert!(matches!(cmd.steps[2], FluentStep::Pattern { .. }));
-        } else { panic!("expected Fluent"); }
-    }
-
     #[test]
     fn test_parse_param_cmd_legacy() {
         let line = "t(kick).d(kick.v9): decay(50) pitch(40)";
@@ -1981,79 +1334,6 @@ mod tests {
             assert!(matches!(cmd.action, LaunchAction::Stop));
         } else { panic!("expected ClipCtrl"); }
     }
-
-    #[test]
-    fn test_parse_fluent_c_slots() {
-        // t(bass).c(0).start  — clip slot control in chain
-        let line = "t(bass).c(0).start";
-        let result = parse_music_line(line).unwrap();
-        if let MusicLine::Fluent(cmd) = result {
-            assert!(!cmd.create);
-            assert_eq!(cmd.track, "bass");
-            assert!(matches!(&cmd.steps[0], FluentStep::ClipCtrl(_)));
-        } else { panic!("expected Fluent, got {:?}", result); }
-    }
-
-    #[test]
-    fn test_mini_simple_notes() {
-        let pat = parse_mini_pattern("c e g").unwrap();
-        assert_eq!(pat.sequences.len(), 1);
-        assert_eq!(pat.sequences[0].events.len(), 3);
-    }
-
-    #[test]
-    fn test_mini_rest() {
-        let pat = parse_mini_pattern("c ~ g").unwrap();
-        assert_eq!(pat.sequences[0].events.len(), 3);
-        assert!(matches!(pat.sequences[0].events[1].atom, Atom::Rest));
-    }
-
-    #[test]
-    fn test_mini_group() {
-        let pat = parse_mini_pattern("[c e] g").unwrap();
-        assert_eq!(pat.sequences[0].events.len(), 2);
-        if let Atom::Group(ref seqs) = pat.sequences[0].events[0].atom {
-            assert_eq!(seqs[0].events.len(), 2);
-        } else {
-            panic!("expected Group");
-        }
-    }
-
-    #[test]
-    fn test_mini_repeat() {
-        let pat = parse_mini_pattern("c*3").unwrap();
-        assert_eq!(pat.sequences[0].events[0].suffixes.len(), 1);
-        assert_eq!(pat.sequences[0].events[0].suffixes[0], Suffix::Repeat(3));
-    }
-
-    #[test]
-    fn test_mini_euclid() {
-        let pat = parse_mini_pattern("c(3,8)").unwrap();
-        assert_eq!(pat.sequences[0].events.len(), 1);
-        assert!(matches!(pat.sequences[0].events[0].atom, Atom::Note(_)));
-        assert!(pat.sequences[0].events[0].suffixes.iter().any(|s| matches!(s, Suffix::Euclid { beats: 3, steps: 8, offset: None })));
-    }
-
-    #[test]
-    fn test_mini_alternate() {
-        let pat = parse_mini_pattern("<c e g>").unwrap();
-        assert!(matches!(pat.sequences[0].events[0].atom, Atom::Alternate(_)));
-    }
-
-    #[test]
-    fn test_mini_no_hit_markers() {
-        // "bd" is an ordinary note token now (invalid pitch at expand), not a drum atom
-        let pat = parse_mini_pattern("bd ~").unwrap();
-        assert!(matches!(pat.sequences[0].events[0].atom, Atom::Note(_)));
-        assert!(matches!(pat.sequences[0].events[1].atom, Atom::Rest));
-    }
-
-    #[test]
-    fn test_mini_superpose() {
-        let pat = parse_mini_pattern("c e, g a").unwrap();
-        assert_eq!(pat.sequences.len(), 2);
-    }
-
     #[test]
     fn test_parse_note_mods_colon() {
         let line = r#"bass: n "c e g".vel(80 60 100).pan(-50 0 50)"#;
@@ -2076,22 +1356,16 @@ mod tests {
             panic!("expected Music");
         }
     }
-
     #[test]
-    fn test_parse_fluent_note_mods() {
-        let line = r#"new track(bass).device(Polymer).n("c e g").vel(80).pres(50).chnz(75)"#;
-        let result = parse_music_line(line).unwrap();
-        if let MusicLine::Fluent(cmd) = result {
-            assert_eq!(cmd.steps.len(), 2);
-            if let FluentStep::Pattern { mods, .. } = &cmd.steps[1] {
-                assert_eq!(mods.vel, vec![Some(80.0)]);
-                assert_eq!(mods.pressure, vec![Some(50.0)]);
-                assert_eq!(mods.chance, vec![Some(75.0)]);
-            } else {
-                panic!("expected Pattern step");
-            }
-        } else {
-            panic!("expected Fluent");
-        }
+    fn test_trailing_garbage_rejected() {
+        let err = parse_music_line(r#"bass: n "c e" quatsch"#).unwrap_err();
+        assert!(err.to_string().contains("trailing"), "{err}");
+        let err = parse_music_line(r#"n "c e" xyz"#).unwrap_err();
+        assert!(err.to_string().contains("trailing"), "{err}");
+        // legit lines keep parsing
+        assert!(parse_music_line(r#"bass: n "c e""#).is_ok());
+        assert!(parse_music_line(r#"bass: n "c e" ^2"#).is_ok());
+        assert!(parse_music_line(r#"bass: n "c e" +vol:0.5"#).is_ok());
+        assert!(parse_music_line(r#"bass: n "c e" !"#).is_ok()); // launch marker
     }
 }

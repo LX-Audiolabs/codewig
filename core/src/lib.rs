@@ -94,10 +94,14 @@ impl Client {
     }
 
     fn send(&self, req: Request) -> Result<Option<Value>, Error> {
-        // First try existing socket; on transport error, reset + one fresh connect.
+        // First try existing socket; on transport error, reset + one fresh connect —
+        // but only for idempotent commands: retrying `track.new`/`clip.new`/… would
+        // execute the side effect twice (the first attempt may have reached Bitwig).
         match self.send_once(&req, false) {
             Ok(v) => Ok(v),
-            Err(Error::Request(_)) | Err(Error::Connection(_)) => self.send_once(&req, true),
+            Err(Error::Request(_)) | Err(Error::Connection(_)) if is_idempotent(&req.c) => {
+                self.send_once(&req, true)
+            }
             Err(e) => Err(e),
         }
     }
@@ -121,7 +125,8 @@ impl Client {
             // Bitwig RemoteConnection: receive callback may attach a tick late after accept.
             Err(e) if fresh && matches!(e, Error::Request(_)) => {
                 thread::sleep(Duration::from_millis(15));
-                self.exchange_held(req).map_err(|_| e)
+                // On retry failure return the fresher second error, not the stale first.
+                self.exchange_held(req)
             }
             Err(e) => Err(e),
         }
@@ -132,8 +137,7 @@ impl Client {
         let stream = slot
             .as_mut()
             .ok_or_else(|| Error::Connection("no stream".into()))?;
-        let resp: Response =
-            send_request(stream, req).map_err(|e| Error::Request(e.to_string()))?;
+        let resp: Response = send_request(stream, req)?;
         if resp.ok {
             Ok(resp.result)
         } else {
@@ -371,20 +375,6 @@ impl Client {
         self.send(self.req("scene.stop").field("ref", r#ref))
     }
 
-    pub fn clip_set_notes(
-        &self,
-        track: &str,
-        slot: i32,
-        notes: &[NoteSpec],
-    ) -> Result<Option<Value>, Error> {
-        self.send(
-            self.req("clip.set-notes")
-                .field("track", track)
-                .field("slot", slot)
-                .field("notes", notes_to_json(notes)),
-        )
-    }
-
     /// Clear all steps then write notes in one round-trip (`clip.replace-notes`).
     /// Empty `notes` clears only. Prefer this for live pattern rewrite.
     pub fn clip_replace_notes(
@@ -408,6 +398,13 @@ impl Client {
         step: Option<i32>,
         key: Option<i32>,
     ) -> Result<Option<Value>, Error> {
+        // Only one of step/key would make the extension wipe the WHOLE clip.
+        if step.is_some() != key.is_some() {
+            return Err(Error::Request(
+                "clip.clear-notes: step and key must be given together (or neither to clear all)"
+                    .into(),
+            ));
+        }
         let mut r = self
             .req("clip.clear-notes")
             .field("track", track)
@@ -427,6 +424,33 @@ impl Client {
         req.fields = fields;
         self.send(req)
     }
+}
+
+/// Commands safe to retry after a transport error (reads or set-to-value writes).
+/// Anything that creates/deletes/moves objects (`track.new`, `device.add`,
+/// `clip.new`, `scene.new`, `*.delete`, `clip.replace-notes`, `track.move`, …)
+/// is NOT idempotent and must surface the error instead of retrying blindly.
+fn is_idempotent(cmd: &str) -> bool {
+    const IDEMPOTENT: &[&str] = &[
+        "ping",
+        "status",
+        "param.set",
+        "track.mute",
+        "track.solo",
+        "track.volume",
+        "track.select",
+        "track.rename",
+        "device.select",
+        "clip.set-notes",
+        "clip.launch",
+        "clip.stop",
+        "scene.launch",
+        "scene.stop",
+        "play",
+        "stop",
+        "set",
+    ];
+    cmd.ends_with(".list") || cmd.starts_with("param.list") || IDEMPOTENT.contains(&cmd)
 }
 
 fn notes_to_json(notes: &[NoteSpec]) -> Value {
@@ -475,26 +499,118 @@ pub struct NoteSpec {
     pub chance: Option<f64>,
 }
 
-/// Run a batch of commands over a single connection, stopping at the first error.
-pub fn run_batch<C, F>(client: &Client, commands: Vec<C>, mut execute: F) -> Vec<Result<Option<Value>, Error>>
-where
-    F: FnMut(&mut TcpStream, C) -> Result<Option<Value>, Error>,
-{
-    let mut results = Vec::with_capacity(commands.len());
-    match client.connect() {
-        Ok(mut stream) => {
-            for cmd in commands {
-                let result = execute(&mut stream, cmd);
-                let is_err = result.is_err();
-                results.push(result);
-                if is_err {
-                    break;
-                }
+/// Parse the legacy CLI note format `step:key[:vel[:dur]]` into a [`NoteSpec`].
+/// `key`: MIDI number or note name (core semantics, Bitwig octaves — `c` = C3 = 60).
+/// Defaults: vel 100, dur 1.0 (16th steps). Shared by codewig-cli and codewig-live.
+pub fn parse_note_spec(s: &str) -> Result<NoteSpec, String> {
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() < 2 || parts.len() > 4 {
+        return Err(format!("expected step:key[:vel[:dur]], got '{s}'"));
+    }
+    let step: i32 = parts[0]
+        .trim()
+        .parse()
+        .map_err(|_| format!("bad step in '{s}'"))?;
+    if step < 0 {
+        return Err(format!("step must be >= 0, got {step}"));
+    }
+    let key = music::scale::key_to_midi(parts[1]).map_err(|e| e.to_string())?;
+    let vel: i32 = match parts.get(2) {
+        Some(v) => {
+            let v: i32 = v.trim().parse().map_err(|_| format!("bad vel in '{s}'"))?;
+            if !(1..=127).contains(&v) {
+                return Err(format!("vel must be 1..127, got {v}"));
             }
+            v
         }
-        Err(e) => {
-            results.push(Err(e));
+        None => 100,
+    };
+    let dur: f64 = match parts.get(3) {
+        Some(d) => {
+            let d: f64 = d.trim().parse().map_err(|_| format!("bad dur in '{s}'"))?;
+            if d <= 0.0 {
+                return Err(format!("dur must be > 0, got {d}"));
+            }
+            d
+        }
+        None => 1.0,
+    };
+    Ok(NoteSpec {
+        step,
+        key,
+        vel,
+        dur,
+        ..NoteSpec::default()
+    })
+}
+
+/// Parse a legacy `name=value` param pair; value must be wire-normalized 0..1.
+/// Shared by codewig-cli and codewig-live.
+pub fn parse_name_eq_value(s: &str) -> Result<(String, f64), String> {
+    let (n, v) = s
+        .split_once('=')
+        .ok_or_else(|| format!("expected name=value, got '{s}'"))?;
+    let val: f64 = v.parse().map_err(|_| format!("bad value in '{s}'"))?;
+    if !(0.0..=1.0).contains(&val) {
+        return Err(format!("value must be 0..1, got {val}"));
+    }
+    Ok((n.trim().to_string(), val))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{is_idempotent, parse_name_eq_value, parse_note_spec};
+
+    #[test]
+    fn test_idempotent_whitelist() {
+        for c in [
+            "ping", "status", "play", "stop", "set",
+            "track.list", "device.list", "clip.list", "scene.list", "param.list",
+            "param.set", "track.mute", "track.solo", "track.volume", "track.select",
+            "track.rename", "device.select", "clip.set-notes", "clip.launch", "clip.stop",
+            "scene.launch", "scene.stop",
+        ] {
+            assert!(is_idempotent(c), "{c} should be retryable");
+        }
+        for c in [
+            "track.new", "track.delete", "track.move", "device.add", "device.delete",
+            "clip.new", "scene.new", "clip.replace-notes", "clip.clear-notes",
+        ] {
+            assert!(!is_idempotent(c), "{c} must not be retried (double side effect)");
         }
     }
-    results
+
+    #[test]
+    fn test_parse_note_spec() {
+        let n = parse_note_spec("0:C3:100:1").unwrap();
+        assert_eq!((n.step, n.key, n.vel), (0, 60, 100));
+        assert_eq!(n.dur, 1.0);
+
+        let n = parse_note_spec("4:E3").unwrap();
+        assert_eq!((n.step, n.key, n.vel), (4, 64, 100));
+        assert_eq!(n.dur, 1.0);
+
+        // core note semantics: bare name + accidentals
+        assert_eq!(parse_note_spec("0:c").unwrap().key, 60);
+        assert_eq!(parse_note_spec("0:cis").unwrap().key, 61);
+        assert_eq!(parse_note_spec("0:eb3").unwrap().key, 63);
+
+        assert!(parse_note_spec("0").is_err());
+        assert!(parse_note_spec("-1:C3").is_err());
+        assert!(parse_note_spec("0:C3:0").is_err()); // vel 0
+        assert!(parse_note_spec("0:C3:128").is_err());
+        assert!(parse_note_spec("0:C3:100:0").is_err()); // dur 0
+        assert!(parse_note_spec("0:C3:100:1:extra").is_err());
+    }
+
+    #[test]
+    fn test_parse_name_eq_value() {
+        assert_eq!(parse_name_eq_value("cutoff=0.5").unwrap(), ("cutoff".into(), 0.5));
+        assert_eq!(parse_name_eq_value("a=1").unwrap(), ("a".into(), 1.0));
+        assert_eq!(parse_name_eq_value(" b =0.5").unwrap(), ("b".into(), 0.5)); // name trimmed
+        assert!(parse_name_eq_value("cutoff").is_err());
+        assert!(parse_name_eq_value("cutoff=x").is_err());
+        assert!(parse_name_eq_value("cutoff=1.5").is_err()); // range 0..1
+        assert!(parse_name_eq_value("cutoff=-0.1").is_err());
+    }
 }
