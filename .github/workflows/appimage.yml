@@ -40,6 +40,11 @@ jobs:
           cp devices/*.yaml AppDir/usr/share/codewig/devices/
           cp packaging/linux/codewig-live.desktop AppDir/
           cp assets/icon-256.png AppDir/codewig-live.png
+          # AppRun is the entry point the AppImage runtime execs — without it
+          # the AppImage fails with "execv error: No such file or directory".
+          printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/usr/bin/codewig-live" "$@"\n' \
+            > AppDir/AppRun
+          chmod +x AppDir/AppRun
 
       - name: Fetch appimagetool
         run: |
@@ -52,10 +57,12 @@ jobs:
           ARCH=x86_64 ./appimagetool --appimage-extract-and-run AppDir \
             codewig-live-x86_64.AppImage
 
-      - name: Smoke test (binary starts, --help works)
+      - name: Smoke test (extract, AppRun executable, CLI runs)
         run: |
-          ./codewig-live-x86_64.AppImage --appimage-extract-and-run --version || true
-          ./AppDir/usr/bin/codewig-cli --help
+          ./codewig-live-x86_64.AppImage --appimage-extract
+          test -x squashfs-root/AppRun
+          ./squashfs-root/usr/bin/codewig-cli --help
+          rm -rf squashfs-root
 
       - uses: actions/upload-artifact@v4
         with:

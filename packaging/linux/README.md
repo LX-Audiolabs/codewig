@@ -30,6 +30,9 @@ cp devices/*.yaml AppDir/usr/share/codewig/devices/
 # optional AppDir root copies for linuxdeploy
 cp packaging/linux/codewig-live.desktop AppDir/
 cp assets/icon-256.png AppDir/codewig-live.png
+# AppRun = entry point the AppImage runtime execs (missing AppRun = "execv error")
+printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/usr/bin/codewig-live" "$@"\n' > AppDir/AppRun
+chmod +x AppDir/AppRun
 
 # then: linuxdeploy --appdir AppDir --output appimage
 # or:   appimagetool AppDir
