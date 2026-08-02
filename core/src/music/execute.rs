@@ -448,14 +448,19 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
 }
 
 fn add_device(client: &Client, catalog: &str) -> Result<Option<Value>, String> {
-    if let Some(name) = catalog_to_bitwig(catalog) {
-        return map(client.device_add(&name));
+    let n = catalog.to_lowercase().replace(' ', "").replace('-', "").replace('_', "");
+    // Out of scope: multi-pad / sample hosts (not mono Bitwig modules).
+    if n.contains("sampler") || n.contains("drummachine") || n == "dm" {
+        return Err(format!(
+            "device '{catalog}' not insertable (Sampler / Drum Machine out of scope)"
+        ));
     }
-    Err(format!(
-        "unknown / non-curated device '{catalog}'. \
-         Insertable: Polymer Polysynth Organ layer; v0–v9 drums (prefer `v9 kick` / `v9kick`); \
-         Filter Reverb Delay+ Chorus+ Saturator. Not allowed: Sampler, Drum Machine."
-    ))
+    // Known aliases → canonical Bitwig name; otherwise pass name through (UUID / library file).
+    let name = catalog_to_bitwig(catalog).unwrap_or_else(|| catalog.trim().to_string());
+    if name.is_empty() {
+        return Err("device name empty".into());
+    }
+    map(client.device_add(&name))
 }
 
 fn chain(

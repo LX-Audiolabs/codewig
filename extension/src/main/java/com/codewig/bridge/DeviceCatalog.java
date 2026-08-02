@@ -11,14 +11,17 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Curated native Bitwig devices that {@code device.add} may insert.
+ * Device name resolution for {@code device.add}.
  * <p>
- * <b>Insertable:</b> Organ, Polymer, Polysynth; Instrument Layer; Filter/Reverb/Delay+/Chorus+/Saturator;
- * all stock drum instruments {@code v0 Cymbal} … {@code v9 Tom} (via {@code insertFile}).
+ * <b>Insert model (open):</b> any Bitwig stock/library device the bridge can resolve —
+ * known UUID map, known drum aliases, raw UUID, or a matching {@code .bwdevice} under
+ * Bitwig {@code Library/devices}. Not a closed product allowlist.
  * <p>
- * <b>Not insertable:</b> Sampler, Drum Machine, Grids, VSTs, other FX.
+ * <b>UI / params:</b> only devices with {@code devices/*.yaml} are listed and param-settable.
  * <p>
- * Case-insensitive lookup; spaces / hyphens / plus normalized. Raw UUID always allowed.
+ * <b>Out of scope:</b> Sampler, Drum Machine (multi-pad / samples).
+ * <p>
+ * Case-insensitive lookup; spaces / hyphens / plus normalized.
  */
 public final class DeviceCatalog {
     private static final Map<String, UUID> BY_UUID;
@@ -256,9 +259,60 @@ public final class DeviceCatalog {
         return Files.isRegularFile(full) ? full.toAbsolutePath().toString() : null;
     }
 
-    /** Prefer UUID; else drum file path. */
+    /**
+     * Resolve any library {@code .bwdevice} by display name / file stem
+     * (e.g. {@code "EQ+"} → {@code EQ+.bwdevice} under Library/devices).
+     */
+    public static String resolveLibraryDeviceFile(final String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        final String trimmed = name.trim();
+        final String k = key(trimmed);
+        if (k.contains("sampler") || k.contains("drummachine") || "dm".equals(k)) {
+            return null;
+        }
+        final Path dir = devicesLibraryDir();
+        if (dir == null) {
+            return null;
+        }
+        // Absolute / relative path already pointing at a file
+        final Path asPath = Paths.get(trimmed);
+        if (Files.isRegularFile(asPath)) {
+            return asPath.toAbsolutePath().toString();
+        }
+        final String stem = trimmed.endsWith(".bwdevice")
+                ? trimmed.substring(0, trimmed.length() - ".bwdevice".length())
+                : trimmed;
+        final Path exact = dir.resolve(stem + ".bwdevice");
+        if (Files.isRegularFile(exact)) {
+            return exact.toAbsolutePath().toString();
+        }
+        // Case-insensitive scan of top-level library devices
+        try (var stream = Files.list(dir)) {
+            final String want = key(stem);
+            final var match = stream
+                    .filter(Files::isRegularFile)
+                    .filter(p -> {
+                        final String fn = p.getFileName().toString();
+                        if (!fn.toLowerCase(Locale.ROOT).endsWith(".bwdevice")) {
+                            return false;
+                        }
+                        final String base = fn.substring(0, fn.length() - ".bwdevice".length());
+                        return key(base).equals(want);
+                    })
+                    .findFirst();
+            return match.map(p -> p.toAbsolutePath().toString()).orElse(null);
+        } catch (final Exception e) {
+            return null;
+        }
+    }
+
+    /** UUID, known drum, or library .bwdevice. */
     public static boolean isAllowed(final String name) {
-        return resolveUuid(name) != null || resolveDrumFile(name) != null;
+        return resolveUuid(name) != null
+                || resolveDrumFile(name) != null
+                || resolveLibraryDeviceFile(name) != null;
     }
 
     /** @deprecated use {@link #resolveUuid(String)} */

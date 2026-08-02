@@ -6,7 +6,8 @@
 //! - **No** VST3 / LV2; no Bitwig plugin-path queries
 //!
 //! - File present → param-aware (even if `params: {}`).
-//! - No file → params unsupported (insert may still work via insert allowlist).
+//! - No file → params unsupported (insert may still work via open Bitwig resolve).
+//! - UI Devices tab lists only devices that have a YAML file.
 //! - Load: embedded defaults, then runtime dirs (later overrides by `id`).
 
 use serde::Deserialize;

@@ -8,7 +8,7 @@
 |----------|--------|
 | 1 | `core/src/music/{parse,ast,execute,device,expand,param_catalog}.rs` |
 | 1 | `devices/*.yaml` (param catalog — bitwig\|clap only) |
-| 1 | `extension/.../DeviceCatalog.java` (insert allowlist) |
+| 1 | `extension/.../DeviceCatalog.java` (insert resolve: UUID / library file) |
 | 1 | `ui/src/commands.rs`, `cli/src/main.rs` (`eval`) |
 | 2 | Root `README.md` |
 | 3 | Local `research/CURRENT.md` if present (**folder is gitignored**) |
@@ -32,7 +32,7 @@
 1. **Bare Tidal lines are not the REPL** — invalid: `c e g`. Valid: `bass: n "c e g"` (quotes).
 2. **WIGSCRIPT is primary**. CLI: `codewig-cli eval "same line"`.
 3. **UI + CLI → `codewig-core` TCP `:9470`** (Codewig.bwextension). UI does not shell out to `codewig-cli`.
-4. **Insert allowlist** — Polymer, Polysynth, Organ + stock drums (`v9 kick`…). No Sampler / Drum Machine. No `d "bd hh"`.
+4. **Devices** — **insert** any resolvable Bitwig stock/library device (name / UUID / `.bwdevice`). **UI list + params** only for `devices/*.yaml`. No Sampler / Drum Machine. No `d "bd hh"`.
 5. **`research/` gitignored** — code wins.
 6. Live focus: **clips / scenes / mute**.
 7. **Params = snapshot only** (`param.set`). Display ranges from `devices/*.yaml` → wire `0..1`. No YAML / empty `params` → no param support (insert may still work).

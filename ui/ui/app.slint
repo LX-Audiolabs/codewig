@@ -138,14 +138,14 @@ export component AppWindow inherits Window {
             name: ".device() / .add()",
             summary: "insert instrument or FX",
             syntax: ".device(Polymer)",
-            detail: "Insert curated devices only (allowlist).\n\nSyntax:\n  .device(Polymer)\n  .device(v9 kick)\n  .add(Delay+)\n  .device(layer)\n\nExamples:\n  new track(b).device(Polymer).add(Delay+)\n  new track(kick).device(v9 kick).beat(4_)\n\nInstruments:\n  Polymer  Polysynth  Organ\n  stock drums: v0 Cymbal … v9 Tom\n  write: v9 kick  |  v9kick  |  V9 Kick\n\nLayer + FX:\n  Instrument Layer  Filter  Reverb  Delay+  Chorus+  Saturator\n\nNot allowed:\n  Sampler  Drum Machine  VSTs\n\nDrums: one track = one module = one MIDI for clip hits.\nNot GM multi-pad (bd/hh/sd) — that needs Drum Machine.",
+            detail: "Insert a Bitwig stock/library device (open resolve — not a closed allowlist).\n\nSyntax:\n  .device(Polymer)\n  .device(v9 kick)\n  .add(Delay+)\n  .device(layer)\n\nExamples:\n  new track(b).device(Polymer).add(Delay+)\n  new track(kick).device(v9 kick).beat(4_)\n\nResolve paths: known UUID names, library .bwdevice, raw UUID.\nDevices tab lists only entries with devices/*.yaml (params documented).\n\nOut of scope:\n  Sampler  Drum Machine\n\nDrums: one track = one mono module = one MIDI for clip hits.\nNot GM multi-pad (bd/hh/sd).",
             tag: "device",
         },
         {
             name: ": params",
             summary: "snapshot device parameters",
-            syntax: "t(bass).d(Polymer): cutoff(0.3)",
-            detail: "Set params on a device that already exists — one value now (snapshot).\nNo ramps, sequences, or automation. Smooth control stays in Bitwig / hardware.\n\nSyntax:\n  t(name).d(dev): param(val)...\n  track: n \"...\" +param:val\n\nExamples:\n  t(bass).d(Polymer): cutoff(0.3) res(0.7)\n  bass: n \"c e g\" +cutoff:0.3",
+            syntax: "kick&v9kick: decay(50)",
+            detail: "Set params on a device that already exists — one value now (snapshot).\nNeeds devices/<id>.yaml for that device (display → wire 0..1).\nNo ramps, sequences, or automation.\n\nSyntax:\n  track&device: param(val) other(val)\n\nExamples:\n  kick&v9kick: decay(50) pitch(40)\n\nNo YAML → insert may work, params do not.",
             tag: "device",
         },
         {

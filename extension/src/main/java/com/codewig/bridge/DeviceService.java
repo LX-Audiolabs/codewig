@@ -65,13 +65,23 @@ public final class DeviceService {
 
     public JsonObject add(final String deviceName) {
         requireTrack();
+        if (deviceName == null || deviceName.isBlank()) {
+            throw new IllegalArgumentException("device name empty");
+        }
+        final String name = deviceName.trim();
+        final String k = DeviceCatalog.key(name);
+        if (k.contains("sampler") || k.contains("drummachine") || "dm".equals(k)) {
+            throw new IllegalArgumentException(
+                    "device '" + name + "' not insertable (Sampler / Drum Machine out of scope)");
+        }
+
         final var insert = cursorTrack.endOfDeviceChainInsertionPoint();
         final JsonObject result = new JsonObject();
-        result.addProperty("added", deviceName);
+        result.addProperty("added", name);
         result.addProperty("track", cursorTrack.name().get());
 
-        // UUID path: synths / layer / FX
-        final UUID uuid = DeviceCatalog.resolveUuid(deviceName);
+        // 1) Known UUID map + raw UUID string
+        final UUID uuid = DeviceCatalog.resolveUuid(name);
         if (uuid != null) {
             insert.insertBitwigDevice(uuid);
             result.addProperty("uuid", uuid.toString());
@@ -79,8 +89,8 @@ public final class DeviceService {
             return result;
         }
 
-        // File path: stock drum instruments (v0 Cymbal … v9 Tom) — not Sampler / Drum Machine
-        final String file = DeviceCatalog.resolveDrumFile(deviceName);
+        // 2) Known drum / library alias map
+        final String file = DeviceCatalog.resolveDrumFile(name);
         if (file != null) {
             insert.insertFile(file);
             result.addProperty("file", file);
@@ -88,12 +98,20 @@ public final class DeviceService {
             return result;
         }
 
+        // 3) Open insert: any Bitwig library .bwdevice matching the display name
+        final String libraryFile = DeviceCatalog.resolveLibraryDeviceFile(name);
+        if (libraryFile != null) {
+            insert.insertFile(libraryFile);
+            result.addProperty("file", libraryFile);
+            result.addProperty("via", "library");
+            return result;
+        }
+
         throw new IllegalArgumentException(
-                "unknown / non-curated device '" + deviceName
-                        + "'. Insertable: Polymer Polysynth Organ layer; "
-                        + "v0–v9 drum instruments (e.g. kick.v9, v9 Kick); "
-                        + "Filter Reverb Delay+ Chorus+ Saturator. "
-                        + "Not allowed: Sampler, Drum Machine, VSTs.");
+                "cannot insert '" + name
+                        + "' — no UUID mapping and no matching .bwdevice in Bitwig Library/devices. "
+                        + "Pass a Bitwig device name, library file stem, or raw UUID. "
+                        + "Not allowed: Sampler, Drum Machine.");
     }
 
     public JsonObject select(final int index) {

@@ -30,6 +30,15 @@ Both clients talk to the same extension: **`Codewig.bwextension`** on TCP **`:94
 
 AI agents can use the same interface — focus stays **human + machine live on stage**.
 
+### Inspiration
+
+Codewig is **heavily inspired by**:
+
+- **[DrivenByMoss](https://github.com/git-moss/DrivenByMoss)** (Jürgen Moßgraber) — Bitwig Controller API extensions, OSC, and deep DAW control from outside the box
+- **[Strudel](https://strudel.cc)** / [strudel.cc](https://strudel.cc) — live-coding music in the browser, mini-notation, and the idea that patterns are first-class
+
+WIGSCRIPT is its own language for Bitwig live performance; those projects shaped the direction.
+
 ---
 
 ## WIGSCRIPT — four layers
@@ -44,7 +53,7 @@ Do not mix them. Each layer has one job.
 | **Performance** | Live triggers | `play` · `mute(kick)` · `s(verse).start` · `c(lead.0).start` |
 
 ```wigscript
-# Fluent — create track, insert curated device, write notes (slot 0)
+# Fluent — create track, insert Bitwig device, write notes (slot 0)
 new track(bass).device(Polymer).n("c e g").clip(start)
 new track(kick).device(v9 kick).beat(4_).clip(start)
 new track(lead).device(Polymer).add(Delay+)
@@ -55,7 +64,7 @@ lead@verse: n "e c g"
 lead: arp:up "Cm7"
 lead: chord "C Am F G"
 
-# Param — track × device only (& not @). Display ranges from devices/*.yaml → wire 0..1
+# Param — track × device only (& not @). Needs devices/*.yaml for that device
 kick&v9kick: decay(50) pitch(40)
 
 # Performance
@@ -84,22 +93,22 @@ stop
 - `.n` / `.beat` write **slot 0** only. Multi-clip → colon `track@scene` / `track@slot`
 - `.beat(4_)` = 4-on-the-floor for mono drum modules (not Strudel hit markers)
 - `.c` / `.clip` = clip cell (new/start/stop), **not** notes
-- `.device(...)` / `.add(...)` = insert allowlist only
+- `.device(...)` / `.add(...)` = insert Bitwig device (see below)
 
-### Insert allowlist
+### Devices — insert vs display vs params
 
-**Synths / shell / FX (UUID):** Polymer, Polysynth, Organ, Instrument Layer, Filter, Reverb, Delay+, Chorus+, Saturator
+Not a closed hard-coded allowlist of nine names.
 
-**Stock mono drums (file insert):** `v9 kick`, `v9 snare`, `v0 hat`, … (all v0/v1/v8/v9 modules)
+| | Rule |
+|---|------|
+| **Insert** | Any **Bitwig** stock/library device the bridge can resolve: display name, alias, library `.bwdevice`, or raw UUID. Common names (Polymer, Delay+, `v9 kick`, …) have fast paths; others resolve via Library/devices. |
+| **UI Devices tab** | Only devices that have a **`devices/*.yaml`** file are **listed**. |
+| **Params** (`track&device:`) | Only with a YAML catalog entry (display range → wire `0..1`). No YAML → insert may still work, **params do not**. |
+| **Out of scope** | Sampler, Drum Machine (multi-pad / samples). No kit syntax (`:909`), no hit-map `d "bd hh"`. No VST3/LV2 param catalog. |
 
-**Not insertable:** Sampler, Drum Machine. No kit syntax (`:909`), no hit-map `d "bd hh"`.
+Add param support for a device → drop `devices/<id>.yaml` (see `devices/README.md`). Then it appears in the UI and accepts `track&device:` sets.
 
-### Params
-
-- Address = **`track&device:`** (`@` is scene/slot only)
-- Snapshot only (`param.set`) — no automation ramps
-- Catalog = `devices/*.yaml` (Bitwig + CLAP). No YAML / empty params → insert may work, **params do not**
-- Polymer: insert + notes OK; **params deferred** (empty catalog until a fixed subset is documented)
+Polymer: insert + notes OK; **params deferred** (YAML present but empty until a fixed subset is documented).
 
 ---
 
@@ -124,10 +133,11 @@ UI and CLI both go through **`codewig-core`** → TCP `:9470`. The UI does **not
 | Param (`track&device:`) | ✅ catalog snapshot (`devices/*.yaml`; v9 Kick shipped) |
 | Performance | ✅ play/stop, tempo, mute (incl. timed), scene/clip launch |
 | Mini-notation | ✅ spaces, rests `~`, groups `[…]` |
-| Device allowlist | ✅ curated insert list (Java UUID ↔ Rust); drums via file |
+| Device insert | ✅ open Bitwig resolve (UUID / library file); no closed name list |
+| Devices UI list | ✅ only entries from `devices/*.yaml` |
 | Expander | 🚧 pattern → MIDI (partial edge cases) |
 | Polymer params | ⏸ deferred (empty YAML) |
-| **Not supported** | `d "bd hh"`, kit suffixes (`:909`), bare Tidal lines, VST3/LV2 params |
+| **Not supported** | Sampler / Drum Machine insert, `d "bd hh"`, kit `:909`, bare Tidal, VST3/LV2 params |
 
 ---
 

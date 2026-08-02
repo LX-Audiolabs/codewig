@@ -1,9 +1,10 @@
-//! Curated Bitwig device registry — must stay in sync with
-//! `extension/.../DeviceCatalog.java` for anything that goes through `device.add`.
+//! Bitwig device name helpers (aliases, drums, static param hints).
 //!
-//! **Insertable:** Organ, Polymer, Polysynth; Instrument Layer; FX set;
-//! all stock drum instruments (v0 Cymbal … v9 Tom) via extension `insertFile`.
-//! **Not insertable:** Sampler, Drum Machine (multi-pad / samples / pages — out of scope).
+//! **Insert model:** open — any resolvable Bitwig stock/library device
+//! (see Java `DeviceCatalog` + `DeviceService.add`). This module maps common
+//! aliases → canonical names; unknown names pass through to the extension.
+//! **UI / params:** only `devices/*.yaml` are listed and param-settable.
+//! **Out of scope:** Sampler, Drum Machine (multi-pad / samples).
 //!
 //! ## Drums ≠ Drum Machine (important)
 //!
@@ -288,9 +289,14 @@ pub fn catalog_to_bitwig(catalog: &str) -> Option<String> {
     catalog_to_drum(catalog).map(|(name, _)| name.to_string())
 }
 
-/// Whether this catalog name is allowed for `device.add`.
+/// Whether we have a known alias/canonical mapping (not a closed insert gate).
+/// Open insert still allows unknown names via the extension library resolve.
 pub fn is_insertable(catalog: &str) -> bool {
-    catalog_to_bitwig(catalog).is_some()
+    let n = norm(catalog);
+    if n.contains("sampler") || n.contains("drummachine") || n == "dm" {
+        return false;
+    }
+    !catalog.trim().is_empty()
 }
 
 // Kit helpers
