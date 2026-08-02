@@ -1,13 +1,13 @@
 # Codewig
 
-**Live-Coding für Bitwig Studio** — programmier deine DAW live mit WIGSCRIPT, einer
-eigenen Musiksprache, die speziell für Bitwig und Live-Performance entwickelt wurde.
+**Live coding for Bitwig Studio** — program your DAW live with WIGSCRIPT, a
+music language built specifically for Bitwig and live performance.
 
 ```
 ┌─────────────────────────────────────────────┐
 │  codewig-live (Slint UI)  ·  codewig-cli    │
 │  ┌─────────────────────────────────────────┐│
-│  │  WIGSCRIPT — Musiksprache für Bitwig    ││
+│  │  WIGSCRIPT — music language for Bitwig  ││
 │  │  bass: n "c e g" +cutoff:0.3           ││
 │  └─────────────────────────────────────────┘│
 │         ↓  TCP + JSON  (localhost :9470)     │
@@ -17,80 +17,80 @@ eigenen Musiksprache, die speziell für Bitwig und Live-Performance entwickelt w
 └─────────────────────────────────────────────┘
 ```
 
-## Was ist Codewig?
+## What is Codewig?
 
-Eine **Slint-UI** (`codewig-live`) und eine **CLI** (`codewig-cli`) mit einer **fast
-eigenen Coding-Sprache für Musik** — entwickelt für **Live-Performance in Bitwig**.
-Du steuerst Tracks, Devices, Clips und Parameter über die grafische Oberfläche oder
-direkt via **CMD / PowerShell / Terminal**.
+A **Slint UI** (`codewig-live`) and a **CLI** (`codewig-cli`) with a **purpose-built
+coding language for music** — made for **live performance in Bitwig**.
+Control tracks, devices, clips, and parameters from the graphical interface or
+directly via **CMD / PowerShell / Terminal**.
 
-Beide Clients sprechen mit derselben Extension: **`Codewig.bwextension`**.
+Both clients talk to the same extension: **`Codewig.bwextension`**.
 
-Zusätzlich können auch AI-Agents Bitwig über die gleiche Schnittstelle ansteuern — aber
-der Fokus liegt auf **Mensch + Maschine live auf der Bühne**.
+AI agents can also drive Bitwig through the same interface — but the focus is
+**human + machine live on stage**.
 
 ---
 
-## WIGSCRIPT — die Musiksprache
+## WIGSCRIPT — the music language
 
 ```wigscript
-# Music-Mode: trackname: aktion "pattern"
-bass: n "c e g" +cutoff:0.3        # Noten in Track "bass", Parameter inline
-drums:909: d "bd hh sd"            # Drums mit 909-Kit
+# Music mode: trackname: action "pattern"
+bass: n "c e g" +cutoff:0.3        # notes on track "bass", params inline
+drums:909: d "bd hh sd"            # drums with 909 kit
 
-# Chain: Track + Devices in einer Zeile
+# Chain: track + devices in one line
 !bass Polymer Filter Delay+
 
-# Fluent: Track + insertable Device + Pattern
+# Fluent: track + insertable device + pattern
 new track(bass).device(Polymer).add(Delay+).n("0 2 4 0")
-new track(drums).device(layer)   # pads (v9Kick…) manuell im Layer
+new track(drums).device(layer)   # pads (v9Kick…) manually in the layer
 
-# Live: Clips / Scenes / Mute (Hauptworkflow)
-s(1).start                         # Scene 1
-c(bass.0).start                    # Clip Slot 0 auf Track "bass"
-mute(kick)                         # Track stumm
+# Live: clips / scenes / mute (main workflow)
+s(1).start                         # scene 1
+c(bass.0).start                    # clip slot 0 on track "bass"
+mute(kick)                         # mute track
 unmute(kick)
 ```
 
-- **Music-Mode:** `trackname: n "pattern"` / `d "bd hh"` (Mini-Notation nur in Quotes)
-- **Fluent:** `new track(name).device(dev).add(fx)…` — nur **curated** Devices
-- **Insert-Allowlist (9):** Polymer, Polysynth, Organ, Instrument Layer, Filter, Reverb, Delay+, Chorus+, Saturator  
-  (kein Sampler, keine Drum Machine, keine v\* Pads via `device.add`)
-- **Live-Fokus:** Clip/Scene launch + mute/unmute; restliche Devices legt der User in Bitwig an
-- **Drum-Patterns:** MIDI-Aliases (`bd`, `kick.v9`…) schreiben Notes — Pads müssen schon existieren
+- **Music mode:** `trackname: n "pattern"` / `d "bd hh"` (mini-notation only inside quotes)
+- **Fluent:** `new track(name).device(dev).add(fx)…` — **curated** devices only
+- **Insert allowlist (9):** Polymer, Polysynth, Organ, Instrument Layer, Filter, Reverb, Delay+, Chorus+, Saturator  
+  (no Sampler, no Drum Machine, no v\* pads via `device.add`)
+- **Live focus:** clip/scene launch + mute/unmute; remaining devices are added by the user in Bitwig
+- **Drum patterns:** MIDI aliases (`bd`, `kick.v9`…) write notes — pads must already exist
 
 ---
 
-## Steuerung
+## Control
 
-| Weg | Was |
-|-----|-----|
-| **Slint UI** (`codewig-live`) | Grafische Oberfläche, Sidebar mit WIGSCRIPT-Referenz, Live-Eingabe |
+| Path | What |
+|------|------|
+| **Slint UI** (`codewig-live`) | Graphical interface, sidebar with WIGSCRIPT reference, live input |
 | **CLI** (`codewig-cli`) | PowerShell, CMD, Terminal — `codewig-cli play`, `codewig-cli set tempo 120` |
-| **Skript** (`codewig-cli batch`) | Befehle aus Datei ausführen (`#` = Kommentare) |
-| **Extension** (`Codewig.bwextension`) | Bridge für UI + CLI (Controllers → Codewig Bridge) |
+| **Script** (`codewig-cli batch`) | Run commands from a file (`#` = comments) |
+| **Extension** (`Codewig.bwextension`) | Bridge for UI + CLI (Controllers → Codewig Bridge) |
 
 ---
 
 ## Status
 
-| Komponente | Stand |
-|------------|-------|
-| WIGSCRIPT Parser | ✅ Music-Mode, Chain, Fluent, Param, Scene, Clip, Mute |
-| Mini-Notation | ✅ in `"…"` hinter `n`/`d`/`chord` |
-| Device-Allowlist | ✅ 9 insertable (Java UUID ↔ Rust sync); Drums = MIDI only |
-| Expander | 🚧 Pattern → MIDI (teilweise) |
-| CLI (`codewig-cli`) | ✅ Transport, Tracks, Devices, Clips, Parameter |
-| Java Extension (`Codewig.bwextension`) | ✅ Bridge; curated `DeviceCatalog` |
-| Slint UI (`codewig-live`) | ✅ Sidebar; Execute-Wire 🚧 |
-| Fluent → Bitwig | 🚧 Parser fertig, Executor offen |
+| Component | Status |
+|-----------|--------|
+| WIGSCRIPT parser | ✅ Music mode, chain, fluent, param, scene, clip, mute |
+| Mini-notation | ✅ in `"…"` after `n` / `d` / `chord` |
+| Device allowlist | ✅ 9 insertable (Java UUID ↔ Rust sync); drums = MIDI only |
+| Expander | 🚧 Pattern → MIDI (partial) |
+| CLI (`codewig-cli`) | ✅ Transport, tracks, devices, clips, parameters |
+| Java extension (`Codewig.bwextension`) | ✅ Bridge; curated `DeviceCatalog` |
+| Slint UI (`codewig-live`) | ✅ Sidebar; execute wire 🚧 |
+| Fluent → Bitwig | 🚧 Parser ready, executor open |
 
 ---
 
 ## Quickstart
 
 ```powershell
-# WIGSCRIPT (gleiche Zeilen wie codewig-live UI)
+# WIGSCRIPT (same lines as codewig-live UI)
 codewig-cli eval "mute(kick)"
 codewig-cli eval "s(1).start"
 codewig-cli eval "new track(bass).device(Polymer).add(Delay+)"
@@ -98,13 +98,13 @@ codewig-cli eval "bass: n \"c e g\""
 codewig-cli eval "tempo 128"
 codewig-cli eval "play"
 
-# Legacy clap (weiter nutzbar)
+# Legacy clap (still usable)
 codewig-cli play
 codewig-cli set tempo 128
 codewig-cli chain --name bass Polymer Delay+
 codewig-cli clip launch bass 0
 codewig-cli track mute kick
 
-# Batch: WIGSCRIPT-Zeilen + legacy gemischt
+# Batch: WIGSCRIPT lines + legacy mixed
 # codewig-cli batch session.wig
 ```
