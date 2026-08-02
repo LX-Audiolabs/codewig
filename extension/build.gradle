@@ -20,6 +20,17 @@ dependencies {
     compileOnly 'com.bitwig:extension-api:25'
     // Bundled in the .bwextension
     implementation 'com.google.code.gson:gson:2.11.0'
+
+    // Tests: Bitwig API on the classpath so classes with API types in
+    // signatures (services, DeviceCatalog) load without NoClassDefFoundError
+    testImplementation 'com.bitwig:extension-api:25'
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
 }
 
 jar {

@@ -747,6 +747,122 @@ fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, ExecuteError>
 mod tests {
     use super::*;
     use super::super::parse::parse_music_line;
+    use std::io::{Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::Arc;
+
+    // ── Fake extension server ────────────────────────────────────────
+    //
+    // Loopback TCP stand-in for Codewig.bwextension: speaks the real wire
+    // framing (4-byte BE length + JSON, see protocol.rs) and answers each
+    // request through `handler`. Every request is also forwarded to the test
+    // so wire traffic can be asserted. Declare the `FakeExt` **before** the
+    // `Client` in a test: drop order then closes the client stream first, so
+    // the serve loop sees EOF and `Drop` can join the thread.
+
+    struct FakeExt {
+        port: u16,
+        rx: Receiver<Value>,
+        stop: Arc<AtomicBool>,
+        handle: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl FakeExt {
+        fn start<F>(mut handler: F) -> Self
+        where
+            F: FnMut(&Value) -> Value + Send + 'static,
+        {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            listener.set_nonblocking(true).unwrap();
+            let port = listener.local_addr().unwrap().port();
+            let (tx, rx) = channel();
+            let stop = Arc::new(AtomicBool::new(false));
+            let stop_thread = stop.clone();
+            let handle = std::thread::spawn(move || {
+                while !stop_thread.load(Ordering::Relaxed) {
+                    match listener.accept() {
+                        Ok((stream, _)) => Self::serve(stream, &tx, &mut handler),
+                        Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(2));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+            Self {
+                port,
+                rx,
+                stop,
+                handle: Some(handle),
+            }
+        }
+
+        fn serve<F: FnMut(&Value) -> Value>(
+            mut stream: TcpStream,
+            tx: &Sender<Value>,
+            handler: &mut F,
+        ) {
+            // Windows: accepted sockets inherit the listener's nonblocking mode.
+            let _ = stream.set_nonblocking(false);
+            loop {
+                let mut len = [0u8; 4];
+                if stream.read_exact(&mut len).is_err() {
+                    return;
+                }
+                let mut body = vec![0u8; u32::from_be_bytes(len) as usize];
+                if stream.read_exact(&mut body).is_err() {
+                    return;
+                }
+                let Ok(req) = serde_json::from_slice::<Value>(&body) else {
+                    return;
+                };
+                let _ = tx.send(req.clone());
+                let out = serde_json::to_vec(&handler(&req)).unwrap();
+                let mut frame = Vec::with_capacity(4 + out.len());
+                frame.extend_from_slice(&(out.len() as u32).to_be_bytes());
+                frame.extend_from_slice(&out);
+                if stream.write_all(&frame).is_err() {
+                    return;
+                }
+            }
+        }
+
+        /// Requests received so far, in arrival order.
+        fn drain(&self) -> Vec<Value> {
+            self.rx.try_iter().collect()
+        }
+    }
+
+    impl Drop for FakeExt {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::Relaxed);
+            if let Some(h) = self.handle.take() {
+                let _ = h.join();
+            }
+        }
+    }
+
+    fn fake_client(port: u16) -> Client {
+        Client::new("127.0.0.1", port, 2000)
+    }
+
+    fn ok(v: Value) -> Value {
+        json!({ "ok": true, "result": v })
+    }
+
+    fn ext_err(code: &str, msg: &str) -> Value {
+        json!({ "ok": false, "error": { "code": code, "msg": msg } })
+    }
+
+    fn cmd_of(req: &Value) -> &str {
+        req.get("c").and_then(Value::as_str).unwrap_or("")
+    }
+
+    fn cmds(reqs: &[Value]) -> Vec<&str> {
+        reqs.iter().map(cmd_of).collect()
+    }
 
     #[test]
     fn parse_then_key_updates_session_shape() {
@@ -788,5 +904,263 @@ mod tests {
         let e: ExecuteError = Scale::new("C", "nope").unwrap_err().into();
         assert!(matches!(e, ExecuteError::Scale(_)));
         assert!(e.to_string().contains("unknown scale"), "{e}");
+    }
+
+    // ── resolve_track_at ─────────────────────────────────────────────
+
+    #[test]
+    fn resolve_track_at_positive_index_short_circuits() {
+        // at >= 0 never touches the wire — a default client (port 9470, no
+        // server) must still succeed.
+        let client = Client::default();
+        assert_eq!(resolve_track_at(&client, 0).unwrap(), 0);
+        assert_eq!(resolve_track_at(&client, 7).unwrap(), 7);
+    }
+
+    #[test]
+    fn resolve_track_at_append_counts_only_instrument_and_audio() {
+        let fake = FakeExt::start(|req| {
+            assert_eq!(cmd_of(req), "track.list");
+            ok(json!({ "tracks": [
+                { "type": "instrument" },
+                { "type": "audio" },
+                { "type": "effect" },
+                { "type": "master" },
+                { "type": "INSTRUMENT" }, // case-insensitive
+                { "type": "group" },
+            ]}))
+        });
+        let client = fake_client(fake.port);
+        assert_eq!(resolve_track_at(&client, -1).unwrap(), 3);
+        assert_eq!(fake.drain().len(), 1, "exactly one track.list call");
+    }
+
+    #[test]
+    fn resolve_track_at_empty_result_is_usage_error() {
+        let fake = FakeExt::start(|_| ok(Value::Null));
+        let client = fake_client(fake.port);
+        let e = resolve_track_at(&client, -1).unwrap_err();
+        assert!(matches!(e, ExecuteError::Usage(_)), "{e}");
+        assert!(e.to_string().contains("track.list empty"), "{e}");
+    }
+
+    #[test]
+    fn resolve_track_at_missing_tracks_key_is_usage_error() {
+        let fake = FakeExt::start(|_| ok(json!({ "unexpected": true })));
+        let client = fake_client(fake.port);
+        let e = resolve_track_at(&client, -2).unwrap_err();
+        assert!(matches!(e, ExecuteError::Usage(_)), "{e}");
+        assert!(e.to_string().contains("track.list missing tracks"), "{e}");
+    }
+
+    // ── wait_track_named ─────────────────────────────────────────────
+
+    #[test]
+    fn wait_track_named_succeeds_on_third_poll() {
+        let polls = Arc::new(AtomicUsize::new(0));
+        let p = polls.clone();
+        let fake = FakeExt::start(move |req| {
+            assert_eq!(cmd_of(req), "track.list");
+            let n = p.fetch_add(1, Ordering::Relaxed);
+            let tracks = if n < 2 {
+                json!([])
+            } else {
+                json!([{ "name": "bass" }])
+            };
+            ok(json!({ "tracks": tracks }))
+        });
+        let client = fake_client(fake.port);
+        wait_track_named(&client, "bass").unwrap();
+        assert_eq!(polls.load(Ordering::Relaxed), 3);
+    }
+
+    #[test]
+    fn wait_track_named_times_out_with_usage_error() {
+        let fake = FakeExt::start(|_| ok(json!({ "tracks": [{ "name": "other" }] })));
+        let client = fake_client(fake.port);
+        let t0 = std::time::Instant::now();
+        let e = wait_track_named(&client, "bass").unwrap_err();
+        assert!(matches!(e, ExecuteError::Usage(_)), "{e}");
+        assert!(e.to_string().contains("not visible after create"), "{e}");
+        // 20 polls × 20ms ceiling ≈ 0.4s — well inside the 2s client timeout.
+        assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
+    }
+
+    // ── ensure_clip_at ───────────────────────────────────────────────
+
+    #[test]
+    fn ensure_clip_at_reuses_slot_with_content() {
+        let fake = FakeExt::start(|req| match cmd_of(req) {
+            "clip.list" => ok(json!({ "clips": [{ "slot": 0, "hasContent": true }] })),
+            other => panic!("unexpected request {other}"),
+        });
+        let client = fake_client(fake.port);
+        assert_eq!(ensure_clip_at(&client, "bass", 0, 4, None).unwrap(), 0);
+        let reqs = fake.drain();
+        assert_eq!(cmds(&reqs), ["clip.list"], "no clip.new for occupied slot");
+    }
+
+    #[test]
+    fn ensure_clip_at_creates_when_slot_empty() {
+        let created = Arc::new(AtomicBool::new(false));
+        let c = created.clone();
+        let fake = FakeExt::start(move |req| match cmd_of(req) {
+            "clip.list" => ok(json!({ "clips": [
+                { "slot": 0, "hasContent": c.load(Ordering::Relaxed) }
+            ]})),
+            "clip.new" => {
+                c.store(true, Ordering::Relaxed);
+                ok(json!({ "created": true }))
+            }
+            other => panic!("unexpected request {other}"),
+        });
+        let client = fake_client(fake.port);
+        assert_eq!(ensure_clip_at(&client, "bass", 0, 4, Some("verse")).unwrap(), 0);
+        let reqs = fake.drain();
+        assert_eq!(cmds(&reqs), ["clip.list", "clip.new", "clip.list"]);
+        let new = &reqs[1];
+        assert_eq!(new.get("track").and_then(Value::as_str), Some("bass"));
+        assert_eq!(new.get("slot").and_then(Value::as_i64), Some(0));
+        assert_eq!(new.get("beats").and_then(Value::as_i64), Some(4));
+        assert_eq!(new.get("name").and_then(Value::as_str), Some("verse"));
+    }
+
+    #[test]
+    fn ensure_clip_at_retries_create_when_first_races() {
+        // First create never becomes visible (raced Bitwig) → one retry create.
+        // Costs one full wait_clip_content sweep (~0.5s) — still fast enough.
+        let creates = Arc::new(AtomicUsize::new(0));
+        let n = creates.clone();
+        let fake = FakeExt::start(move |req| match cmd_of(req) {
+            "clip.list" => ok(json!({ "clips": [
+                { "slot": 0, "hasContent": n.load(Ordering::Relaxed) >= 2 }
+            ]})),
+            "clip.new" => {
+                n.fetch_add(1, Ordering::Relaxed);
+                ok(json!({ "created": true }))
+            }
+            other => panic!("unexpected request {other}"),
+        });
+        let client = fake_client(fake.port);
+        assert_eq!(ensure_clip_at(&client, "bass", 0, 4, None).unwrap(), 0);
+        assert_eq!(creates.load(Ordering::Relaxed), 2, "initial create + one retry");
+    }
+
+    #[test]
+    fn ensure_clip_at_create_error_propagates() {
+        let fake = FakeExt::start(|req| match cmd_of(req) {
+            "clip.list" => ok(json!({ "clips": [] })),
+            "clip.new" => ext_err("NO_TRACK", "no track named bass"),
+            other => panic!("unexpected request {other}"),
+        });
+        let client = fake_client(fake.port);
+        let e = ensure_clip_at(&client, "bass", 0, 4, None).unwrap_err();
+        match e {
+            ExecuteError::Client(Error::Extension { code, msg }) => {
+                assert_eq!(code, "NO_TRACK");
+                assert!(msg.contains("no track named bass"), "{msg}");
+            }
+            other => panic!("expected extension error, got {other}"),
+        }
+        let reqs = fake.drain();
+        // clip.new is not idempotent: one attempt, no wait/retry after the error.
+        assert_eq!(cmds(&reqs), ["clip.list", "clip.new"]);
+    }
+
+    // ── execute_line smoke (parse → execute → wire) ──────────────────
+
+    #[test]
+    fn execute_line_notes_writes_replace_notes() {
+        let fake = FakeExt::start(|req| match cmd_of(req) {
+            "clip.list" => ok(json!({ "clips": [{ "slot": 0, "hasContent": true }] })),
+            "clip.replace-notes" => ok(json!({ "written": true })),
+            other => panic!("unexpected request {other}"),
+        });
+        let client = fake_client(fake.port);
+        let mut session = MusicSession::default();
+        let line = parse_music_line(r#"bass: n "c e g""#).unwrap();
+        execute_line(&client, &mut session, line).unwrap();
+
+        let reqs = fake.drain();
+        assert_eq!(cmds(&reqs), ["clip.list", "clip.replace-notes"]);
+        let rn = &reqs[1];
+        assert_eq!(rn.get("track").and_then(Value::as_str), Some("bass"));
+        assert_eq!(rn.get("slot").and_then(Value::as_i64), Some(0));
+        // space events = 1 beat each → 16th steps 0/4/8; Bitwig octaves (c = 60)
+        let notes: Vec<(i64, i64, i64, f64)> = rn
+            .get("notes")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .map(|n| {
+                (
+                    n["step"].as_i64().unwrap(),
+                    n["key"].as_i64().unwrap(),
+                    n["vel"].as_i64().unwrap(),
+                    n["dur"].as_f64().unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            notes,
+            vec![(0, 60, 100, 4.0), (4, 64, 100, 4.0), (8, 67, 100, 4.0)]
+        );
+    }
+
+    #[test]
+    fn execute_line_new_track_creates_then_selects() {
+        let created = Arc::new(AtomicBool::new(false));
+        let c = created.clone();
+        let fake = FakeExt::start(move |req| match cmd_of(req) {
+            "track.list" => {
+                let mut tracks = vec![json!({ "name": "lead", "type": "instrument" })];
+                if c.load(Ordering::Relaxed) {
+                    tracks.push(json!({ "name": "x", "type": "instrument" }));
+                }
+                ok(json!({ "tracks": tracks }))
+            }
+            "track.new" => {
+                c.store(true, Ordering::Relaxed);
+                ok(json!({ "created": true }))
+            }
+            "track.select" => ok(json!({ "selected": true })),
+            other => panic!("unexpected request {other}"),
+        });
+        let client = fake_client(fake.port);
+        let mut session = MusicSession::default();
+        let line = parse_music_line("new track(x)").unwrap();
+        execute_line(&client, &mut session, line).unwrap();
+
+        let reqs = fake.drain();
+        assert_eq!(
+            cmds(&reqs),
+            ["track.list", "track.new", "track.list", "track.select"]
+        );
+        let tn = &reqs[1];
+        assert_eq!(tn.get("type").and_then(Value::as_str), Some("instrument"));
+        assert_eq!(tn.get("at").and_then(Value::as_i64), Some(1)); // append after "lead"
+        assert_eq!(tn.get("name").and_then(Value::as_str), Some("x"));
+        assert_eq!(reqs[3].get("ref").and_then(Value::as_str), Some("x"));
+    }
+
+    #[test]
+    fn execute_line_param_unknown_device_passthrough() {
+        let fake = FakeExt::start(|req| match cmd_of(req) {
+            "track.select" => ok(json!({ "selected": true })),
+            "device.list" => ok(json!({ "devices": [] })),
+            "param.set" => ok(json!({ "set": true })),
+            other => panic!("unexpected request {other}"),
+        });
+        let client = fake_client(fake.port);
+        let mut session = MusicSession::default();
+        let line = parse_music_line("bass&nosuchdev: cutoff(0.5)").unwrap();
+        execute_line(&client, &mut session, line).unwrap();
+
+        let reqs = fake.drain();
+        assert_eq!(cmds(&reqs), ["track.select", "device.list", "param.set"]);
+        assert_eq!(reqs[0].get("ref").and_then(Value::as_str), Some("bass"));
+        // No YAML entry for "nosuchdev" → raw wire 0..1 passthrough, name as typed.
+        let sets = reqs[2].get("sets").and_then(Value::as_array).unwrap();
+        assert_eq!(sets, &vec![json!({ "name": "cutoff", "v": 0.5 })]);
     }
 }
