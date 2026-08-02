@@ -18,6 +18,9 @@ import java.util.List;
  * Note-name parsing / scales / pattern sugar lives in the CLI, not here.
  */
 public final class ClipService {
+    /** Grid resolution: one step = one 16th note = 0.25 beats. */
+    private static final double STEP_BEATS = 0.25;
+
     private final TrackService tracks;
     private final Clip cursorClip;
 
@@ -195,9 +198,10 @@ public final class ClipService {
         result.addProperty("track", trackRef);
         result.addProperty("slot", slot);
         if (step != null && key != null) {
+            // Same viewport-relative rule as writeSteps: scroll, then clear (0, 0).
             cursorClip.scrollToKey(key);
             cursorClip.scrollToStep(step);
-            cursorClip.clearStep(step, key);
+            cursorClip.clearStep(0, 0);
             result.addProperty("cleared", 1);
         } else if (step == null && key == null) {
             cursorClip.clearSteps();
@@ -211,8 +215,9 @@ public final class ClipService {
     }
 
     private void writeSteps(final List<NoteSpec> notes) {
-        // Align grid: 1 step = 1/16 note (0.25 beats). NoteSpec.dur is length in steps.
-        cursorClip.setStepSize(0.25);
+        // Align grid: 1 step = 1/16 note (0.25 beats). NoteSpec.dur is length in steps,
+        // setStep's insertDuration is in beats → convert.
+        cursorClip.setStepSize(STEP_BEATS);
         for (final NoteSpec n : notes) {
             if (n.step() < 0) {
                 throw new IllegalArgumentException("step must be >= 0, got " + n.step());
@@ -227,13 +232,15 @@ public final class ClipService {
             if (n.dur() <= 0) {
                 throw new IllegalArgumentException("dur must be > 0, got " + n.dur());
             }
-            // Writes outside the cursor viewport are dropped silently — scroll first
+            // Grid coords are viewport-relative: scroll so the target cell becomes
+            // (0, 0), then write at (0, 0). Scrolling AND passing absolute coords
+            // would apply the offset twice (wrong key / scattered steps).
             cursorClip.scrollToKey(n.key());
             cursorClip.scrollToStep(n.step());
-            cursorClip.setStep(n.step(), n.key(), n.vel(), n.dur());
+            cursorClip.setStep(0, 0, n.vel(), n.dur() * STEP_BEATS);
 
             // Apply optional per-note expressions (MPE / chance / gain / pan).
-            final NoteStep ns = cursorClip.getStep(0, n.step(), n.key());
+            final NoteStep ns = cursorClip.getStep(0, 0, 0);
             if (ns != null) {
                 if (n.pressure() != null) {
                     ns.setPressure(n.pressure());
