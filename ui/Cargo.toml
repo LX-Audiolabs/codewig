@@ -3,14 +3,14 @@ name = "codewig-live"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "codewig-live — Slint UI for CLIwig"
+description = "codewig-live — Slint UI for Codewig"
 
 [[bin]]
 name = "codewig-live"
 path = "src/main.rs"
 
 [dependencies]
-cliwig-core = { path = "../core" }
+codewig-core = { path = "../core" }
 slint = "1"
 serde_json = "1"
 shlex = "1"

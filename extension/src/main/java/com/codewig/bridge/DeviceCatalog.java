@@ -1,4 +1,4 @@
-package com.cliwig.bridge;
+package com.codewig.bridge;
 
 import java.io.File;
 import java.nio.file.Files;

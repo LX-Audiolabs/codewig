@@ -6,8 +6,8 @@
 //! Fallback: legacy flat CLI tokens (`track mute kick`, `play`, …) for old habits
 //! and `> track list` passthrough.
 
-use cliwig_core::music::{execute_line, parse_music_line, MusicLine, MusicSession};
-use cliwig_core::{Client, NoteSpec};
+use codewig_core::music::{execute_line, parse_music_line, MusicLine, MusicSession};
+use codewig_core::{Client, NoteSpec};
 use serde_json::Value;
 
 /// Run one input line. `session` holds key/scale across lines.
@@ -25,7 +25,7 @@ pub fn run(
         Ok(MusicLine::Empty) => Ok(None),
         Ok(MusicLine::PassThrough(cmd)) => legacy_cli(client, &cmd),
         Ok(line) => execute_line(client, session, line),
-        // Not WIGSCRIPT → legacy flat commands (same words as `cliwig` without binary name)
+        // Not WIGSCRIPT → legacy flat commands (same words as `codewig-cli` without binary name)
         Err(_) => legacy_cli(client, trimmed),
     }
 }
@@ -377,5 +377,5 @@ fn parse_key(s: &str) -> Result<i32, String> {
         }
         return Ok(n);
     }
-    cliwig_core::music::note_to_midi(s).map_err(|e| e)
+    codewig_core::music::note_to_midi(s).map_err(|e| e)
 }

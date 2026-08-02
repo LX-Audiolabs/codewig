@@ -1,4 +1,4 @@
-package com.cliwig.bridge;
+package com.codewig.bridge;
 
 import java.util.UUID;
 
@@ -22,7 +22,7 @@ public final class DeviceService {
 
     public DeviceService(final ControllerHost host, final CursorTrack cursorTrack) {
         this.cursorTrack = cursorTrack;
-        this.cursorDevice = cursorTrack.createCursorDevice("CLIWIG_DEVICE", "CLIwig Device", 0,
+        this.cursorDevice = cursorTrack.createCursorDevice("CODEWIG_DEVICE", "Codewig Device", 0,
                 com.bitwig.extension.controller.api.CursorDeviceFollowMode.FOLLOW_SELECTION);
         this.deviceBank = cursorTrack.createDeviceBank(BANK_SIZE);
 

@@ -1,4 +1,4 @@
-package com.cliwig;
+package com.codewig;
 
 import java.util.UUID;
 
@@ -8,19 +8,20 @@ import com.bitwig.extension.controller.ControllerExtensionDefinition;
 import com.bitwig.extension.controller.api.ControllerHost;
 
 /**
- * Metadata for the CLIwig virtual controller (no MIDI hardware).
+ * Metadata for the Codewig Bridge virtual controller (no MIDI hardware).
+ * Serves both codewig-cli and codewig-live over TCP+JSON.
  */
-public class CliwigExtensionDefinition extends ControllerExtensionDefinition {
+public class CodewigBridgeExtensionDefinition extends ControllerExtensionDefinition {
     private static final UUID DRIVER_ID = UUID.fromString("c11a1000-b1a7-4000-8000-c11a1000b147");
 
     @Override
     public String getName() {
-        return "CLIwig";
+        return "Codewig Bridge";
     }
 
     @Override
     public String getAuthor() {
-        return "CLIwig";
+        return "Codewig";
     }
 
     @Override
@@ -35,12 +36,12 @@ public class CliwigExtensionDefinition extends ControllerExtensionDefinition {
 
     @Override
     public String getHardwareVendor() {
-        return "CLIwig";
+        return "Codewig";
     }
 
     @Override
     public String getHardwareModel() {
-        return "CLIwig Bridge";
+        return "Bridge";
     }
 
     @Override
@@ -66,7 +67,7 @@ public class CliwigExtensionDefinition extends ControllerExtensionDefinition {
     }
 
     @Override
-    public CliwigExtension createInstance(final ControllerHost host) {
-        return new CliwigExtension(this, host);
+    public CodewigBridgeExtension createInstance(final ControllerHost host) {
+        return new CodewigBridgeExtension(this, host);
     }
 }

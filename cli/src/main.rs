@@ -1,7 +1,7 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
-use cliwig_core::music::{execute_line, parse_music_line, MusicLine, MusicSession};
-use cliwig_core::Client;
+use codewig_core::music::{execute_line, parse_music_line, MusicLine, MusicSession};
+use codewig_core::Client;
 use serde_json::{json, Map, Value};
 use std::process::ExitCode;
 use std::thread;
@@ -9,19 +9,19 @@ use std::time::Duration;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "cliwig",
+    name = "codewig-cli",
     version,
-    about = "CLIwig — control Bitwig Studio from the shell",
-    long_about = "Talks to the CLIwig Bitwig extension over localhost TCP+JSON.\n\
-                  Bitwig must be running with Controllers → CLIwig enabled."
+    about = "Codewig — control Bitwig Studio from the shell",
+    long_about = "Talks to the Codewig Bitwig extension over localhost TCP+JSON.\n\
+                  Bitwig must be running with Controllers → Codewig enabled."
 )]
 struct Cli {
     /// Extension host (default 127.0.0.1)
-    #[arg(long, env = "CLIWIG_HOST", global = true, default_value = "127.0.0.1")]
+    #[arg(long, env = "CODEWIG_HOST", global = true, default_value = "127.0.0.1")]
     host: String,
 
     /// Extension port (default 9470)
-    #[arg(long, env = "CLIWIG_PORT", global = true, default_value_t = 9470)]
+    #[arg(long, env = "CODEWIG_PORT", global = true, default_value_t = 9470)]
     port: u16,
 
     /// Connect/read timeout in milliseconds
@@ -50,7 +50,7 @@ enum Commands {
     },
     /// Generate shell completion script
     ///
-    /// Example: `cliwig completions powershell | Out-String | Invoke-Expression`
+    /// Example: `codewig-cli completions powershell | Out-String | Invoke-Expression`
     Completions {
         /// Shell: bash, zsh, fish, powershell, elvish
         shell: Shell,
@@ -77,7 +77,7 @@ enum Commands {
     },
     /// One line → track + device chain
     ///
-    /// Example: `cliwig chain --name bass Polymer Delay+`
+    /// Example: `codewig-cli chain --name bass Polymer Delay+`
     Chain {
         /// instrument | audio | effect (default: instrument)
         #[arg(default_value = "instrument")]
@@ -95,10 +95,10 @@ enum Commands {
     /// Run one **WIGSCRIPT** line (same language as codewig-live UI).
     ///
     /// Examples:
-    ///   cliwig eval "mute(kick)"
-    ///   cliwig eval "s(1).start"
-    ///   cliwig eval "new track(bass).device(Polymer).add(Delay+)"
-    ///   cliwig eval "bass: n \"c e g\""
+    ///   codewig-cli eval "mute(kick)"
+    ///   codewig-cli eval "s(1).start"
+    ///   codewig-cli eval "new track(bass).device(Polymer).add(Delay+)"
+    ///   codewig-cli eval "bass: n \"c e g\""
     #[command(visible_alias = "music")]
     Eval {
         /// WIGSCRIPT source (quote it in the shell)
@@ -107,7 +107,7 @@ enum Commands {
     /// Run lines from a file or stdin. Each line: WIGSCRIPT first, else legacy clap form.
     /// Stops at the first error. `#` starts a comment.
     ///
-    /// Example: `cliwig batch session.wig`
+    /// Example: `codewig-cli batch session.wig`
     Batch {
         /// Command file (default: stdin)
         file: Option<std::path::PathBuf>,
@@ -269,7 +269,7 @@ enum ClipCmd {
     },
     /// Write notes into a clip: step:key[:vel[:dur]] (key = MIDI or name, C3 = 60)
     ///
-    /// Example: `cliwig clip note bass 0 0:C3:100:1 4:E3 8:G3`
+    /// Example: `codewig-cli clip note bass 0 0:C3:100:1 4:E3 8:G3`
     Note {
         /// Track name or index
         track: String,
@@ -314,7 +314,7 @@ fn run_with(
 ) -> Result<(), Box<dyn std::error::Error>> {
     if let Commands::Completions { shell } = command {
         let mut cmd = Cli::command();
-        clap_complete::generate(shell, &mut cmd, "cliwig", &mut std::io::stdout());
+        clap_complete::generate(shell, &mut cmd, "codewig-cli", &mut std::io::stdout());
         return Ok(());
     }
 
@@ -562,7 +562,7 @@ fn dispatch(client: &Client, command: Commands) -> Result<Option<Value>, Box<dyn
     Ok(client.send_raw(c, fields)?)
 }
 
-/// One line: WIGSCRIPT if it parses, else legacy `cliwig …` clap form (without binary name).
+/// One line: WIGSCRIPT if it parses, else legacy `codewig-cli …` clap form (without binary name).
 fn run_one_line(
     client: &Client,
     session: &mut MusicSession,
@@ -584,7 +584,7 @@ fn run_legacy_line(
     trimmed: &str,
 ) -> Result<Option<Value>, Box<dyn std::error::Error>> {
     let words = shlex::split(trimmed).ok_or("unmatched quote")?;
-    let args = std::iter::once("cliwig".to_string()).chain(words);
+    let args = std::iter::once("codewig-cli".to_string()).chain(words);
     let inner = Cli::try_parse_from(args)?;
     if matches!(
         inner.command,
@@ -681,7 +681,7 @@ fn run_chain(
         match client.clip_new(n, None, 4, Some("A")) {
             Ok(Some(clip)) => eprintln!("clip: {}", serde_json::to_string(&clip)?),
             Ok(None) => eprintln!("clip: ok"),
-            Err(e) => eprintln!("clip note: {e} (create manually with: cliwig clip new {n})"),
+            Err(e) => eprintln!("clip note: {e} (create manually with: codewig-cli clip new {n})"),
         }
     }
 

@@ -1,4 +1,4 @@
-# AGENTS.md — codewig-live / CLIwig
+# AGENTS.md — Codewig (codewig-live / codewig-cli)
 
 ## Source of truth (read first)
 
@@ -30,8 +30,8 @@
 ### Do not reintroduce these mistakes
 
 1. **Bare Tidal lines are not the REPL** — invalid: `c e g`. Valid: `bass: n "c e g"` (quotes).
-2. **WIGSCRIPT is primary**. CLI: `cliwig eval "same line"`.
-3. **UI + CLI → `cliwig-core` TCP `:9470`**. UI does not shell out to `cliwig`.
+2. **WIGSCRIPT is primary**. CLI: `codewig-cli eval "same line"`.
+3. **UI + CLI → `codewig-core` TCP `:9470`** (Codewig.bwextension). UI does not shell out to `codewig-cli`.
 4. **Insert allowlist** — Polymer, Polysynth, Organ + stock drums (`v9 kick`…). No Sampler / Drum Machine. No `d "bd hh"`.
 5. **`research/` gitignored** — code wins.
 6. Live focus: **clips / scenes / mute**.

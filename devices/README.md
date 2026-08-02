@@ -35,7 +35,7 @@ Optional extra CLAP folders = future UI setting (not yet).
 2. **No file** → insert may still work via insert allowlist; **params unsupported**.
 3. **Param omitted** → tool does not know it (no set / no autocomplete).
 4. `kind` must be `bitwig` or `clap`. Other kinds are ignored.
-5. Extra defs: drop `*.yaml` here or set `CLIWIG_DEVICES_DIR`.
+5. Extra defs: drop `*.yaml` here or set `CODEWIG_DEVICES_DIR`.
 
 ## Why YAML (not MD / not TOML)
 

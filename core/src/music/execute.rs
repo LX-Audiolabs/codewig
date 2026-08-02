@@ -1,6 +1,6 @@
 //! Execute a parsed WIGSCRIPT [`MusicLine`] against the Bitwig bridge [`Client`].
 //!
-//! This is the **shared** path for codewig-live UI and `cliwig eval` / batch.
+//! This is the **shared** path for codewig-live UI and `codewig-cli eval` / batch.
 //! Wire protocol stays in [`Client`]; only line → Client calls live here.
 
 use super::ast::*;
@@ -60,7 +60,7 @@ pub fn execute_line(
         }
         MusicLine::ModeSwitch(mode) => Ok(Some(json!({ "mode": mode, "note": "UI/CLI mode is cosmetic here" }))),
         MusicLine::PassThrough(cmd) => Err(format!(
-            "passthrough `> {cmd}` not handled in execute_line — use UI/CLI entry (commands::run / cliwig eval), or drop `>`"
+            "passthrough `> {cmd}` not handled in execute_line — use UI/CLI entry (commands::run / codewig-cli eval), or drop `>`"
         )),
         MusicLine::Mute(cmd) => mute(client, &cmd, true),
         MusicLine::Unmute(cmd) => mute(client, &cmd, false),

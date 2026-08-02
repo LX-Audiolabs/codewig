@@ -1,9 +1,9 @@
 [package]
-name = "cliwig-core"
+name = "codewig-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "CLIwig core library — shared between CLI and UI"
+description = "Codewig core library — shared between codewig-cli and codewig-live"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

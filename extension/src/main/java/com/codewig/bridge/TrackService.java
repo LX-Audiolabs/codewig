@@ -1,4 +1,4 @@
-package com.cliwig.bridge;
+package com.codewig.bridge;
 
 import com.bitwig.extension.controller.api.Application;
 import com.bitwig.extension.controller.api.ControllerHost;
@@ -38,7 +38,7 @@ public final class TrackService {
         this.application = host.createApplication();
         // numSends=0, numScenes=SCENE_SLOTS for clip launcher
         this.trackBank = host.createTrackBank(BANK_SIZE, 0, SCENE_SLOTS, true);
-        this.cursorTrack = host.createCursorTrack("CLIWIG_CURSOR", "CLIwig Cursor", 0, SCENE_SLOTS, true);
+        this.cursorTrack = host.createCursorTrack("CODEWIG_CURSOR", "Codewig Cursor", 0, SCENE_SLOTS, true);
 
         trackBank.itemCount().markInterested();
         trackBank.itemCount().addValueObserver(c -> trackCount = c);
@@ -325,7 +325,7 @@ public final class TrackService {
             try {
                 resolve(ref).mute().set(on);
             } catch (final IllegalArgumentException e) {
-                host.errorln("CLIwig scheduled mute: " + e.getMessage());
+                host.errorln("Codewig Bridge scheduled mute: " + e.getMessage());
             }
         }
     }

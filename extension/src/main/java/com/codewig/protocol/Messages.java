@@ -1,4 +1,4 @@
-package com.cliwig.protocol;
+package com.codewig.protocol;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonElement;
@@ -7,7 +7,7 @@ import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
 
 /**
- * Thin JSON helpers for the CLIwig wire protocol.
+ * Thin JSON helpers for the Codewig wire protocol.
  *
  * Request:  {"id":1,"c":"ping"} | {"id":2,"c":"set","k":"tempo","v":120}
  * Response: {"id":1,"ok":true,"result":{...}} | {"id":1,"ok":false,"error":{"code":"...","msg":"..."}}

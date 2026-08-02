@@ -2,7 +2,7 @@ plugins {
     id 'java'
 }
 
-group = 'com.cliwig'
+group = 'com.codewig'
 version = '0.1.1'
 
 java {
@@ -23,7 +23,7 @@ dependencies {
 }
 
 jar {
-    archiveBaseName = 'CLIwig'
+    archiveBaseName = 'Codewig'
     archiveVersion = ''
     archiveExtension = 'bwextension'
 
@@ -35,8 +35,8 @@ jar {
 
     manifest {
         attributes(
-            'Extension-Class': 'com.cliwig.CliwigExtensionDefinition',
-            'Implementation-Title': 'CLIwig',
+            'Extension-Class': 'com.codewig.CodewigBridgeExtensionDefinition',
+            'Implementation-Title': 'Codewig',
             'Implementation-Version': project.version
         )
     }
@@ -53,7 +53,7 @@ def bitwigExtensionsDir = {
 
 tasks.register('installExtension', Copy) {
     group = 'install'
-    description = 'Copy CLIwig.bwextension into Bitwig Extensions folder'
+    description = 'Copy Codewig.bwextension into Bitwig Extensions folder'
     dependsOn jar
     from jar.archiveFile
     into bitwigExtensionsDir

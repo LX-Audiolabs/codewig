@@ -1,4 +1,4 @@
-package com.cliwig.bridge;
+package com.codewig.bridge;
 
 import com.bitwig.extension.controller.api.ControllerHost;
 import com.bitwig.extension.controller.api.Scene;

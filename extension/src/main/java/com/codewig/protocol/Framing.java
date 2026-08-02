@@ -1,11 +1,11 @@
-package com.cliwig.protocol;
+package com.codewig.protocol;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 
 /**
- * Wire framing for CLIwig.
+ * Wire framing for Codewig.
  *
  * Bitwig RemoteConnection: inbound messages are length-prefixed (API strips header).
  * Outbound {@code connection.send()} is raw — we must frame responses ourselves

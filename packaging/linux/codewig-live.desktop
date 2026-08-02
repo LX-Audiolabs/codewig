@@ -8,6 +8,6 @@ Exec=codewig-live
 Icon=codewig-live
 Terminal=false
 Categories=AudioVideo;Audio;Music;Development;
-Keywords=bitwig;daw;livecoding;music;wigscript;cliwig;
+Keywords=bitwig;daw;livecoding;music;wigscript;codewig;
 StartupNotify=true
 StartupWMClass=codewig-live

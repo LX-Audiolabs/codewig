@@ -1,27 +1,30 @@
-# codewig-live
+# Codewig
 
-**Live-Coding-UI für Bitwig Studio** — programmier deine DAW live mit WIGSCRIPT, einer
+**Live-Coding für Bitwig Studio** — programmier deine DAW live mit WIGSCRIPT, einer
 eigenen Musiksprache, die speziell für Bitwig und Live-Performance entwickelt wurde.
 
 ```
 ┌─────────────────────────────────────────────┐
-│  codewig-live (Slint UI)                    │
+│  codewig-live (Slint UI)  ·  codewig-cli    │
 │  ┌─────────────────────────────────────────┐│
 │  │  WIGSCRIPT — Musiksprache für Bitwig    ││
 │  │  bass: n "c e g" +cutoff:0.3           ││
 │  └─────────────────────────────────────────┘│
 │         ↓  TCP + JSON  (localhost :9470)     │
-│  Java Extension  (.bwextension)              │
+│  Codewig.bwextension  (Bridge)               │
 │         ↓  Controller API                    │
 │  Bitwig Studio                               │
 └─────────────────────────────────────────────┘
 ```
 
-## Was ist codewig-live?
+## Was ist Codewig?
 
-Eine **Slint-UI** mit einer **fast eigenen Coding-Sprache für Musik** — entwickelt für
-**Live-Performance in Bitwig**. Du steuerst Tracks, Devices, Clips und Parameter entweder
-über die grafische Oberfläche oder direkt via **CMD / PowerShell / Terminal** mit `cliwig`.
+Eine **Slint-UI** (`codewig-live`) und eine **CLI** (`codewig-cli`) mit einer **fast
+eigenen Coding-Sprache für Musik** — entwickelt für **Live-Performance in Bitwig**.
+Du steuerst Tracks, Devices, Clips und Parameter über die grafische Oberfläche oder
+direkt via **CMD / PowerShell / Terminal**.
+
+Beide Clients sprechen mit derselben Extension: **`Codewig.bwextension`**.
 
 Zusätzlich können auch AI-Agents Bitwig über die gleiche Schnittstelle ansteuern — aber
 der Fokus liegt auf **Mensch + Maschine live auf der Bühne**.
@@ -63,8 +66,9 @@ unmute(kick)
 | Weg | Was |
 |-----|-----|
 | **Slint UI** (`codewig-live`) | Grafische Oberfläche, Sidebar mit WIGSCRIPT-Referenz, Live-Eingabe |
-| **CLI** (`cliwig`) | PowerShell, CMD, Terminal — `cliwig play`, `cliwig set tempo 120` |
-| **Skript** (`cliwig batch`) | Befehle aus Datei ausführen (`#` = Kommentare) |
+| **CLI** (`codewig-cli`) | PowerShell, CMD, Terminal — `codewig-cli play`, `codewig-cli set tempo 120` |
+| **Skript** (`codewig-cli batch`) | Befehle aus Datei ausführen (`#` = Kommentare) |
+| **Extension** (`Codewig.bwextension`) | Bridge für UI + CLI (Controllers → Codewig Bridge) |
 
 ---
 
@@ -76,9 +80,9 @@ unmute(kick)
 | Mini-Notation | ✅ in `"…"` hinter `n`/`d`/`chord` |
 | Device-Allowlist | ✅ 9 insertable (Java UUID ↔ Rust sync); Drums = MIDI only |
 | Expander | 🚧 Pattern → MIDI (teilweise) |
-| CLI (`cliwig`) | ✅ Transport, Tracks, Devices, Clips, Parameter |
-| Java Extension | ✅ Bridge; curated `DeviceCatalog` |
-| Slint UI | ✅ Sidebar; Execute-Wire 🚧 |
+| CLI (`codewig-cli`) | ✅ Transport, Tracks, Devices, Clips, Parameter |
+| Java Extension (`Codewig.bwextension`) | ✅ Bridge; curated `DeviceCatalog` |
+| Slint UI (`codewig-live`) | ✅ Sidebar; Execute-Wire 🚧 |
 | Fluent → Bitwig | 🚧 Parser fertig, Executor offen |
 
 ---
@@ -87,20 +91,20 @@ unmute(kick)
 
 ```powershell
 # WIGSCRIPT (gleiche Zeilen wie codewig-live UI)
-cliwig eval "mute(kick)"
-cliwig eval "s(1).start"
-cliwig eval "new track(bass).device(Polymer).add(Delay+)"
-cliwig eval "bass: n \"c e g\""
-cliwig eval "tempo 128"
-cliwig eval "play"
+codewig-cli eval "mute(kick)"
+codewig-cli eval "s(1).start"
+codewig-cli eval "new track(bass).device(Polymer).add(Delay+)"
+codewig-cli eval "bass: n \"c e g\""
+codewig-cli eval "tempo 128"
+codewig-cli eval "play"
 
 # Legacy clap (weiter nutzbar)
-cliwig play
-cliwig set tempo 128
-cliwig chain --name bass Polymer Delay+
-cliwig clip launch bass 0
-cliwig track mute kick
+codewig-cli play
+codewig-cli set tempo 128
+codewig-cli chain --name bass Polymer Delay+
+codewig-cli clip launch bass 0
+codewig-cli track mute kick
 
 # Batch: WIGSCRIPT-Zeilen + legacy gemischt
-# cliwig batch session.wig
+# codewig-cli batch session.wig
 ```

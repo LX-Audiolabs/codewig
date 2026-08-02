@@ -1,4 +1,4 @@
-package com.cliwig.bridge;
+package com.codewig.bridge;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;

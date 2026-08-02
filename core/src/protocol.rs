@@ -76,7 +76,7 @@ fn read_frame(stream: &mut TcpStream) -> Result<Vec<u8>, Box<dyn std::error::Err
     stream.read_exact(&mut len_buf).map_err(|e| {
         format!(
             "no response from extension ({e}). \
-             Connected, but Bitwig did not answer — is CLIwig controller enabled?"
+             Connected, but Bitwig did not answer — is Codewig controller enabled?"
         )
     })?;
     let len = u32::from_be_bytes(len_buf) as usize;
@@ -98,8 +98,8 @@ pub fn connect(host: &str, port: u16, timeout: Duration) -> Result<TcpStream, St
     )
     .map_err(|e| {
         format!(
-            "cannot reach CLIwig extension at {addr} ({e}). \
-             Is Bitwig running with the CLIwig controller enabled?"
+            "cannot reach Codewig extension at {addr} ({e}). \
+             Is Bitwig running with the Codewig controller enabled?"
         )
     })?;
     let _ = stream.set_nodelay(true);

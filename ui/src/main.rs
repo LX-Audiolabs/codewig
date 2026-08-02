@@ -1,6 +1,6 @@
-use cliwig_core::music::param_catalog::{catalog, DeviceHostKind};
-use cliwig_core::music::MusicSession;
-use cliwig_core::Client;
+use codewig_core::music::param_catalog::{catalog, DeviceHostKind};
+use codewig_core::music::MusicSession;
+use codewig_core::Client;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::thread;

@@ -1,11 +1,11 @@
-package com.cliwig.protocol;
+package com.codewig.protocol;
 
-import com.cliwig.bridge.ClipService;
-import com.cliwig.bridge.DeviceService;
-import com.cliwig.bridge.ParamService;
-import com.cliwig.bridge.SceneService;
-import com.cliwig.bridge.TrackService;
-import com.cliwig.bridge.TransportService;
+import com.codewig.bridge.ClipService;
+import com.codewig.bridge.DeviceService;
+import com.codewig.bridge.ParamService;
+import com.codewig.bridge.SceneService;
+import com.codewig.bridge.TrackService;
+import com.codewig.bridge.TransportService;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -285,8 +285,8 @@ public final class CommandRouter {
     }
 
     /** notes: array of {step:int, key:int (MIDI), vel:int 1..127 = 100, dur:double steps = 1.0} */
-    private static java.util.List<com.cliwig.bridge.ClipService.NoteSpec> parseNotes(final JsonObject req) {
-        final java.util.List<com.cliwig.bridge.ClipService.NoteSpec> out = parseNotesAllowEmpty(req);
+    private static java.util.List<com.codewig.bridge.ClipService.NoteSpec> parseNotes(final JsonObject req) {
+        final java.util.List<com.codewig.bridge.ClipService.NoteSpec> out = parseNotesAllowEmpty(req);
         if (out.isEmpty()) {
             throw new IllegalArgumentException("notes array empty");
         }
@@ -294,18 +294,18 @@ public final class CommandRouter {
     }
 
     /** Like parseNotes but allows empty array (replace-notes = clear only). */
-    private static java.util.List<com.cliwig.bridge.ClipService.NoteSpec> parseNotesAllowEmpty(final JsonObject req) {
+    private static java.util.List<com.codewig.bridge.ClipService.NoteSpec> parseNotesAllowEmpty(final JsonObject req) {
         if (!req.has("notes") || !req.get("notes").isJsonArray()) {
             throw new IllegalArgumentException("missing 'notes' (array of {step,key,vel,dur})");
         }
         final JsonArray arr = req.getAsJsonArray("notes");
-        final java.util.List<com.cliwig.bridge.ClipService.NoteSpec> out = new java.util.ArrayList<>(arr.size());
+        final java.util.List<com.codewig.bridge.ClipService.NoteSpec> out = new java.util.ArrayList<>(arr.size());
         for (final JsonElement el : arr) {
             if (!el.isJsonObject()) {
                 throw new IllegalArgumentException("note must be an object {step,key,vel,dur}");
             }
             final JsonObject n = el.getAsJsonObject();
-            out.add(new com.cliwig.bridge.ClipService.NoteSpec(
+            out.add(new com.codewig.bridge.ClipService.NoteSpec(
                     requireInt(n, "step"),
                     requireInt(n, "key"),
                     intOr(n, "vel", 100),

@@ -29,7 +29,7 @@ pub enum MusicLine {
     SceneTrackClip(SceneTrackClipCmd),
     /// `c(track.0).start` | `c(track.0).stop` — clip launch/stop
     ClipCtrl(ClipCtrlCmd),
-    /// `> bass` — CLIwig passthrough
+    /// `> bass` — Codewig passthrough
     PassThrough(String),
     /// `mode cmd` | `mode music`
     ModeSwitch(String),

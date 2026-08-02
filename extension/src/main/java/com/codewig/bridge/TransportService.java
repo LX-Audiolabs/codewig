@@ -1,4 +1,4 @@
-package com.cliwig.bridge;
+package com.codewig.bridge;
 
 import com.bitwig.extension.controller.api.ControllerHost;
 import com.bitwig.extension.controller.api.Parameter;
@@ -11,7 +11,7 @@ import java.util.function.DoubleConsumer;
 
 /**
  * Thin adapter around Bitwig Transport (play / stop / tempo / position / status).
- * No metronome — we don't live-record from CLIwig.
+ * No metronome — we don't live-record from Codewig.
  *
  * <p>Bitwig Parameter observer rules (host throws otherwise):
  * <ul>

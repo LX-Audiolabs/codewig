@@ -1,30 +1,31 @@
-package com.cliwig;
+package com.codewig;
 
 import com.bitwig.extension.controller.ControllerExtension;
 import com.bitwig.extension.controller.api.ControllerHost;
 import com.bitwig.extension.controller.api.RemoteConnection;
 import com.bitwig.extension.controller.api.RemoteSocket;
 import com.bitwig.extension.controller.api.SettableStringValue;
-import com.cliwig.bridge.ClipService;
-import com.cliwig.bridge.DeviceService;
-import com.cliwig.bridge.ParamService;
-import com.cliwig.bridge.SceneService;
-import com.cliwig.bridge.TrackService;
-import com.cliwig.bridge.TransportService;
-import com.cliwig.protocol.CommandRouter;
-import com.cliwig.protocol.Framing;
-import com.cliwig.protocol.Messages;
+import com.codewig.bridge.ClipService;
+import com.codewig.bridge.DeviceService;
+import com.codewig.bridge.ParamService;
+import com.codewig.bridge.SceneService;
+import com.codewig.bridge.TrackService;
+import com.codewig.bridge.TransportService;
+import com.codewig.protocol.CommandRouter;
+import com.codewig.protocol.Framing;
+import com.codewig.protocol.Messages;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonSyntaxException;
 
 /**
- * CLIwig bridge: localhost TCP + JSON → Controller API.
+ * Codewig Bridge: localhost TCP + JSON → Controller API.
+ * Shared backend for codewig-cli and codewig-live.
  *
- * Wire (symmetric for our CLI):
+ * Wire (symmetric for our clients):
  * - Client → Extension: 4-byte BE length + UTF-8 JSON (Bitwig strips length)
  * - Extension → Client: same framing applied manually (Bitwig send() is raw)
  */
-public class CliwigExtension extends ControllerExtension {
+public class CodewigBridgeExtension extends ControllerExtension {
     public static final int DEFAULT_PORT = 9470;
 
     private TransportService transportService;
@@ -37,7 +38,7 @@ public class CliwigExtension extends ControllerExtension {
     /** Port we asked for / report to clients (getPort() often returns -1). */
     private int listenPort = DEFAULT_PORT;
 
-    protected CliwigExtension(final CliwigExtensionDefinition definition, final ControllerHost host) {
+    protected CodewigBridgeExtension(final CodewigBridgeExtensionDefinition definition, final ControllerHost host) {
         super(definition, host);
     }
 
@@ -63,14 +64,14 @@ public class CliwigExtension extends ControllerExtension {
         clipService = new ClipService(trackService, host.createLauncherCursorClip(64, 128));
         sceneService = new SceneService(host, TrackService.SCENE_SLOTS);
 
-        final RemoteSocket socket = host.createRemoteConnection("CLIwig", requestedPort);
+        final RemoteSocket socket = host.createRemoteConnection("Codewig Bridge", requestedPort);
         final int reported = socket.getPort();
         // Bitwig sometimes returns -1 even when bound to the requested port.
         if (reported > 0) {
             listenPort = reported;
         } else {
             listenPort = requestedPort;
-            host.println("CLIwig: socket.getPort()=" + reported + ", using configured port " + listenPort);
+            host.println("Codewig Bridge: socket.getPort()=" + reported + ", using configured port " + listenPort);
         }
 
         router = new CommandRouter(
@@ -83,8 +84,8 @@ public class CliwigExtension extends ControllerExtension {
                 listenPort);
         socket.setClientConnectCallback(this::onClientConnected);
 
-        host.println("CLIwig listening on 127.0.0.1:" + listenPort);
-        host.showPopupNotification("CLIwig ready on port " + listenPort);
+        host.println("Codewig Bridge listening on 127.0.0.1:" + listenPort);
+        host.showPopupNotification("Codewig Bridge ready on port " + listenPort);
     }
 
     private static int parsePort(final String raw, final int fallback) {
@@ -104,9 +105,9 @@ public class CliwigExtension extends ControllerExtension {
 
     private void onClientConnected(final RemoteConnection conn) {
         final ControllerHost host = getHost();
-        host.println("CLIwig client connected");
+        host.println("Codewig Bridge client connected");
 
-        conn.setDisconnectCallback(() -> host.println("CLIwig client disconnected"));
+        conn.setDisconnectCallback(() -> host.println("Codewig Bridge client disconnected"));
 
         conn.setReceiveCallback(data -> {
             final String json = Messages.utf8(data);
@@ -124,14 +125,14 @@ public class CliwigExtension extends ControllerExtension {
                 // Frame ourselves — Bitwig does not length-prefix outbound send()
                 conn.send(Framing.frameUtf8(response));
             } catch (final Exception e) {
-                host.errorln("CLIwig send failed: " + e.getMessage());
+                host.errorln("Codewig Bridge send failed: " + e.getMessage());
             }
         });
     }
 
     @Override
     public void exit() {
-        getHost().showPopupNotification("CLIwig stopped");
+        getHost().showPopupNotification("Codewig Bridge stopped");
     }
 
     @Override

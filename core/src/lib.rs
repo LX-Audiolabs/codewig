@@ -1,6 +1,6 @@
-//! CLIwig Core — shared library for CLI and UI.
+//! Codewig Core — shared library for CLI and UI.
 //!
-//! Provides a synchronous TCP+JSON client for the CLIwig Bitwig extension.
+//! Provides a synchronous TCP+JSON client for the Codewig Bitwig extension.
 
 pub mod music;
 pub mod protocol;
@@ -35,7 +35,7 @@ impl Error {
     }
 }
 
-/// Synchronous client for the CLIwig extension.
+/// Synchronous client for the Codewig extension.
 ///
 /// Holds one TCP stream and reuses it across requests (Bitwig settle cost is
 /// paid once per live connection). IO failure drops the stream and retries once.

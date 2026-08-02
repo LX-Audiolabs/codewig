@@ -9,7 +9,7 @@ fn main() {
         res.set_icon("../assets/icon.ico");
         res.set("ProductName", "codewig-live");
         res.set("FileDescription", "Live-coding UI for Bitwig Studio");
-        res.set("CompanyName", "CLIwig");
+        res.set("CompanyName", "Codewig");
         res.set("LegalCopyright", "MIT");
         res.compile().expect("embed Windows icon/resources");
     }

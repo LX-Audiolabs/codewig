@@ -259,7 +259,7 @@ fn norm(s: &str) -> String {
 
 fn candidate_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
-    if let Ok(p) = std::env::var("CLIWIG_DEVICES_DIR") {
+    if let Ok(p) = std::env::var("CODEWIG_DEVICES_DIR") {
         dirs.push(PathBuf::from(p));
     }
     dirs.push(PathBuf::from("devices"));
