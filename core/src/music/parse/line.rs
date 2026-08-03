@@ -76,8 +76,8 @@ pub fn parse_music_line(input: &str) -> ParseResult<MusicLine> {
         return parse_mute_cmd(rest, true, s);
     }
 
-    // `new scene` | `new scene()` | `new scene(verse)` — Bitwig scene row
-    if s.starts_with("new scene") {
+    // `new scene` | `new s(verse)` | `new scene(verse)` — Bitwig scene row
+    if s.starts_with("new scene") || s.starts_with("new s(") {
         return parse_new_scene(s);
     }
 
@@ -736,7 +736,8 @@ fn parse_mute_cmd(rest: &str, unmute: bool, full_input: &str) -> ParseResult<Mus
 fn parse_new_scene(input: &str) -> ParseResult<MusicLine> {
     let rest = input
         .strip_prefix("new scene")
-        .ok_or_else(|| ParseError::new("expected 'new scene'", 0, input.to_string()))?
+        .or_else(|| input.strip_prefix("new s"))
+        .ok_or_else(|| ParseError::new("expected 'new scene' or 'new s'", 0, input.to_string()))?
         .trim_start();
     if rest.is_empty() {
         return Ok(MusicLine::NewScene { name: None });
@@ -1480,6 +1481,36 @@ mod tests {
             assert_eq!(cmd.note_mods.pan, vec![Some(-50.0), Some(0.0), Some(50.0)]);
         } else {
             panic!("expected Music");
+        }
+    }
+
+    #[test]
+    fn test_long_short_forms_same_ast() {
+        // Long ≡ short must hold for every command layer (AGENTS.md):
+        // track≡t, device≡d, clip≡c, scene≡s, notes≡n.
+        let pairs: &[(&str, &str)] = &[
+            ("track(kick).device(Polymer)", "t(kick).d(Polymer)"),
+            ("track(kick).device(Polymer)", "t(kick).device(Polymer)"),
+            ("new track(kick).device(P)", "new t(kick).d(P)"),
+            ("track(kick).notes(\"c e g\")", "t(kick).n(\"c e g\")"),
+            ("track(kick).clip(start)", "t(kick).c(start)"),
+            ("track(kick).clip(0).start", "t(kick).c(0).start"),
+            ("track(kick).rename(drums)", "t(kick).rename(drums)"),
+            ("track(kick).delete()", "t(kick).delete()"),
+            ("scene(1).start", "s(1).start"),
+            ("scene(1).track(lead).clip(new)", "s(1).t(lead).c(new)"),
+            ("scene(0).rename(drop)", "s(0).rename(drop)"),
+            ("scene(0).delete()", "s(0).delete()"),
+            ("clip(bass.0).start", "c(bass.0).start"),
+            ("clip(bass.0).rename(intro)", "c(bass.0).rename(intro)"),
+            ("clip(bass.0).delete()", "c(bass.0).delete()"),
+            ("track(kick).device(P): decay(50)", "t(kick).d(P): decay(50)"),
+            ("new scene(verse)", "new s(verse)"),
+        ];
+        for (long, short) in pairs {
+            let l = parse_music_line(long).unwrap_or_else(|e| panic!("'{long}' failed: {e}"));
+            let s = parse_music_line(short).unwrap_or_else(|e| panic!("'{short}' failed: {e}"));
+            assert_eq!(l, s, "long '{long}' != short '{short}'");
         }
     }
 

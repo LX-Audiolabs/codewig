@@ -23,7 +23,7 @@
 | **Performance** | Live triggers | `play` · `mute(kick)` · `s(verse).start` · `c(lead.0).start` |
 
 - **Long ≡ short** (same AST): `track`≡`t`, `clip`≡`c`, `scene`≡`s`, `device`≡`d`, `notes`≡`n`.  
-  Create: `new track(x)` ≡ `new t(x)`. Existing: `track(x).…` ≡ `t(x).…`.  
+  Create: `new track(x)` ≡ `new t(x)` · `new scene(x)` ≡ `new s(x)`. Existing: `track(x).…` ≡ `t(x).…`.  
   Launch: `clip(bass.0).start` ≡ `c(bass.0).start`. Cell: `scene(v).track(lead).clip(new)` ≡ `s(v).t(lead).c(new)`.
 - Fluent **`.n` / `.beat`** → **slot 0** only (first clip). Multi-clip → `track@scene` / `track@slot`.
 - Notes: Bitwig octaves (`c` = **C3** = MIDI **60**); space events = **1 beat** each (steps 0,4,8…); `~` = rest; `[c d e f]` = 16ths in one beat.
