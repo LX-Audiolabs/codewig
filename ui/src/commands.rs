@@ -55,6 +55,7 @@ fn dispatch(client: &Client, words: &[String]) -> Result<Option<Value>, String> 
         "device" => dispatch_device(client, args),
         "param" => dispatch_param(client, args),
         "clip" => dispatch_clip(client, args),
+        "scene" => dispatch_scene(client, args),
         _ => Err(format!(
             "unknown command: {head}\n\
              WIGSCRIPT: mute(kick) | s(1).start | new track(b).device(Polymer) | bass: n \"c e g\"\n\
@@ -254,6 +255,21 @@ fn dispatch_clip<'a>(
             ensure_no_more(args)?;
             client.clip_stop(&track).map_err(|e| e.to_string())
         }
+        "rename" => {
+            let track = next_string(&mut args, "track")?;
+            let slot: i32 = next_parse(&mut args, "slot")?;
+            let name = next_string(&mut args, "name")?;
+            ensure_no_more(args)?;
+            client
+                .clip_rename(&track, slot, &name)
+                .map_err(|e| e.to_string())
+        }
+        "delete" => {
+            let track = next_string(&mut args, "track")?;
+            let slot: i32 = next_parse(&mut args, "slot")?;
+            ensure_no_more(args)?;
+            client.clip_delete(&track, slot).map_err(|e| e.to_string())
+        }
         "note" => {
             let track = next_string(&mut args, "track")?;
             let slot: i32 = next_parse(&mut args, "slot")?;
@@ -285,6 +301,46 @@ fn dispatch_clip<'a>(
                 .map_err(|e| e.to_string())
         }
         _ => Err(format!("clip: unknown action '{action}'")),
+    }
+}
+
+fn dispatch_scene<'a>(
+    client: &Client,
+    mut args: impl Iterator<Item = &'a str>,
+) -> Result<Option<Value>, String> {
+    let action = args.next().ok_or("scene: missing action")?;
+    match action {
+        "list" => {
+            ensure_no_more(args)?;
+            client.scene_list().map_err(|e| e.to_string())
+        }
+        "new" => {
+            let name = args.next().map(|s| s.to_string());
+            ensure_no_more(args)?;
+            client.scene_new(name.as_deref()).map_err(|e| e.to_string())
+        }
+        "launch" => {
+            let r#ref = next_string(&mut args, "ref")?;
+            ensure_no_more(args)?;
+            client.scene_launch(&r#ref).map_err(|e| e.to_string())
+        }
+        "stop" => {
+            let r#ref = next_string(&mut args, "ref")?;
+            ensure_no_more(args)?;
+            client.scene_stop(&r#ref).map_err(|e| e.to_string())
+        }
+        "rename" => {
+            let r#ref = next_string(&mut args, "ref")?;
+            let name = next_string(&mut args, "name")?;
+            ensure_no_more(args)?;
+            client.scene_rename(&r#ref, &name).map_err(|e| e.to_string())
+        }
+        "delete" => {
+            let r#ref = next_string(&mut args, "ref")?;
+            ensure_no_more(args)?;
+            client.scene_delete(&r#ref).map_err(|e| e.to_string())
+        }
+        _ => Err(format!("scene: unknown action '{action}'")),
     }
 }
 

@@ -76,6 +76,11 @@ enum Commands {
         #[command(subcommand)]
         action: ClipCmd,
     },
+    /// Scenes (launcher rows)
+    Scene {
+        #[command(subcommand)]
+        action: SceneCmd,
+    },
     /// One line → track + device chain
     ///
     /// Example: `codewig-cli chain --name bass Polymer Delay+`
@@ -216,6 +221,39 @@ enum DeviceCmd {
 }
 
 #[derive(Subcommand, Debug)]
+enum SceneCmd {
+    /// List scenes (launcher rows)
+    List,
+    /// Claim / name a scene row (idempotent if name exists)
+    New {
+        /// Scene name
+        name: Option<String>,
+    },
+    /// Launch a scene
+    Launch {
+        /// Scene index or name
+        r#ref: String,
+    },
+    /// Stop clip launcher playback (all tracks)
+    Stop {
+        /// Scene index or name
+        r#ref: String,
+    },
+    /// Rename a scene
+    Rename {
+        /// Scene index or current name
+        r#ref: String,
+        /// New scene name
+        name: String,
+    },
+    /// Delete a scene incl. its clips
+    Delete {
+        /// Scene index or name
+        r#ref: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
 enum ParamCmd {
     /// List parameters (`--source remote` = Remote Controls only)
     List {
@@ -272,6 +310,22 @@ enum ClipCmd {
     Stop {
         /// Track name or index
         track: String,
+    },
+    /// Rename a clip slot
+    Rename {
+        /// Track name or index
+        track: String,
+        /// Slot 0..15
+        slot: i32,
+        /// New clip name
+        name: String,
+    },
+    /// Delete the clip in a slot
+    Delete {
+        /// Track name or index
+        track: String,
+        /// Slot 0..15
+        slot: i32,
     },
     /// Write notes into a clip: step:key[:vel[:dur]] (key = MIDI or name, C3 = 60)
     ///
@@ -433,6 +487,12 @@ fn dispatch(client: &Client, command: Commands) -> Result<Option<Value>, Box<dyn
             ClipCmd::List { track } => client.clip_list(&track)?,
             ClipCmd::Launch { track, slot } => client.clip_launch(&track, slot)?,
             ClipCmd::Stop { track } => client.clip_stop(&track)?,
+            ClipCmd::Rename {
+                track,
+                slot,
+                name,
+            } => client.clip_rename(&track, slot, &name)?,
+            ClipCmd::Delete { track, slot } => client.clip_delete(&track, slot)?,
             ClipCmd::Note {
                 track,
                 slot,
@@ -452,6 +512,14 @@ fn dispatch(client: &Client, command: Commands) -> Result<Option<Value>, Box<dyn
                 let key = key.map(|k| key_to_midi(&k)).transpose()?;
                 client.clip_clear_notes(&track, slot, step, key)?
             }
+        },
+        Commands::Scene { action } => match action {
+            SceneCmd::List => client.scene_list()?,
+            SceneCmd::New { name } => client.scene_new(name.as_deref())?,
+            SceneCmd::Launch { r#ref } => client.scene_launch(&r#ref)?,
+            SceneCmd::Stop { r#ref } => client.scene_stop(&r#ref)?,
+            SceneCmd::Rename { r#ref, name } => client.scene_rename(&r#ref, &name)?,
+            SceneCmd::Delete { r#ref } => client.scene_delete(&r#ref)?,
         },
     };
     Ok(result)

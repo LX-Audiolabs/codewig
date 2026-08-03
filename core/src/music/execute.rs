@@ -241,9 +241,11 @@ fn scene_ref_str(r: &SceneRef) -> String {
 fn scene(client: &Client, cmd: &SceneCmd) -> Result<Option<Value>, ExecuteError> {
     // Index primary, name secondary — one wire RPC via SceneBank (not N× clip.launch).
     let r = scene_ref_str(&cmd.scene);
-    match cmd.action {
+    match &cmd.action {
         LaunchAction::Start => Ok(client.scene_launch(&r)?),
         LaunchAction::Stop => Ok(client.scene_stop(&r)?),
+        LaunchAction::Rename(name) => Ok(client.scene_rename(&r, name)?),
+        LaunchAction::Delete => Ok(client.scene_delete(&r)?),
     }
 }
 
@@ -255,7 +257,7 @@ fn clip_ctrl(client: &Client, cmd: &ClipCtrlCmd) -> Result<Option<Value>, Execut
         } else {
             r.track.clone()
         };
-        match cmd.action {
+        match &cmd.action {
             LaunchAction::Start => {
                 results.push(json!({
                     "track": track,
@@ -267,6 +269,20 @@ fn clip_ctrl(client: &Client, cmd: &ClipCtrlCmd) -> Result<Option<Value>, Execut
                 results.push(json!({
                     "track": track,
                     "result": client.clip_stop(&track)?,
+                }));
+            }
+            LaunchAction::Rename(name) => {
+                results.push(json!({
+                    "track": track,
+                    "slot": r.slot,
+                    "result": client.clip_rename(&track, r.slot, name)?,
+                }));
+            }
+            LaunchAction::Delete => {
+                results.push(json!({
+                    "track": track,
+                    "slot": r.slot,
+                    "result": client.clip_delete(&track, r.slot)?,
                 }));
             }
         }
@@ -663,6 +679,16 @@ fn fluent(
                     "mute": client.track_mute(std::slice::from_ref(&cmd.track), true)?
                 }));
             }
+            FluentStep::Rename(name) => {
+                log.push(json!({
+                    "rename": client.track_rename(&cmd.track, name)?
+                }));
+            }
+            FluentStep::Delete => {
+                log.push(json!({
+                    "delete": client.track_delete(&cmd.track)?
+                }));
+            }
             FluentStep::ClipAction(a) => {
                 ensure_clip(client, &cmd.track, slot0, session.default_beats)?;
                 match a {
@@ -685,7 +711,7 @@ fn fluent(
                     } else {
                         r.track.clone()
                     };
-                    match cc.action {
+                    match &cc.action {
                         LaunchAction::Start => {
                             log.push(json!({
                                 "clip": client.clip_launch(&track, r.slot)?
@@ -694,6 +720,16 @@ fn fluent(
                         LaunchAction::Stop => {
                             log.push(json!({
                                 "clip": client.clip_stop(&track)?
+                            }));
+                        }
+                        LaunchAction::Rename(name) => {
+                            log.push(json!({
+                                "clip": client.clip_rename(&track, r.slot, name)?
+                            }));
+                        }
+                        LaunchAction::Delete => {
+                            log.push(json!({
+                                "clip": client.clip_delete(&track, r.slot)?
                             }));
                         }
                     }

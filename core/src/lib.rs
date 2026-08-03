@@ -352,6 +352,23 @@ impl Client {
         self.send(self.req("clip.stop").field("track", track))
     }
 
+    pub fn clip_rename(&self, track: &str, slot: i32, name: &str) -> Result<Option<Value>, Error> {
+        self.send(
+            self.req("clip.rename")
+                .field("track", track)
+                .field("slot", slot)
+                .field("name", name),
+        )
+    }
+
+    pub fn clip_delete(&self, track: &str, slot: i32) -> Result<Option<Value>, Error> {
+        self.send(
+            self.req("clip.delete")
+                .field("track", track)
+                .field("slot", slot),
+        )
+    }
+
     // Scenes — index primary, name secondary (`ref` string or number)
 
     pub fn scene_list(&self) -> Result<Option<Value>, Error> {
@@ -373,6 +390,18 @@ impl Client {
 
     pub fn scene_stop(&self, r#ref: &str) -> Result<Option<Value>, Error> {
         self.send(self.req("scene.stop").field("ref", r#ref))
+    }
+
+    pub fn scene_rename(&self, r#ref: &str, name: &str) -> Result<Option<Value>, Error> {
+        self.send(
+            self.req("scene.rename")
+                .field("ref", r#ref)
+                .field("name", name),
+        )
+    }
+
+    pub fn scene_delete(&self, r#ref: &str) -> Result<Option<Value>, Error> {
+        self.send(self.req("scene.delete").field("ref", r#ref))
     }
 
     /// Clear all steps then write notes in one round-trip (`clip.replace-notes`).

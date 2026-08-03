@@ -54,6 +54,19 @@ pub(crate) fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
         } else if rest.starts_with("mute()") {
             steps.push(FluentStep::Mute);
             rest = &rest[6..];
+        } else if rest.starts_with("rename(") {
+            let after = rest.strip_prefix("rename(").unwrap();
+            let closing = after.find(')').ok_or_else(||
+                ParseError::new("expected ')' after rename name", s.len() - after.len(), s.to_string()))?;
+            let name = after[..closing].trim();
+            if name.is_empty() {
+                return Err(ParseError::new("rename needs a name: .rename(name)", s.len() - after.len(), s.to_string()));
+            }
+            steps.push(FluentStep::Rename(name.to_string()));
+            rest = &after[closing + 1..];
+        } else if rest.starts_with("delete()") {
+            steps.push(FluentStep::Delete);
+            rest = &rest[8..];
         } else if rest.starts_with("clip(") || rest.starts_with("c(") {
             let after = rest.find('(').map(|i| &rest[i+1..]).unwrap_or("");
             let closing = after.find(')').ok_or_else(||
@@ -84,8 +97,13 @@ pub(crate) fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
                 let after_paren = &after[closing + 1..];
                 let action = parse_launch_action(after_paren, s)?;
                 steps.push(FluentStep::ClipCtrl(ClipCtrlCmd { refs, action }));
-                // Advance past the .start/.stop text
-                let action_len = after_paren.chars().take_while(|c| !c.is_whitespace()).count();
+                // Advance past the action text (.start/.stop/.delete()/.rename(…));
+                // rename may contain spaces inside its parens.
+                let action_len = if after_paren.trim_start().starts_with(".rename(") {
+                    after_paren.find(')').map(|i| i + 1).unwrap_or(after_paren.len())
+                } else {
+                    after_paren.chars().take_while(|c| !c.is_whitespace()).count()
+                };
                 rest = &after_paren[action_len..];
             }
         } else {
@@ -250,6 +268,27 @@ mod tests {
             assert_eq!(cmd.track, "bass");
             assert!(matches!(&cmd.steps[0], FluentStep::ClipCtrl(_)));
         } else { panic!("expected Fluent, got {:?}", result); }
+    }
+    #[test]
+    fn test_parse_fluent_rename_delete() {
+        let result = parse_music_line("t(kick).rename(drums)").unwrap();
+        if let MusicLine::Fluent(cmd) = result {
+            assert_eq!(cmd.steps, vec![FluentStep::Rename("drums".to_string())]);
+        } else { panic!("expected Fluent, got {:?}", result); }
+
+        let result = parse_music_line("t(kick).delete()").unwrap();
+        if let MusicLine::Fluent(cmd) = result {
+            assert_eq!(cmd.steps, vec![FluentStep::Delete]);
+        } else { panic!("expected Fluent"); }
+
+        // clip slot rename inside a chain
+        let result = parse_music_line("t(bass).c(0).rename(intro)").unwrap();
+        if let MusicLine::Fluent(cmd) = result {
+            assert!(matches!(
+                &cmd.steps[0],
+                FluentStep::ClipCtrl(cc) if cc.action == LaunchAction::Rename("intro".to_string())
+            ));
+        } else { panic!("expected Fluent"); }
     }
     #[test]
     fn test_parse_fluent_note_mods() {

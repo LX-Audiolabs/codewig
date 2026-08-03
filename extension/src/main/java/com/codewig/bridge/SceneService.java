@@ -105,6 +105,29 @@ public final class SceneService {
         return result;
     }
 
+    /** Rename a scene row (ref = index or current name). */
+    public JsonObject rename(final String ref, final String name) {
+        final int idx = resolve(ref);
+        final Scene s = sceneBank.getScene(idx);
+        s.name().set(name.trim());
+        final JsonObject result = new JsonObject();
+        result.addProperty("index", idx);
+        result.addProperty("name", name.trim());
+        return result;
+    }
+
+    /** Delete a scene row incl. its clips (ref = index or name). */
+    public JsonObject delete(final String ref) {
+        final int idx = resolve(ref);
+        final Scene s = sceneBank.getScene(idx);
+        final String name = s.name().get();
+        s.deleteObject();
+        final JsonObject result = new JsonObject();
+        result.addProperty("index", idx);
+        result.addProperty("deleted", name);
+        return result;
+    }
+
     /**
      * Name / claim a scene row (Bitwig launcher row always exists as slots).
      * If {@code name} already resolves, return that index (idempotent).

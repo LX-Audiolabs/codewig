@@ -994,9 +994,36 @@ pub(crate) fn parse_launch_action(rest: &str, full_input: &str) -> ParseResult<L
         Ok(LaunchAction::Start)
     } else if rest == ".stop" {
         Ok(LaunchAction::Stop)
+    } else if rest == ".delete()" || rest == ".delete" {
+        Ok(LaunchAction::Delete)
+    } else if let Some(after) = rest.strip_prefix(".rename(") {
+        let closing = after.find(')').ok_or_else(|| {
+            ParseError::new(
+                "expected ')' after rename name",
+                full_input.len() - after.len(),
+                full_input.to_string(),
+            )
+        })?;
+        let name = after[..closing].trim();
+        if name.is_empty() {
+            return Err(ParseError::new(
+                "rename needs a name: .rename(name)",
+                full_input.len() - after.len(),
+                full_input.to_string(),
+            ));
+        }
+        if after[closing + 1..].trim().is_empty() {
+            Ok(LaunchAction::Rename(name.to_string()))
+        } else {
+            Err(ParseError::new(
+                format!("unexpected after .rename(…): '{}'", &after[closing + 1..]),
+                full_input.len() - after.len() + closing,
+                full_input.to_string(),
+            ))
+        }
     } else {
         Err(ParseError::new(
-            format!("expected .start or .stop after ref, got '{}'", rest.chars().take(10).collect::<String>()),
+            format!("expected .start/.stop/.rename(name)/.delete() after ref, got '{}'", rest.chars().take(10).collect::<String>()),
             full_input.len() - rest.len(), full_input.to_string()))
     }
 }
@@ -1413,6 +1440,37 @@ mod tests {
             assert!(matches!(cmd.action, LaunchAction::Stop));
         } else { panic!("expected ClipCtrl"); }
     }
+
+    #[test]
+    fn test_parse_scene_rename_delete() {
+        let result = parse_music_line("s(verse).rename(drop)").unwrap();
+        if let MusicLine::Scene(cmd) = result {
+            assert_eq!(cmd.scene, SceneRef::Name("verse".to_string()));
+            assert_eq!(cmd.action, LaunchAction::Rename("drop".to_string()));
+        } else { panic!("expected Scene, got {:?}", result); }
+
+        let result = parse_music_line("s(0).delete()").unwrap();
+        if let MusicLine::Scene(cmd) = result {
+            assert_eq!(cmd.scene, SceneRef::Index(0));
+            assert_eq!(cmd.action, LaunchAction::Delete);
+        } else { panic!("expected Scene"); }
+    }
+
+    #[test]
+    fn test_parse_clip_rename_delete() {
+        let result = parse_music_line("c(bass.0).rename(intro)").unwrap();
+        if let MusicLine::ClipCtrl(cmd) = result {
+            assert_eq!(cmd.refs[0].track, "bass");
+            assert_eq!(cmd.action, LaunchAction::Rename("intro".to_string()));
+        } else { panic!("expected ClipCtrl, got {:?}", result); }
+
+        let result = parse_music_line("c(bass.1).delete()").unwrap();
+        if let MusicLine::ClipCtrl(cmd) = result {
+            assert_eq!(cmd.refs[0].slot, 1);
+            assert_eq!(cmd.action, LaunchAction::Delete);
+        } else { panic!("expected ClipCtrl"); }
+    }
+
     #[test]
     fn test_parse_note_mods_colon() {
         let line = r#"bass: n "c e g".vel(80 60 100).pan(-50 0 50)"#;

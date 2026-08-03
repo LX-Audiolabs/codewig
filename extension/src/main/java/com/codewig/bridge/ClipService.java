@@ -150,6 +150,34 @@ public final class ClipService {
         return result;
     }
 
+    /** Rename the clip in a slot (slot must have content). */
+    public JsonObject rename(final String trackRef, final int slot, final String name) {
+        final ClipLauncherSlot s = resolveSlotWithContent(trackRef, slot);
+        // Slot.name() is typed as StringValue; runtime may be settable
+        final StringValue nv = s.name();
+        if (!(nv instanceof SettableStringValue)) {
+            throw new IllegalArgumentException("clip slot name is not settable on this slot");
+        }
+        ((SettableStringValue) nv).set(name.trim());
+        final JsonObject result = new JsonObject();
+        result.addProperty("track", trackRef);
+        result.addProperty("slot", slot);
+        result.addProperty("name", name.trim());
+        return result;
+    }
+
+    /** Delete the clip in a slot (slot must have content). */
+    public JsonObject delete(final String trackRef, final int slot) {
+        final ClipLauncherSlot s = resolveSlotWithContent(trackRef, slot);
+        final String oldName = s.name().get();
+        s.deleteObject();
+        final JsonObject result = new JsonObject();
+        result.addProperty("track", trackRef);
+        result.addProperty("slot", slot);
+        result.addProperty("deleted", oldName);
+        return result;
+    }
+
     /**
      * Write notes into a launcher clip via the cursor clip.
      * Slot must have content; each note is validated before writing.

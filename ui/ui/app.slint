@@ -44,6 +44,13 @@ export component AppWindow inherits Window {
             tag: "track",
         },
         {
+            name: "track rename / delete",
+            summary: "rename or delete a track",
+            syntax: "t(kick).rename(drums)",
+            detail: "Rename or delete an existing track.\n\nSyntax:\n  t(name).rename(new name)\n  t(name).delete()\n\nExamples:\n  t(kick).rename(drums)\n  t(bass).delete()\n\nLegacy CLI also works:\n  track rename kick drums\n  track delete 3\n\nCareful: delete removes the track with all clips — no undo from here.",
+            tag: "track",
+        },
+        {
             name: "mute / unmute",
             summary: "mute tracks (timed optional)",
             syntax: "mute(kick) 4 @bar",
@@ -68,7 +75,7 @@ export component AppWindow inherits Window {
             name: "s() / scene / new scene",
             summary: "scenes + clips (Bitwig launcher)",
             syntax: "s(verse).t(lead).c(new)",
-            detail: "Bitwig: scene = row, track = column, clip = cell.\n\nScenes:\n  new scene\n  new scene(verse)\n  s(0).start | s(verse).start | .stop\n\nClips at scene×track:\n  s(verse).t(lead).c(new)\n  s(1).t(bass).c(new, intro)\n  s(verse).t(lead).c(start)\n\nWrite notes into a cell:\n  lead@verse: n \"g b d\"\n  lead@2: n \"c e g\"     // @slot id\n\nWorkflow:\n  new scene(verse)\n  s(verse).t(lead).c(new)\n  lead@verse: n \"g2 b3 d\"",
+            detail: "Bitwig: scene = row, track = column, clip = cell.\n\nScenes:\n  new scene\n  new scene(verse)\n  s(0).start | s(verse).start | .stop\n  s(verse).rename(drop) | s(0).delete()\n\nClips at scene×track:\n  s(verse).t(lead).c(new)\n  s(1).t(bass).c(new, intro)\n  s(verse).t(lead).c(start)\n\nWrite notes into a cell:\n  lead@verse: n \"g b d\"\n  lead@2: n \"c e g\"     // @slot id\n\nWorkflow:\n  new scene(verse)\n  s(verse).t(lead).c(new)\n  lead@verse: n \"g2 b3 d\"",
             tag: "scene",
         },
         {
@@ -83,6 +90,13 @@ export component AppWindow inherits Window {
             summary: "clip launch in fluent chain",
             syntax: ".clip(start)",
             detail: "In a fluent chain: launch or stop the clip.\n\nSyntax:\n  .clip(start)\n  .clip(stop)\n\nExample:\n  new track(b).device(P).n(\"c e\").clip(start)",
+            tag: "clip",
+        },
+        {
+            name: "clip rename / delete",
+            summary: "rename or delete a clip slot",
+            syntax: "c(bass.0).rename(intro)",
+            detail: "Rename or delete the clip in a slot (slot must have content).\n\nSyntax:\n  c(track.slot).rename(name)\n  c(track.slot).delete()\n\nExamples:\n  c(bass.0).rename(intro)\n  c(bass.1).delete()\n\nIn a fluent chain:\n  t(bass).c(0).rename(intro)\n\nLegacy CLI also works:\n  clip rename bass 0 intro\n  clip delete bass 1",
             tag: "clip",
         },
         {
@@ -146,6 +160,13 @@ export component AppWindow inherits Window {
             summary: "snapshot device parameters",
             syntax: "kick&v9kick: decay(50)",
             detail: "Set params on a device that already exists — one snapshot (no ramps).\n\nWith devices/*.yaml (Devices tab help):\n  track&device: param(displayVal)  — e.g. decay(50) if display is 0..100\n\nWithout YAML (raw, like CLI):\n  track&SomePlugin: cutoff(0.7)  — value is wire 0..1\n  (identifier names; spaces → use codewig-cli param set --name \"…\")\n\nDevices tab = cheat sheet for sensible coding targets.\nComplex devices / presets → Bitwig UI or codewig-cli raw.\n\nSyntax:\n  track&device: param(val) other(val)",
+            tag: "device",
+        },
+        {
+            name: "device delete",
+            summary: "remove device from track",
+            syntax: "device delete 0",
+            detail: "Delete a device on the selected track by index (legacy syntax).\nFind indices with: device list\n\nSyntax:\n  device delete <index>\n\nExample:\n  device list\n  device delete 0\n\nNo device rename — not supported.",
             tag: "device",
         },
         {

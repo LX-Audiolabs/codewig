@@ -240,6 +240,10 @@ class CommandRouterTest {
         assertError(handle("{\"c\":\"track.volume\",\"ref\":\"a\"}"), "BAD_REQUEST"); // v missing
         assertError(handle("{\"c\":\"clip.set-notes\",\"track\":\"a\",\"slot\":0}"), "BAD_REQUEST");
         assertError(handle("{\"c\":\"scene.launch\"}"), "BAD_REQUEST"); // ref missing
+        assertError(handle("{\"c\":\"clip.rename\",\"track\":\"a\",\"slot\":0}"), "BAD_REQUEST"); // name missing
+        assertError(handle("{\"c\":\"clip.delete\",\"track\":\"a\"}"), "BAD_REQUEST"); // slot missing
+        assertError(handle("{\"c\":\"scene.rename\",\"ref\":\"a\"}"), "BAD_REQUEST"); // name missing
+        assertError(handle("{\"c\":\"scene.delete\"}"), "BAD_REQUEST"); // ref missing
         assertError(handle("{\"c\":\"track.mute\",\"refs\":[\"a\"],\"bars\":0}"), "BAD_REQUEST");
     }
 

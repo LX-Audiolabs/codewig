@@ -57,6 +57,10 @@ pub enum FluentStep {
     Pattern { pattern: String, mods: NoteMods },
     /// .mute()
     Mute,
+    /// `.rename(drums)` — rename the track
+    Rename(String),
+    /// `.delete()` — delete the track
+    Delete,
     /// .clip(start) or .clip(stop) — launch/stop current clip on track
     ClipAction(ClipAction),
     /// .c(0).start or .c(0,1).start — launch specific clip slot(s)
@@ -305,6 +309,10 @@ pub struct ClipCtrlRef {
 pub enum LaunchAction {
     Start,
     Stop,
+    /// `.rename(name)` — scene row or clip slot
+    Rename(String),
+    /// `.delete()` — scene row (incl. clips) or clip slot content
+    Delete,
 }
 
 // ── Mini-notation AST ──────────────────────────────────────────────

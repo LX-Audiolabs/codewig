@@ -138,6 +138,17 @@ public final class CommandRouter {
                 case "clip.stop":
                     return Messages.ok(clips.stopTrack(requireStr(req, "track")));
 
+                case "clip.rename":
+                    return Messages.ok(clips.rename(
+                            requireStr(req, "track"),
+                            requireInt(req, "slot"),
+                            requireStr(req, "name")));
+
+                case "clip.delete":
+                    return Messages.ok(clips.delete(
+                            requireStr(req, "track"),
+                            requireInt(req, "slot")));
+
                 case "clip.set-notes":
                     return Messages.ok(clips.setNotes(
                             requireStr(req, "track"),
@@ -169,6 +180,12 @@ public final class CommandRouter {
 
                 case "scene.stop":
                     return Messages.ok(scenes.stop(requireSceneRef(req)));
+
+                case "scene.rename":
+                    return Messages.ok(scenes.rename(requireSceneRef(req), requireStr(req, "name")));
+
+                case "scene.delete":
+                    return Messages.ok(scenes.delete(requireSceneRef(req)));
 
                 default:
                     return Messages.error("UNKNOWN_COMMAND", "unknown command: " + cmd);
