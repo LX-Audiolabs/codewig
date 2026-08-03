@@ -170,6 +170,22 @@ fn dispatch_device<'a>(
             ensure_no_more(args)?;
             client.device_delete(index).map_err(|e| e.to_string())
         }
+        "on" => {
+            let index: i32 = next_parse(&mut args, "index")?;
+            ensure_no_more(args)?;
+            client.device_enable(index, true).map_err(|e| e.to_string())
+        }
+        "off" => {
+            let index: i32 = next_parse(&mut args, "index")?;
+            ensure_no_more(args)?;
+            client.device_enable(index, false).map_err(|e| e.to_string())
+        }
+        "move" => {
+            let index: i32 = next_parse(&mut args, "index")?;
+            let to: i32 = next_parse(&mut args, "to")?;
+            ensure_no_more(args)?;
+            client.device_move(index, to).map_err(|e| e.to_string())
+        }
         _ => Err(format!("device: unknown action '{action}'")),
     }
 }

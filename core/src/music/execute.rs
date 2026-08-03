@@ -94,6 +94,7 @@ pub fn execute_line(
         MusicLine::SceneTrackClip(cmd) => scene_track_clip(client, session, &cmd),
         MusicLine::ClipCtrl(cmd) => clip_ctrl(client, &cmd),
         MusicLine::Param(cmd) => param(client, &cmd),
+        MusicLine::DeviceOp(cmd) => device_op(client, &cmd),
         MusicLine::Chain(cmd) => chain(client, session, &cmd),
         MusicLine::Fluent(cmd) => fluent(client, session, &cmd),
         MusicLine::Music(cmd) => music(client, session, &cmd),
@@ -777,6 +778,49 @@ fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, ExecuteError>
     }
 
     Ok(client.param_set_multi(&sets)?)
+}
+
+/// `kick&Polymer: on|off|delete|move N` — device ref = name (case-insensitive) or chain index.
+fn device_op(client: &Client, cmd: &DeviceOpCmd) -> Result<Option<Value>, ExecuteError> {
+    client.track_select(&cmd.track)?;
+    wait_cursor();
+    let idx = resolve_device_index(client, &cmd.device.catalog_name)?;
+    match cmd.op {
+        DeviceOp::On => Ok(client.device_enable(idx, true)?),
+        DeviceOp::Off => Ok(client.device_enable(idx, false)?),
+        DeviceOp::Delete => Ok(client.device_delete(idx)?),
+        DeviceOp::Move(to) => Ok(client.device_move(idx, to)?),
+    }
+}
+
+/// Strict device-name → chain-index resolution on the selected track
+/// (unlike param(), which treats focus as best-effort).
+fn resolve_device_index(client: &Client, name: &str) -> Result<i32, ExecuteError> {
+    if let Ok(i) = name.parse::<i32>() {
+        return Ok(i);
+    }
+    let cat = super::param_catalog::catalog();
+    let want = catalog_to_bitwig(name)
+        .or_else(|| cat.resolve(name).map(|d| d.bitwig_name.clone()))
+        .unwrap_or_else(|| name.to_string());
+    let want_l = want.to_lowercase();
+    let list = client
+        .device_list()?
+        .ok_or_else(|| usage("device.list empty"))?;
+    let arr = list
+        .get("devices")
+        .and_then(Value::as_array)
+        .ok_or_else(|| usage("device.list missing devices"))?;
+    arr.iter()
+        .find(|d| {
+            d.get("name")
+                .and_then(Value::as_str)
+                .map(|n| n.to_lowercase() == want_l || n.to_lowercase().contains(&want_l))
+                .unwrap_or(false)
+        })
+        .and_then(|d| d.get("index").and_then(Value::as_i64))
+        .map(|i| i as i32)
+        .ok_or_else(|| usage(format!("device '{name}' not found on selected track")))
 }
 
 #[cfg(test)]

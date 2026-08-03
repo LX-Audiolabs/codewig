@@ -218,6 +218,23 @@ enum DeviceCmd {
         /// Device index
         index: i32,
     },
+    /// Enable a device by index
+    On {
+        /// Device index
+        index: i32,
+    },
+    /// Disable a device by index
+    Off {
+        /// Device index
+        index: i32,
+    },
+    /// Move a device to a chain position
+    Move {
+        /// Device index
+        index: i32,
+        /// Target position (0-based)
+        to: i32,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -452,6 +469,9 @@ fn dispatch(client: &Client, command: Commands) -> Result<Option<Value>, Box<dyn
             DeviceCmd::List => client.device_list()?,
             DeviceCmd::Select { index } => client.device_select(index)?,
             DeviceCmd::Delete { index } => client.device_delete(index)?,
+            DeviceCmd::On { index } => client.device_enable(index, true)?,
+            DeviceCmd::Off { index } => client.device_enable(index, false)?,
+            DeviceCmd::Move { index, to } => client.device_move(index, to)?,
         },
         Commands::Param { action } => match action {
             ParamCmd::List { source } => client.param_list_source(&source)?,

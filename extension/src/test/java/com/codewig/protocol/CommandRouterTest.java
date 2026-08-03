@@ -244,6 +244,8 @@ class CommandRouterTest {
         assertError(handle("{\"c\":\"clip.delete\",\"track\":\"a\"}"), "BAD_REQUEST"); // slot missing
         assertError(handle("{\"c\":\"scene.rename\",\"ref\":\"a\"}"), "BAD_REQUEST"); // name missing
         assertError(handle("{\"c\":\"scene.delete\"}"), "BAD_REQUEST"); // ref missing
+        assertError(handle("{\"c\":\"device.enable\"}"), "BAD_REQUEST"); // index missing
+        assertError(handle("{\"c\":\"device.move\",\"index\":1}"), "BAD_REQUEST"); // to missing
         assertError(handle("{\"c\":\"track.mute\",\"refs\":[\"a\"],\"bars\":0}"), "BAD_REQUEST");
     }
 

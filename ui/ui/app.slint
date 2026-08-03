@@ -163,10 +163,10 @@ export component AppWindow inherits Window {
             tag: "device",
         },
         {
-            name: "device delete",
-            summary: "remove device from track",
-            syntax: "device delete 0",
-            detail: "Delete a device on the selected track by index (legacy syntax).\nFind indices with: device list\n\nSyntax:\n  device delete <index>\n\nExample:\n  device list\n  device delete 0\n\nNo device rename — not supported.",
+            name: "device on/off/move/delete",
+            summary: "device lifecycle on a track",
+            syntax: "kick&Polymer: off",
+            detail: "Enable/disable, move, or delete a device on a track.\nDevice ref = Bitwig name (case-insensitive) or chain index.\n\nSyntax (WIGSCRIPT):\n  track&device: on\n  track&device: off\n  track&device: delete\n  track&device: move <to>\n\nExamples:\n  kick&Polymer: off\n  bass&Delay+: move 0\n  kick&1: delete\n\nLegacy CLI also works (index, selected track):\n  device list\n  device off 1 | device on 1\n  device move 2 0\n  device delete 1\n\nNo device rename — not supported.",
             tag: "device",
         },
         {

@@ -552,14 +552,32 @@ fn parse_amp_param_cmd(input: &str) -> ParseResult<MusicLine> {
         return Err(ParseError::new("empty device after '&'", amp + 1, s.to_string()));
     }
     // Scene/slot uses `@` — reject accidental `track@scene&...` confusion later if needed.
-    let params = parse_param_assignments(rest[colon + 1..].trim_start(), s)?;
-    Ok(MusicLine::Param(ParamCmd {
-        track,
-        device: DeviceSpec {
-            catalog_name: device_name,
-        },
-        params,
-    }))
+    let content = rest[colon + 1..].trim();
+    let device = DeviceSpec {
+        catalog_name: device_name,
+    };
+    // Bare device ops (params always have parens, so no ambiguity):
+    // `kick&Polymer: on|off|delete|move N`
+    let op = match content {
+        "on" => Some(DeviceOp::On),
+        "off" => Some(DeviceOp::Off),
+        "delete" => Some(DeviceOp::Delete),
+        _ => content.strip_prefix("move").and_then(|m| {
+            m.trim().parse::<i32>().ok().filter(|_| !m.trim().is_empty()).map(DeviceOp::Move)
+        }),
+    };
+    if let Some(op) = op {
+        return Ok(MusicLine::DeviceOp(DeviceOpCmd { track, device, op }));
+    }
+    if content == "move" || content.starts_with("move ") {
+        return Err(ParseError::new(
+            "move needs a target index: track&device: move 0",
+            amp + 1,
+            s.to_string(),
+        ));
+    }
+    let params = parse_param_assignments(content, s)?;
+    Ok(MusicLine::Param(ParamCmd { track, device, params }))
 }
 
 /// Parse `t(kick).d(kick.v9): decay(50) pitch(40)` (legacy).
@@ -1470,6 +1488,39 @@ mod tests {
             assert_eq!(cmd.refs[0].slot, 1);
             assert_eq!(cmd.action, LaunchAction::Delete);
         } else { panic!("expected ClipCtrl"); }
+    }
+
+    #[test]
+    fn test_parse_device_ops() {
+        let result = parse_music_line("kick&Polymer: off").unwrap();
+        assert_eq!(
+            result,
+            MusicLine::DeviceOp(DeviceOpCmd {
+                track: "kick".to_string(),
+                device: DeviceSpec { catalog_name: "Polymer".to_string() },
+                op: DeviceOp::Off,
+            })
+        );
+
+        for (line, op) in [
+            ("kick&Polymer: on", DeviceOp::On),
+            ("kick&Polymer: delete", DeviceOp::Delete),
+            ("bass&Delay+: move 0", DeviceOp::Move(0)),
+            ("kick&1: delete", DeviceOp::Delete),
+        ] {
+            let result = parse_music_line(line).unwrap();
+            match result {
+                MusicLine::DeviceOp(cmd) => assert_eq!(cmd.op, op, "line: {line}"),
+                other => panic!("expected DeviceOp for '{line}', got {other:?}"),
+            }
+        }
+
+        // move without index → error, params unchanged
+        assert!(parse_music_line("kick&Polymer: move").is_err());
+        assert!(matches!(
+            parse_music_line("kick&v9kick: decay(50)").unwrap(),
+            MusicLine::Param(_)
+        ));
     }
 
     #[test]

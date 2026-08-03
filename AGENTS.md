@@ -29,7 +29,8 @@
 - Notes: Bitwig octaves (`c` = **C3** = MIDI **60**); space events = **1 beat** each (steps 0,4,8…); `~` = rest; `[c d e f]` = 16ths in one beat.
 - `.c` / `.clip` = clip cell (new/start/stop), **not** notes (notes = `.n` / `n`).
 - Global `play`/`stop` = transport, not fluent step.
-- Rename/delete (same AST for track/scene/clip): `t(kick).rename(drums)` · `t(kick).delete()` · `s(verse).rename(drop)` · `s(0).delete()` · `c(bass.0).rename(intro)` · `c(bass.0).delete()`. Devices: legacy `device delete <idx>` only (no device rename).
+- Rename/delete (same AST for track/scene/clip): `t(kick).rename(drums)` · `t(kick).delete()` · `s(verse).rename(drop)` · `s(0).delete()` · `c(bass.0).rename(intro)` · `c(bass.0).delete()`.
+- **Device ops** (`&` address, no rename): `kick&Polymer: on|off|delete|move N` (device = name or chain index). Legacy: `device on|off|move|delete <idx>` (selected track). Chain insert: `.d(Polymer).d(EQ-2).add(Delay+)` appends in order.
 
 ### Do not reintroduce these mistakes
 

@@ -137,6 +137,52 @@ public final class DeviceService {
         return result;
     }
 
+    /** Enable/disable device (ON/OFF) without deleting it. */
+    public JsonObject enable(final int index, final boolean on) {
+        requireTrack();
+        final Device d = findByIndex(index);
+        d.isEnabled().set(on);
+        final JsonObject result = new JsonObject();
+        result.addProperty("index", index);
+        result.addProperty("name", d.name().get());
+        result.addProperty("enabled", on);
+        return result;
+    }
+
+    /**
+     * Move device to chain position {@code to} (0-based) — same semantics as
+     * track move: 0 = before first; else after device at to-1, fallback before device at to.
+     */
+    public JsonObject move(final int index, final int to) {
+        requireTrack();
+        if (to < 0) {
+            throw new IllegalArgumentException("to must be >= 0");
+        }
+        deviceBank.scrollPosition().set(0);
+        final Device moving = findByIndex(index);
+        final String name = moving.name().get();
+        if (to == 0) {
+            findByIndex(0).beforeDeviceInsertionPoint().moveDevices(moving);
+        } else {
+            Device prev = null;
+            try {
+                prev = findByIndex(to - 1);
+            } catch (final IllegalArgumentException ignored) {
+                // no device at to-1 — fall through to before-device-at-to
+            }
+            if (prev != null && prev != moving) {
+                prev.afterDeviceInsertionPoint().moveDevices(moving);
+            } else {
+                findByIndex(to).beforeDeviceInsertionPoint().moveDevices(moving);
+            }
+        }
+        final JsonObject result = new JsonObject();
+        result.addProperty("moved", name);
+        result.addProperty("from", index);
+        result.addProperty("to", to);
+        return result;
+    }
+
     public CursorDevice getCursorDevice() {
         return cursorDevice;
     }

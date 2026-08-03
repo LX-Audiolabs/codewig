@@ -286,6 +286,23 @@ impl Client {
         self.send(self.req("device.delete").field("index", index))
     }
 
+    pub fn device_enable(&self, index: i32, on: bool) -> Result<Option<Value>, Error> {
+        self.send(
+            self.req("device.enable")
+                .field("index", index)
+                .field("on", on),
+        )
+    }
+
+    /// Move device at `index` to chain position `to` (0-based).
+    pub fn device_move(&self, index: i32, to: i32) -> Result<Option<Value>, Error> {
+        self.send(
+            self.req("device.move")
+                .field("index", index)
+                .field("to", to),
+        )
+    }
+
     // Params
 
     pub fn param_list(&self) -> Result<Option<Value>, Error> {

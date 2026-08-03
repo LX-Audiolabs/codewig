@@ -17,6 +17,8 @@ pub enum MusicLine {
     Tempo(f64),
     /// `t(kick).d(kick.v9): decay(280) punch(45)`
     Param(ParamCmd),
+    /// `kick&Polymer: off` | `kick&Polymer: delete` | `kick&Polymer: move 0`
+    DeviceOp(DeviceOpCmd),
     /// `mute(kick)` | `mute(kick, bass)` | `mute(1,3,5)`
     Mute(MuteCmd),
     /// `unmute(kick)` | `unmute(1,3,5)`
@@ -153,6 +155,24 @@ pub struct ParamCmd {
     pub device: DeviceSpec,
     /// User-facing values (display range from catalog; execute maps → wire 0..1).
     pub params: Vec<(String, f64)>,
+}
+
+/// Device lifecycle op on an existing device: `kick&Polymer: off`.
+/// Device ref = Bitwig name (case-insensitive) or chain index.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeviceOpCmd {
+    pub track: String,
+    pub device: DeviceSpec,
+    pub op: DeviceOp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DeviceOp {
+    On,
+    Off,
+    Delete,
+    /// Target chain position (0-based).
+    Move(i32),
 }
 
 /// `mute(kick)` | `mute(kick) 4` | `mute(kick) @bar` | `mute(kick) 4 @bar`

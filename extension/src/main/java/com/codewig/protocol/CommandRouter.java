@@ -115,6 +115,16 @@ public final class CommandRouter {
                 case "device.delete":
                     return Messages.ok(devices.delete(requireInt(req, "index")));
 
+                case "device.enable":
+                    return Messages.ok(devices.enable(
+                            requireInt(req, "index"),
+                            boolOr(req, "on", true)));
+
+                case "device.move":
+                    return Messages.ok(devices.move(
+                            requireInt(req, "index"),
+                            requireInt(req, "to")));
+
                 case "param.list":
                     // source: direct (default) | remote | all
                     return Messages.ok(params.list(str(req, "source", "direct")));
