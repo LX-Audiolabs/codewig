@@ -24,8 +24,13 @@ fi
 
 [ -x "$BIN_DIR/codewig-live" ] || { echo "error: $BIN_DIR/codewig-live not found/executable" >&2; exit 1; }
 
-OUT="$REPO_ROOT/codewig-live-x86_64.AppImage"
-APPDIR="$REPO_ROOT/AppDir"
+# Work in a native Linux fs: drvfs (/mnt/*) cannot store exec bits, and
+# appimagetool aborts when the final chmod fails. Result is copied back at the end.
+OUT_NAME="codewig-live-x86_64.AppImage"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+OUT="$WORK/$OUT_NAME"
+APPDIR="$WORK/AppDir"
 TOOL="${APPIMAGETOOL:-$HOME/.local/bin/appimagetool}"
 
 rm -rf "$APPDIR"
@@ -60,4 +65,5 @@ if ! ARCH=x86_64 "$TOOL" "$APPDIR" "$OUT" 2>/dev/null; then
 fi
 
 chmod +x "$OUT"
-echo "built: $OUT"
+cp "$OUT" "$REPO_ROOT/$OUT_NAME"
+echo "built: $REPO_ROOT/$OUT_NAME"

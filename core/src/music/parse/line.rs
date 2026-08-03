@@ -52,12 +52,19 @@ pub fn parse_music_line(input: &str) -> ParseResult<MusicLine> {
     }
 
     // Param legacy: `t(kick).d(kick.v9): decay(50)...`  — check BEFORE fluent (has `):`)
+    // Long/short: t|track, d|device
     if (s.starts_with("t(") || s.starts_with("track(")) && s.contains("):") {
         return parse_param_cmd(s);
     }
 
-    // Fluent: `new track(...)...` or `t(...)...`
-    if s.starts_with("new track(") || s.starts_with("t(") {
+    // Fluent: long/short head forms (all equivalent AST)
+    //   new track(name) | new t(name)   — create
+    //   track(name)     | t(name)       — existing track
+    if s.starts_with("new track(")
+        || s.starts_with("new t(")
+        || s.starts_with("track(")
+        || s.starts_with("t(")
+    {
         return parse_fluent(s);
     }
 
@@ -75,12 +82,13 @@ pub fn parse_music_line(input: &str) -> ParseResult<MusicLine> {
     }
 
     // Scene: `s(1).start` | `s(verse).t(lead).c(new)` | `scene(0).stop`
+    // long/short: s|scene, then .t|.track, .c|.clip
     if s.starts_with("s(") || s.starts_with("scene(") {
         return parse_scene_cmd(s);
     }
 
-    // Clip control: `c(bass.0).start` | `c(bass.0).stop`
-    if s.starts_with("c(") {
+    // Clip control: `c(bass.0).start` | `clip(bass.0).start` (long/short)
+    if s.starts_with("c(") || s.starts_with("clip(") {
         return parse_clip_ctrl_cmd(s);
     }
 
@@ -918,28 +926,61 @@ fn parse_scene_clip_action(content: &str, full: &str) -> ParseResult<SceneClipAc
     ))
 }
 
-/// Parse `c(bass.0).start` | `c(bass.0, kick.1).start`
+/// Parse `c(bass.0).start` | `clip(bass.0).start` | multi-ref variants.
 fn parse_clip_ctrl_cmd(input: &str) -> ParseResult<MusicLine> {
-    let after = input.strip_prefix("c(").unwrap();
-    let closing = after.find(')').ok_or_else(||
-        ParseError::new("expected ')' after clip ref(s)", input.len() - after.len(), input.to_string()))?;
+    // Prefer long form first so `clip(` is not mis-read (it does not start with `c(`).
+    let after = input
+        .strip_prefix("clip(")
+        .or_else(|| input.strip_prefix("c("))
+        .ok_or_else(|| {
+            ParseError::new(
+                "expected c(…) or clip(…)",
+                0,
+                input.to_string(),
+            )
+        })?;
+    let closing = after.find(')').ok_or_else(|| {
+        ParseError::new(
+            "expected ')' after clip ref(s)",
+            input.len() - after.len(),
+            input.to_string(),
+        )
+    })?;
     let refs_str = &after[..closing];
 
-    let refs: Result<Vec<ClipCtrlRef>, _> = refs_str.split(',')
+    let refs: Result<Vec<ClipCtrlRef>, _> = refs_str
+        .split(',')
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|s| {
-            let (track, slot_str) = s.split_once('.').ok_or_else(||
-                ParseError::new("clip ref format: track.slot", input.len() - after.len(), input.to_string()))?;
-            let slot: i32 = slot_str.trim().parse().map_err(|_|
-                ParseError::new(format!("invalid slot: '{slot_str}'"), input.len() - after.len(), input.to_string()))?;
-            Ok(ClipCtrlRef { track: track.trim().to_string(), slot })
+            let (track, slot_str) = s.split_once('.').ok_or_else(|| {
+                ParseError::new(
+                    "clip ref format: track.slot",
+                    input.len() - after.len(),
+                    input.to_string(),
+                )
+            })?;
+            let slot: i32 = slot_str.trim().parse().map_err(|_| {
+                ParseError::new(
+                    format!("invalid slot: '{slot_str}'"),
+                    input.len() - after.len(),
+                    input.to_string(),
+                )
+            })?;
+            Ok(ClipCtrlRef {
+                track: track.trim().to_string(),
+                slot,
+            })
         })
         .collect();
     let refs = refs?;
 
     if refs.is_empty() {
-        return Err(ParseError::new("clip ctrl needs at least one ref, e.g. c(bass.0)", input.len() - after.len(), input.to_string()));
+        return Err(ParseError::new(
+            "clip ctrl needs at least one ref, e.g. c(bass.0) or clip(bass.0)",
+            input.len() - after.len(),
+            input.to_string(),
+        ));
     }
 
     let rest = &after[closing + 1..];
@@ -1107,6 +1148,44 @@ mod tests {
                 );
             }
             _ => panic!("expected SceneTrackClip named"),
+        }
+    }
+
+    /// Long form (beginner) and short form (live) must parse to the same AST.
+    #[test]
+    fn long_short_alias_parity() {
+        let pairs = [
+            (
+                r#"new track(lead).device(Polymer).add(Delay+)"#,
+                r#"new t(lead).d(Polymer).add(Delay+)"#,
+            ),
+            (
+                r#"track(lead).device(Chorus+)"#,
+                r#"t(lead).d(Chorus+)"#,
+            ),
+            (
+                r#"track(bass).notes("c e g").clip(start)"#,
+                r#"t(bass).n("c e g").c(start)"#,
+            ),
+            (r#"clip(bass.0).start"#, r#"c(bass.0).start"#),
+            (r#"clip(bass.0).stop"#, r#"c(bass.0).stop"#),
+            (
+                r#"scene(verse).track(lead).clip(new)"#,
+                r#"s(verse).t(lead).c(new)"#,
+            ),
+            (
+                r#"scene(verse).track(lead).clip(start)"#,
+                r#"s(verse).t(lead).c(start)"#,
+            ),
+            (
+                r#"track(kick).device(v9kick): decay(50)"#,
+                r#"t(kick).d(v9kick): decay(50)"#,
+            ),
+        ];
+        for (long, short) in pairs {
+            let a = parse_music_line(long).unwrap_or_else(|e| panic!("long failed: {long}\n{e}"));
+            let b = parse_music_line(short).unwrap_or_else(|e| panic!("short failed: {short}\n{e}"));
+            assert_eq!(a, b, "alias parity:\n  long  {long}\n  short {short}");
         }
     }
 

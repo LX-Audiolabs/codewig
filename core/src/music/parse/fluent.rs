@@ -4,17 +4,27 @@ use super::super::ast::*;
 use super::line::{extract_quoted, parse_launch_action, parse_note_mods};
 use super::{ParseError, ParseResult};
 
-/// Parse `new track(kick).device(v9 kick).beat(4_).mute().clip(start)`
+/// Parse fluent chains. Long and short heads are equivalent:
+/// `new track(x)` ≡ `new t(x)`, `track(x)` ≡ `t(x)`.
+/// Steps: `.device`≡`.d`, `.notes`≡`.n`, `.clip`≡`.c`.
 pub(crate) fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
     let s = input;
     let create = s.starts_with("new ");
 
-    // Extract track name from `new track(name)` or `t(name)`
+    // Prefer long forms first (order only matters for strip_prefix clarity).
     let rest = if create {
-        s.strip_prefix("new track(").or_else(|| s.strip_prefix("new t("))
+        s.strip_prefix("new track(")
+            .or_else(|| s.strip_prefix("new t("))
     } else {
-        s.strip_prefix("t(").or_else(|| s.strip_prefix("track("))
-    }.ok_or_else(|| ParseError::new("expected 'new track(' or 't('", 0, s.to_string()))?;
+        s.strip_prefix("track(").or_else(|| s.strip_prefix("t("))
+    }
+    .ok_or_else(|| {
+        ParseError::new(
+            "expected new track(|new t(|track(|t(",
+            0,
+            s.to_string(),
+        )
+    })?;
 
     let (track_name, mut rest) = parse_paren_arg(rest, s, 0)?;
 

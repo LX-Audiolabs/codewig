@@ -52,6 +52,9 @@ Do not mix them. Each layer has one job.
 | **Param** | Device params (snapshot) | `kick&v9kick: decay(50) pitch(40)` |
 | **Performance** | Live triggers | `play` · `mute(kick)` · `s(verse).start` · `c(lead.0).start` |
 
+Long form ≡ short form (same parse): `track`/`t`, `clip`/`c`, `scene`/`s`, `device`/`d`, `notes`/`n`.  
+Example: `track(bass).device(Polymer)` ≡ `t(bass).d(Polymer)`; `clip(bass.0).start` ≡ `c(bass.0).start`.
+
 ```wigscript
 # Fluent — create track, insert Bitwig device, write notes (slot 0)
 new track(bass).device(Polymer).n("c e g").clip(start)
