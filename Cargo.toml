@@ -5,5 +5,5 @@ resolver = "2"
 [workspace.package]
 version = "0.2.2"
 edition = "2021"
-license = "MIT"
-repository = "https://github.com/lxndr/CLIwig"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/LX-Audiolabs/codewig"

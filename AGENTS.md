@@ -1,5 +1,11 @@
 # AGENTS.md — Codewig (codewig-live / codewig-cli)
 
+[![License](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.85+-orange.svg)](Cargo.toml)
+[![Version](https://img.shields.io/badge/version-0.2.2-informational.svg)](Cargo.toml)
+[![agal](https://img.shields.io/badge/powered%20by-agal-00ADD8.svg)](https://github.com/LX-Audiolabs/agal)
+[![AI](https://img.shields.io/badge/dev-AI--assisted-6E40C9.svg)](https://github.com/LX-Audiolabs/agal)
+
 ## Source of truth (read first)
 
 **Code wins.** Prefer these over long design essays:

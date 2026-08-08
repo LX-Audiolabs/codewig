@@ -1,0 +1,297 @@
+{
+  "version": "0.6.2",
+  "generated_at": "2026-08-08T08:38:19Z",
+  "project_root": "L:/LX-Audiolabs/CODEWIG",
+  "project_name": "CODEWIG",
+  "used_frameworks": [
+    "clap",
+    "slint"
+  ],
+  "frameworks": [
+    {
+      "id": "clap",
+      "name": "CLAP",
+      "kind": "plugin_format"
+    },
+    {
+      "id": "slint",
+      "name": "Slint",
+      "kind": "ui_framework"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "cli",
+      "name": "codewig-cli",
+      "kind": "member",
+      "description": "codewig-cli — control Bitwig Studio from the shell",
+      "path": "cli",
+      "frameworks": [
+        "clap"
+      ],
+      "internal_deps": [
+        "core"
+      ],
+      "external_flags": [
+        "clap",
+        "serde",
+        "serde_json"
+      ],
+      "ast_summary": {
+        "imported_crates": [
+          "clap",
+          "clap-complete",
+          "codewig-core",
+          "serde-json"
+        ],
+        "file_roles": {
+          "Cargo.toml": "manifest",
+          "src/main.rs": "entry"
+        },
+        "files": [
+          "Cargo.lock",
+          "Cargo.toml",
+          "scripts",
+          "scripts/probe-9470.ps1",
+          "scripts/probe.py",
+          "scripts/probe_delay.py",
+          "src",
+          "src/bin",
+          "src/main.rs"
+        ]
+      }
+    },
+    {
+      "id": "core",
+      "name": "codewig-core",
+      "kind": "member",
+      "description": "Codewig core library — shared between codewig-cli and codewig-live",
+      "path": "core",
+      "frameworks": [],
+      "external_flags": [
+        "serde",
+        "serde_json"
+      ],
+      "ast_summary": {
+        "imported_crates": [
+          "ast",
+          "device",
+          "execute",
+          "expand",
+          "line",
+          "mini",
+          "param-catalog",
+          "parse",
+          "paths",
+          "protocol",
+          "rand",
+          "scale",
+          "serde",
+          "serde-json",
+          "thiserror"
+        ],
+        "public_api": [
+          "enum ArpStyle",
+          "enum Atom",
+          "enum BeatSpec",
+          "enum ClipAction",
+          "enum ClipRef",
+          "enum DeviceHostKind",
+          "enum DeviceKind",
+          "enum DeviceOp",
+          "enum Error",
+          "enum ExecuteError",
+          "enum FluentStep",
+          "enum LaunchAction",
+          "enum MusicAction",
+          "enum MusicLine",
+          "enum MuteQuantize",
+          "enum ParamValueKind",
+          "enum ScaleError",
+          "enum ScaleKind",
+          "enum SceneClipAction",
+          "enum SceneRef",
+          "enum Suffix",
+          "enum TrackRef",
+          "enum TransportCmd",
+          "fn add_device",
+          "fn candidate_dirs",
+          "fn catalog",
+          "fn catalog_from_dir",
+          "fn catalog_from_repo_devices",
+          "fn catalog_to_bitwig",
+          "fn catalog_to_drum",
+          "fn chord_intervals",
+          "fn connect",
+          "fn device_param_names",
+          "fn device_params",
+          "fn ensure_user_layout",
+          "fn ensure_user_layout_at",
+          "fn execute_line",
+          "fn expand_arp",
+          "fn expand_chord",
+          "fn expand_music_line",
+          "fn find_device",
+          "fn is_banned",
+          "fn is_insertable",
+          "fn key_to_midi",
+          "fn load_catalog",
+          "fn note_to_midi",
+          "fn parse_device_yaml",
+          "fn parse_mini_pattern",
+          "fn parse_music_line",
+          "fn parse_name_eq_value",
+          "fn parse_note_spec",
+          "fn reload_catalog",
+          "fn resolve_track_at",
+          "fn run_chain",
+          "fn send_request",
+          "fn user_data_dir",
+          "fn user_devices_dir",
+          "fn wait_track_named",
+          "struct ChainCmd",
+          "struct Client",
+          "struct ClipCtrlCmd",
+          "struct ClipCtrlRef",
+          "struct Device",
+          "struct DeviceOpCmd",
+          "struct DeviceParamFile",
+          "struct DeviceSpec",
+          "struct ErrorBody",
+          "struct Event",
+          "struct ExpandError",
+          "struct FluentCmd",
+          "struct MusicCmd",
+          "struct MusicSession",
+          "struct MuteCmd",
+          "struct NoteMods",
+          "struct NoteSpec",
+          "struct ParamCatalog",
+          "struct ParamCmd",
+          "struct ParamDef",
+          "struct ParamSet",
+          "struct ParseError"
+        ],
+        "file_roles": {
+          "Cargo.toml": "manifest",
+          "src/lib.rs": "entry",
+          "src/music/ast.rs": "source",
+          "src/music/device.rs": "source",
+          "src/music/execute.rs": "source",
+          "src/music/expand.rs": "source",
+          "src/music/mod.rs": "source",
+          "src/music/param_catalog.rs": "source",
+          "src/music/parse/fluent.rs": "source",
+          "src/music/parse/line.rs": "source",
+          "src/music/parse/mini.rs": "source",
+          "src/music/parse/mod.rs": "source",
+          "src/music/scale.rs": "source",
+          "src/paths.rs": "source",
+          "src/protocol.rs": "source"
+        },
+        "files": [
+          "Cargo.toml",
+          "src",
+          "src/lib.rs",
+          "src/music",
+          "src/music/ast.rs",
+          "src/music/device.rs",
+          "src/music/execute.rs",
+          "src/music/expand.rs",
+          "src/music/mod.rs",
+          "src/music/param_catalog.rs",
+          "src/music/parse",
+          "src/music/parse/fluent.rs",
+          "src/music/parse/line.rs",
+          "src/music/parse/mini.rs",
+          "src/music/parse/mod.rs",
+          "src/music/scale.rs",
+          "src/paths.rs",
+          "src/protocol.rs"
+        ]
+      }
+    },
+    {
+      "id": "ui",
+      "name": "codewig-live",
+      "kind": "member",
+      "description": "codewig-live — Slint UI for Codewig",
+      "path": "ui",
+      "frameworks": [
+        "slint"
+      ],
+      "internal_deps": [
+        "core"
+      ],
+      "external_flags": [
+        "serde_json",
+        "slint",
+        "slint-build"
+      ],
+      "ast_summary": {
+        "imported_crates": [
+          "codewig-core",
+          "serde-json"
+        ],
+        "public_api": [
+          "fn run"
+        ],
+        "file_roles": {
+          "Cargo.toml": "manifest",
+          "build.rs": "build",
+          "src/commands.rs": "source",
+          "src/main.rs": "entry",
+          "ui/app.slint": "slint"
+        },
+        "files": [
+          "Cargo.toml",
+          "build.rs",
+          "src",
+          "src/commands.rs",
+          "src/main.rs",
+          "ui",
+          "ui/app.slint"
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "from": "cli",
+      "to": "core",
+      "kind": "depends_on"
+    },
+    {
+      "from": "ui",
+      "to": "core",
+      "kind": "depends_on"
+    }
+  ],
+  "findings": [
+    {
+      "severity": "info",
+      "code": "tool_hint_clippy",
+      "message": "run Clippy on the workspace before shipping (static lint; not a substitute for graph findings)",
+      "path": "Cargo.toml",
+      "fix": "cargo clippy --workspace --all-targets -- -D warnings"
+    }
+  ],
+  "findings_suppressed": 0,
+  "migration_summary": {
+    "total_plugins": 0,
+    "total_legacy": 0,
+    "total_migrated": 0,
+    "migrations": {
+      "truce-slint": {
+        "from": "truce-slint",
+        "to": "lx-slint-editor",
+        "legacy_count": 0,
+        "migrated_count": 0,
+        "legacy_plugins": []
+      }
+    }
+  },
+  "delta": {
+    "first_run": true
+  }
+}
