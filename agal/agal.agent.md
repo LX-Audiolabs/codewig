@@ -1,21 +1,25 @@
 # agal agent summary
 
-**Summary:** Compact structural map of this audio-plugin workspace.  
-Lists plugins, crates, frameworks, migrations, edges, and findings.  
+**Summary:** Compact structural map of this audio workspace.  
+Lists members, plugins, crates, frameworks, edges, and findings.  
 Use as first context before opening the full JSON graph.
 
 project: **CODEWIG**  
-generated: `2026-08-08T08:38:19Z`  
-version: 0.6.2  
+generated: `2026-08-10T16:45:02Z`  
+version: 0.7.0  
 health: **ok**  
 nodes: 3 · edges: 2 · findings: 1 (error=0 warn=0 info=1)
 
 ## frameworks detected
-clap, slint
+slint
 
-## plugins
-
-## crates
+## rules
+- **bridge**: TCP JSON on localhost:9470 only; UI and CLI share codewig-core Client; UI never shells out to CLI
+- **devices**: Insert any resolvable Bitwig name; devices/*.yaml = help + param ranges only
+- **java_out**: extension/ is thin Bitwig Controller API bridge — leave alone unless task is Java
+- **kind**: tool — Bitwig live-coding clients + WIGSCRIPT; not a CLAP/VST plugin framework
+- **language**: WIGSCRIPT primary — four layers (fluent / colon / param / performance); no bare Tidal; no d "bd hh"
+- **roadmap**: README.md status table + agal/notes/_workspace.md atoms
 
 ## edges
 ### depends_on
@@ -35,7 +39,7 @@ members: `codewig-cli`, `codewig-core`, `codewig-live`
 
 Full pack list + index: **`AGAL.md`**. Load on demand only.
 
-_7 skill file(s) under `skills/` — see AGAL.md._
+_10 skill file(s) under `skills/` — see AGAL.md._
 
 ## read order
 Disclosure: **L3** `AGAL.md` → **L2** this file (+ delta) → **L1** one note → **L0** slice/json.  

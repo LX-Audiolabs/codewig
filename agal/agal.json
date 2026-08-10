@@ -1,18 +1,12 @@
 {
-  "version": "0.6.2",
-  "generated_at": "2026-08-08T08:38:19Z",
+  "version": "0.7.0",
+  "generated_at": "2026-08-10T16:45:02Z",
   "project_root": "L:/LX-Audiolabs/CODEWIG",
   "project_name": "CODEWIG",
   "used_frameworks": [
-    "clap",
     "slint"
   ],
   "frameworks": [
-    {
-      "id": "clap",
-      "name": "CLAP",
-      "kind": "plugin_format"
-    },
     {
       "id": "slint",
       "name": "Slint",
@@ -26,14 +20,11 @@
       "kind": "member",
       "description": "codewig-cli — control Bitwig Studio from the shell",
       "path": "cli",
-      "frameworks": [
-        "clap"
-      ],
+      "frameworks": [],
       "internal_deps": [
         "core"
       ],
       "external_flags": [
-        "clap",
         "serde",
         "serde_json"
       ],
@@ -291,7 +282,24 @@
       }
     }
   },
+  "rules": {
+    "bridge": "TCP JSON on localhost:9470 only; UI and CLI share codewig-core Client; UI never shells out to CLI",
+    "devices": "Insert any resolvable Bitwig name; devices/*.yaml = help + param ranges only",
+    "java_out": "extension/ is thin Bitwig Controller API bridge — leave alone unless task is Java",
+    "kind": "tool — Bitwig live-coding clients + WIGSCRIPT; not a CLAP/VST plugin framework",
+    "language": "WIGSCRIPT primary — four layers (fluent / colon / param / performance); no bare Tidal; no d \"bd hh\"",
+    "roadmap": "README.md status table + agal/notes/_workspace.md atoms"
+  },
   "delta": {
-    "first_run": true
+    "previous_generated_at": "2026-08-08T08:38:19Z",
+    "previous_version": "0.6.2",
+    "changed_nodes": [
+      {
+        "id": "cli",
+        "changes": [
+          "frameworks: [\"clap\"] → []"
+        ]
+      }
+    ]
   }
 }

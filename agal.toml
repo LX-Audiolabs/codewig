@@ -1,0 +1,14 @@
+# CODEWIG — agal config (Rust live-coding tool, not an audio-plugin workspace).
+
+output_dir = "agal"
+
+# Slint frontend crate (graph uses_ui / orientation).
+ui_crates = ["codewig-live"]
+
+[rules]
+kind = "tool — Bitwig live-coding clients + WIGSCRIPT; not a CLAP/VST plugin framework"
+bridge = "TCP JSON on localhost:9470 only; UI and CLI share codewig-core Client; UI never shells out to CLI"
+language = "WIGSCRIPT primary — four layers (fluent / colon / param / performance); no bare Tidal; no d \"bd hh\""
+devices = "Insert any resolvable Bitwig name; devices/*.yaml = help + param ranges only"
+java_out = "extension/ is thin Bitwig Controller API bridge — leave alone unless task is Java"
+roadmap = "README.md status table + agal/notes/_workspace.md atoms"

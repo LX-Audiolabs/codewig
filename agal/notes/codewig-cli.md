@@ -8,8 +8,7 @@
 | kind | `member` |
 | path | `cli` |
 | description | codewig-cli — control Bitwig Studio from the shell |
-| frameworks | clap |
-| generated | `2026-08-08T08:38:19Z` |
+| generated | `2026-08-10T16:45:02Z` |
 
 ## Graph atoms (auto)
 
@@ -17,7 +16,6 @@ _Regenerated each `agal .`. Scan these first. Human atoms: below HUMAN marker._
 
 ```text
 [ATOM] type=fact | detail=kind=member id=cli
-[ATOM] type=fact | detail=frameworks=clap
 [ATOM] type=fact | detail=roles=entry+manifest
 [ATOM] type=fact | detail=depends_on=core
 ```

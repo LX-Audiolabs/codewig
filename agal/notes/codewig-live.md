@@ -9,7 +9,7 @@
 | path | `ui` |
 | description | codewig-live — Slint UI for Codewig |
 | frameworks | slint |
-| generated | `2026-08-08T08:38:19Z` |
+| generated | `2026-08-10T16:45:02Z` |
 
 ## Graph atoms (auto)
 

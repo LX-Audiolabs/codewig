@@ -8,7 +8,7 @@
 | kind | `member` |
 | path | `core` |
 | description | Codewig core library — shared between codewig-cli and codewig-live |
-| generated | `2026-08-08T08:38:19Z` |
+| generated | `2026-08-10T16:45:02Z` |
 
 ## Graph atoms (auto)
 
@@ -38,20 +38,32 @@ After `agal.agent.md` (L2). Escalate L0: `core` in json / `agal --plugin codewig
 
 ## Intent
 
-_Why this crate/plugin exists. Edit freely._
+Shared library for CLI + UI: **WIGSCRIPT** parse/expand/execute and TCP **Client**
+to the Bitwig extension (`protocol`, default `:9470`).
+
+## Modules
+
+| Path | Role |
+|------|------|
+| `music/parse` | fluent · line · mini |
+| `music/expand` | chord / arp / pattern |
+| `music/execute` | `MusicSession` → bridge cmds |
+| `music/device` · `param_catalog` | insert helpers · YAML params |
+| `protocol` | length-prefixed JSON TCP |
 
 ## Open
 
-- [ ] 
+- [ ] Expander edge cases
+- [ ] Polymer YAML params (deferred)
 
 ## Decisions
 
-_Architecture choices worth remembering._
+- One language path for UI + CLI (no UI→CLI shell).
+- Language skill: `agal/skills/07-codewig/wigscript.md`.
 
 ## Atoms (human)
 
-_Graph atoms live **above** in AUTO. Add durable decisions/lessons here:_
-
 ```text
-[ATOM] type=decision|lesson|constraint | detail=…
+[ATOM] type=constraint | detail=All WIGSCRIPT execution goes through music::parse → expand → execute + Client
+[ATOM] type=decision | detail=Param catalog from devices/*.yaml is optional help; insert is open Bitwig resolve
 ```

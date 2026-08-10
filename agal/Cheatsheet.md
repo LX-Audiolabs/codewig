@@ -4,8 +4,8 @@
 Everything useful lives **in this folder**. Product: **agentic-audiolab**, binary: **`agal`**.
 
 project: **CODEWIG**  
-generated: `2026-08-08T08:38:19Z`  
-tool version: 0.6.2
+generated: `2026-08-10T16:45:02Z`  
+tool version: 0.7.0
 
 ---
 
