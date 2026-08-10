@@ -6,8 +6,9 @@ group = 'com.codewig'
 version = '0.2.2'
 
 java {
-    sourceCompatibility = JavaVersion.VERSION_21
-    targetCompatibility = JavaVersion.VERSION_21
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
 }
 
 repositories {
@@ -19,12 +20,12 @@ dependencies {
     // Provided by Bitwig at runtime
     compileOnly 'com.bitwig:extension-api:25'
     // Bundled in the .bwextension
-    implementation 'com.google.code.gson:gson:2.11.0'
+    implementation 'com.google.code.gson:gson:2.14.0'
 
     // Tests: Bitwig API on the classpath so classes with API types in
     // signatures (services, DeviceCatalog) load without NoClassDefFoundError
     testImplementation 'com.bitwig:extension-api:25'
-    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation platform('org.junit:junit-bom:5.14.4')
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
