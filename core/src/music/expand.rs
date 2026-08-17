@@ -236,20 +236,20 @@ fn expand_event(
             // Alternate cycles through options. For static expansion, pick first.
             // ponytail: first alternative only until cycle state exists.
             if let Some(first) = alts.first() {
-                let sub_dur = beat_dur;
                 let mut all_notes = Vec::new();
+                let mut max_len = 0u32;
                 for seq in first {
-                    let (mut seq_notes, _) = expand_sequence_stepped(
+                    let (mut seq_notes, used) = expand_sequence(
                         seq,
                         cmd,
                         scale,
                         steps_per_bar,
                         base_step,
-                        sub_dur,
                     )?;
+                    max_len = max_len.max(used);
                     all_notes.append(&mut seq_notes);
                 }
-                (all_notes, beat)
+                (all_notes, max_len.max(beat))
             } else {
                 (vec![], beat)
             }
@@ -275,12 +275,10 @@ fn expand_event(
             }
             (all_notes, (*steps).max(beat))
         }
-        Atom::RandomChoice(ref atoms) => {
+        Atom::RandomChoice(ref events) => {
             let mut rng = rand::rng();
-            let idx = rng.random_range(0..atoms.len());
-            // Recurse into the chosen atom
-            let chosen_event = Event { atom: atoms[idx].clone(), suffixes: vec![] };
-            expand_event(&chosen_event, cmd, scale, steps_per_bar, base_step)?
+            let idx = rng.random_range(0..events.len());
+            expand_event(&events[idx], cmd, scale, steps_per_bar, base_step)?
         }
         Atom::Polymetric(ref polys) => {
             // Polymetric: each sub-pattern runs at its own rate, wrapping
@@ -311,15 +309,23 @@ fn expand_event(
             (all_notes, max_len.max(beat))
         }
         Atom::Subdivide(ref seqs, n) => {
-            let sub_dur = beat_dur / *n as f64;
+            if *n == 0 {
+                return Err(ExpandError {
+                    msg: "subdivide by zero".into(),
+                });
+            }
+            // Distribute the sub-sequences evenly across one beat.
+            let sub_len_f = beat as f64 / *n as f64;
+            let sub_dur = sub_len_f;
             let mut all_notes = Vec::new();
-            for seq in seqs {
+            for (i, seq) in seqs.iter().enumerate() {
+                let sub_base = base_step + (i as f64 * sub_len_f).trunc() as u32;
                 let (mut seq_notes, _) = expand_sequence_stepped(
                     seq,
                     cmd,
                     scale,
                     steps_per_bar,
-                    base_step,
+                    sub_base,
                     sub_dur,
                 )?;
                 all_notes.append(&mut seq_notes);
@@ -376,14 +382,17 @@ fn apply_suffix(
 ) -> Vec<NoteSpec> {
     match suffix {
         Suffix::Repeat(n) => {
-            let n = *n as usize;
-            if notes.is_empty() || n <= 1 { return notes; }
-            let mut out = Vec::with_capacity(notes.len() * n);
-            for i in 0..n {
-                for mut note in notes.clone() {
-                    note.step += i as i32;
-                    note.dur = step_dur / n as f64;
-                    out.push(note);
+            let n = *n as f64;
+            if notes.is_empty() || n <= 1.0 { return notes; }
+            let mut out = Vec::with_capacity(notes.len() * n as usize);
+            for i in 0..n as usize {
+                for note in &notes {
+                    let mut new_note = note.clone();
+                    let relative = (note.step - _base_step) as f64;
+                    new_note.step = _base_step
+                        + (relative / n + i as f64 * step_dur / n).trunc() as i32;
+                    new_note.dur = note.dur / n;
+                    out.push(new_note);
                 }
             }
             out
@@ -401,9 +410,10 @@ fn apply_suffix(
             if notes.is_empty() || n <= 1 { return notes; }
             let mut out = Vec::with_capacity(notes.len() * n);
             for i in 0..n {
-                for mut note in notes.clone() {
-                    note.step += i as i32;
-                    out.push(note);
+                for note in &notes {
+                    let mut new_note = note.clone();
+                    new_note.step += i as i32 * step_dur as i32;
+                    out.push(new_note);
                 }
             }
             out
@@ -947,5 +957,67 @@ mod tests {
         assert_eq!(arp[2].key, 67);
         assert_eq!(arp[3].key, 64);
         assert_eq!(arp[4].key, 60);
+    }
+
+    // ── Expander edge-case regression tests ───────────────────────────
+
+    #[test]
+    fn test_expand_subdivide_distributes_evenly() {
+        // `{c e g}%3` squeezes three events into one beat evenly.
+        // 16-grid: beat = 4 steps; each slot = 4/3 steps, truncated to grid steps.
+        let line = parse::parse_music_line(r#"bass: n "{c e g}%3""#).unwrap();
+        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let (notes, total) = expand_music_line(cmd, None, 16).unwrap();
+        assert_eq!(notes.len(), 3, "subdivide should produce one note per sub-slot");
+        let positions: Vec<i32> = notes.iter().map(|n| n.step).collect();
+        assert_eq!(positions, vec![0, 1, 2], "sub-slot steps should be distributed across the beat");
+        assert!(notes.iter().all(|n| (n.dur - 4.0 / 3.0).abs() < 1e-9));
+        assert_eq!(total, 4);
+    }
+
+    #[test]
+    fn test_expand_random_choice_preserves_suffixes() {
+        // `[c*2 | d]` — the chosen atom may carry its own suffix.
+        let line = parse::parse_music_line(r#"bass: n "[c*2 | d]""#).unwrap();
+        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let (notes, total) = expand_music_line(cmd, None, 16).unwrap();
+        // Either c*2 (2 notes) or d (1 note), but never a bare c.
+        assert!(notes.len() == 1 || notes.len() == 2, "random choice should keep inner suffixes");
+        assert_eq!(total, 4);
+    }
+
+    #[test]
+    fn test_expand_repeat_on_group() {
+        // `[c e]*2` repeats the group twice inside one beat.
+        let line = parse::parse_music_line(r#"bass: n "[c e]*2""#).unwrap();
+        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let (notes, total) = expand_music_line(cmd, None, 16).unwrap();
+        assert_eq!(notes.len(), 4);
+        let positions: Vec<i32> = notes.iter().map(|n| n.step).collect();
+        assert_eq!(positions, vec![0, 1, 2, 3]);
+        assert_eq!(total, 4);
+    }
+
+    #[test]
+    fn test_expand_alternate_keeps_group_subdivision() {
+        // `<[c d] e>` — the [c d] group should stay as 8ths inside its beat.
+        let line = parse::parse_music_line(r#"bass: n "<[c d] e>""#).unwrap();
+        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let (notes, total) = expand_music_line(cmd, None, 16).unwrap();
+        // First alternative only; [c d] should occupy steps 0 and 2 (8ths).
+        assert_eq!(notes.len(), 2);
+        assert_eq!(notes[0].step, 0);
+        assert_eq!(notes[1].step, 2);
+        assert!((notes[0].dur - 2.0).abs() < f64::EPSILON);
+        assert!((notes[1].dur - 2.0).abs() < f64::EPSILON);
+        assert_eq!(total, 4);
+    }
+
+    #[test]
+    fn test_expand_subdivide_zero_rejected() {
+        let line = parse::parse_music_line(r#"bass: n "{c e}%0""#).unwrap();
+        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let err = expand_music_line(cmd, None, 16).unwrap_err();
+        assert!(err.to_string().contains("subdivide"), "{err}");
     }
 }

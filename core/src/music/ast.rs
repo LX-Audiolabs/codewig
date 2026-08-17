@@ -362,7 +362,7 @@ pub enum Atom {
     Group(Vec<Sequence>),   // [ ... ]
     Alternate(Vec<Vec<Sequence>>), // < ... >
     Polymetric(Vec<Vec<Sequence>>), // { ... }
-    RandomChoice(Vec<Atom>),   // | inside group
+    RandomChoice(Vec<Event>),   // | inside group
     Euclid {
         beats: u32,
         steps: u32,

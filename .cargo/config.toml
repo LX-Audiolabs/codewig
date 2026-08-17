@@ -1,0 +1,5 @@
+[build]
+# Workspace builds (especially the Slint UI crate) hit rustc / proc-macro crashes
+# on Windows when too many compiler processes run in parallel. Serial builds avoid
+# STATUS_ACCESS_VIOLATION and ICEs in derive_more-impl / slint-build.
+jobs = 1

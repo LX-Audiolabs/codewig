@@ -193,6 +193,29 @@ impl MiniParser {
 
     fn parse_event(&mut self) -> ParseResult<Event> {
         let atom = self.parse_atom()?;
+
+        // `{...}%N` is a postfix atom operator, not a suffix — handle it here
+        // so `%` after the closing brace is consumed before suffixes.
+        // Each top-level event inside the braces becomes its own sub-slot.
+        let atom = if let Atom::Polymetric(polys) = atom {
+            if self.peek() == Some(&Token::Percent) {
+                self.advance();
+                let n = self.expect_number("%")? as u32;
+                let seqs: Vec<Sequence> = polys
+                    .into_iter()
+                    .flatten()
+                    .flat_map(|seq| {
+                        seq.events.into_iter().map(|ev| Sequence { events: vec![ev] })
+                    })
+                    .collect();
+                Atom::Subdivide(seqs, n)
+            } else {
+                Atom::Polymetric(polys)
+            }
+        } else {
+            atom
+        };
+
         let mut suffixes = Vec::new();
         loop {
             match self.peek() {
@@ -271,13 +294,11 @@ impl MiniParser {
                 // Check for random choice | inside brackets
                 if self.peek() == Some(&Token::Pipe) {
                     self.advance();
-                    let mut atoms = Vec::new();
-                    // Extract atoms from the first sequence
-                    for ev in &seqs[0].events {
-                        atoms.push(ev.atom.clone());
-                    }
+                    let mut events = Vec::new();
+                    // Extract events from the first sequence (preserving suffixes)
+                    events.extend(seqs[0].events.clone());
                     loop {
-                        atoms.push(self.parse_atom()?);
+                        events.push(self.parse_event()?);
                         match self.peek() {
                             Some(Token::Pipe) => { self.advance(); }
                             Some(Token::RBracket) => break,
@@ -288,7 +309,7 @@ impl MiniParser {
                     if self.peek() == Some(&Token::RBracket) {
                         self.advance();
                     }
-                    return Ok(Atom::RandomChoice(atoms));
+                    return Ok(Atom::RandomChoice(events));
                 }
 
                 while self.peek() == Some(&Token::Comma) {
@@ -305,15 +326,20 @@ impl MiniParser {
             Some(Token::LAngle) => {
                 self.advance();
                 let mut alts: Vec<Vec<Sequence>> = Vec::new();
-                let current = vec![self.parse_sequence()?];
-                alts.push(current);
-
-                while self.peek() != Some(&Token::RAngle) && self.peek().is_some() {
-                    let next = vec![self.parse_sequence()?];
-                    alts.push(next);
-                }
-                if self.peek() == Some(&Token::RAngle) {
-                    self.advance();
+                // Inside <...> each top-level event is its own alternative.
+                // Spaces separate alternatives, so <[c d] e> = two alternatives.
+                loop {
+                    let event = self.parse_event()?;
+                    alts.push(vec![Sequence { events: vec![event] }]);
+                    match self.peek() {
+                        Some(Token::Pipe) => { self.advance(); }
+                        Some(Token::RAngle) => { self.advance(); break; }
+                        Some(Token::NoteName(_)) | Some(Token::Number(_)) | Some(Token::Tilde)
+                        | Some(Token::LBracket) | Some(Token::LBrace) | Some(Token::LParen) => {
+                            // next space-separated alternative
+                        }
+                        _ => return Err(self.err("expected | or > in alternate")),
+                    }
                 }
                 Ok(Atom::Alternate(alts))
             }
@@ -329,23 +355,11 @@ impl MiniParser {
                     polys.push(next);
                 }
 
-                // Check for %N subdivision
-                let subdivision = if self.peek() == Some(&Token::Percent) {
-                    self.advance();
-                    Some(self.expect_number("%")? as u32)
-                } else {
-                    None
-                };
-
                 if self.peek() == Some(&Token::RBrace) {
                     self.advance();
                 }
 
-                if let Some(n) = subdivision {
-                    Ok(Atom::Subdivide(polys[0].clone(), n))
-                } else {
-                    Ok(Atom::Polymetric(polys))
-                }
+                Ok(Atom::Polymetric(polys))
             }
             Some(Token::LParen) => {
                 self.advance();
@@ -456,6 +470,27 @@ mod tests {
     fn test_mini_superpose() {
         let pat = parse_mini_pattern("c e, g a").unwrap();
         assert_eq!(pat.sequences.len(), 2);
+    }
+    #[test]
+    fn test_mini_subdivide_parse() {
+        let pat = parse_mini_pattern("{c e g}%3").unwrap();
+        assert_eq!(pat.sequences.len(), 1);
+        assert_eq!(pat.sequences[0].events.len(), 1);
+        let ev = &pat.sequences[0].events[0];
+        assert!(matches!(ev.atom, Atom::Subdivide(_, 3)), "expected Subdivide(3), got {:?}", ev.atom);
+    }
+
+    #[test]
+    fn test_mini_random_choice_preserves_suffixes() {
+        let pat = parse_mini_pattern("[c*2 | d]").unwrap();
+        let ev = &pat.sequences[0].events[0];
+        if let Atom::RandomChoice(ref events) = ev.atom {
+            assert_eq!(events.len(), 2);
+            assert!(matches!(events[0].suffixes[0], Suffix::Repeat(2)));
+            assert!(events[1].suffixes.is_empty());
+        } else {
+            panic!("expected RandomChoice, got {:?}", ev.atom);
+        }
     }
     #[test]
     fn test_number_overflow_rejected() {
