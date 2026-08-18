@@ -179,3 +179,45 @@ codewig-cli eval "play"
 ```
 
 Legacy flat CLI tokens still work (`codewig-cli play`, `track mute kick`, …) as a fallback — prefer WIGSCRIPT `eval`.
+
+---
+
+## Build
+
+Requires a stable Rust toolchain (see `rust-toolchain.toml`).
+
+```bash
+# Rust workspace (CLI + core + Slint UI)
+cargo build --workspace
+
+# Release builds
+cargo build --workspace --release
+
+# Run checks
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+```
+
+The Java extension under `extension/` is built separately with Gradle:
+
+```bash
+cd extension
+./gradlew build
+```
+
+The resulting `extension/build/libs/*.jar` can be installed as a Bitwig Controller Extension (Settings → Controllers → Install Extension).
+
+## Installation
+
+1. Build or download the binaries (`codewig-cli`, `codewig-live`).
+2. Build and install the Bitwig extension from `extension/`.
+3. Start Bitwig Studio, open the Codewig Bridge controller extension, and ensure it is listening on `127.0.0.1:9470`.
+4. Run `codewig-live` for the UI or use `codewig-cli eval "…"` from a terminal.
+
+## Contributing
+
+Open issues and pull requests are welcome. When changing language behavior, update the WIGSCRIPT examples in this README and add or adjust tests in the relevant `core/src/music/*` module.
+
+## License
+
+Codewig is licensed under the [GNU General Public License v3.0 or later](LICENSE).

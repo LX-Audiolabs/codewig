@@ -1,7 +1,6 @@
 {
   "version": "0.7.0",
   "generated_at": "2026-08-10T16:45:02Z",
-  "project_root": "L:/LX-Audiolabs/CODEWIG",
   "project_name": "CODEWIG",
   "used_frameworks": [
     "slint"

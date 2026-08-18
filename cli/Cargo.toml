@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 description = "codewig-cli — control Bitwig Studio from the shell"
 readme = "../README.md"
+repository = "https://github.com/LX-Audiolabs/codewig"
 
 [[bin]]
 name = "codewig-cli"

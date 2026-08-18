@@ -14,7 +14,7 @@ fn main() {
         res.set("ProductName", "codewig-live");
         res.set("FileDescription", "Live-coding UI for Bitwig Studio");
         res.set("CompanyName", "Codewig");
-        res.set("LegalCopyright", "MIT");
+        res.set("LegalCopyright", "Copyright (C) 2026 LX AudioLabs");
         res.compile().expect("embed Windows icon/resources");
     }
 }
