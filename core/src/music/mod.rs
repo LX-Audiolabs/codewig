@@ -26,6 +26,6 @@ pub use param_catalog::{
     ParamDef,
 };
 pub use execute::{execute_line, resolve_track_at, run_chain, ExecuteError, MusicSession};
-pub use expand::{expand_arp, expand_chord, expand_music_line, ExpandError};
+pub use expand::{expand_arp, expand_beat, expand_chord, expand_music_line, ExpandError};
 pub use parse::{parse_mini_pattern, parse_music_line, ParseError};
 pub use scale::{key_to_midi, note_to_midi, Scale, ScaleError, ScaleKind, SCALES};

@@ -89,6 +89,28 @@ pub fn expand_music_line(
     Ok((notes, total_steps))
 }
 
+/// Expand a beat specification into a list of NoteSpec entries.
+/// Returns the notes and the step count they occupy (rounded up to whole bars).
+/// `key` is the fixed trigger note (e.g. MIDI 36 for monophonic drum modules).
+pub fn expand_beat(beat: &BeatSpec, key: i32, steps_per_bar: u32) -> (Vec<NoteSpec>, u32) {
+    let dur = beat.hit_duration_steps();
+    let positions = beat.steps();
+    let max_step = positions.iter().copied().max().unwrap_or(0);
+    let notes: Vec<NoteSpec> = positions
+        .into_iter()
+        .map(|s| NoteSpec {
+            step: s as i32,
+            key,
+            vel: 100,
+            dur,
+            ..NoteSpec::default()
+        })
+        .collect();
+    let occupied = max_step as f64 + dur;
+    let total_steps = ((occupied / steps_per_bar as f64).ceil() as u32).max(1) * steps_per_bar;
+    (notes, total_steps)
+}
+
 fn expand_sequence(
     seq: &Sequence,
     cmd: &MusicCmd,

@@ -47,38 +47,36 @@ WIGSCRIPT is its own language for Bitwig live performance; those projects shaped
 
 ---
 
-## WIGSCRIPT — four layers
+## WIGSCRIPT — two phases
 
-Do not mix them. Each layer has one job.
+Codewig separates **authoring** (building the project and clip content) from **performance** (live control while the track runs). Within authoring, **beat** and **notes** are two different DSLs for different jobs; both compile to the same internal note representation before hitting Bitwig.
 
-| Layer | Role | Example |
+| Phase | Role | Example |
 |-------|------|---------|
-| **Fluent** | Build structure | `new track(lead).device(Polymer).n("c e d g").clip(start)` |
-| **Colon** | Notes into existing cells | `lead@verse: n "e c g"` · `bass: n "c e g"` |
-| **Param** | Device params (snapshot) | `kick&v9kick: decay(50) pitch(40)` |
+| **Authoring** | Build structure + clip content | `new track(lead).device(Polymer).n("c e d g").clip(start)` |
 | **Performance** | Live triggers | `play` · `mute(kick)` · `s(verse).start` · `c(lead.0).start` |
 
 Long form ≡ short form (same parse): `track`/`t`, `clip`/`c`, `scene`/`s`, `device`/`d`, `notes`/`n`.  
 Example: `track(bass).device(Polymer)` ≡ `t(bass).d(Polymer)`; `clip(bass.0).start` ≡ `c(bass.0).start`.
 
 ```wigscript
-# Fluent — create track, insert Bitwig device, write notes (slot 0)
+# Authoring: Fluent — create track, insert device, write content (slot 0)
 new track(bass).device(Polymer).n("c e g").clip(start)
 new track(kick).device(v9 kick).beat(4_).clip(start)
 new track(lead).device(Polymer).add(Delay+)
 
-# Colon — write notes into an existing track / scene cell (quotes required)
+# Authoring: Colon — write notes into an existing track / scene cell
 bass: n "c e g"
 lead@verse: n "e c g"
 lead: arp:up "Cm7"
 lead: chord "C Am F G"
 
-# Param — track × device (& not @). YAML optional (help + display ranges)
+# Performance: Param snapshot — track × device (& not @)
 kick&v9kick: decay(50) punch(40)
 # Without YAML: wire 0..1 + Bitwig param name as typed
 # someClap&foo: cutoff(0.7)
 
-# Performance
+# Performance: Live
 new scene(verse)
 s(verse).t(lead).c(new)
 s(verse).start
@@ -103,6 +101,7 @@ stop
 
 - `.n` / `.beat` write **slot 0** only. Multi-clip → colon `track@scene` / `track@slot`
 - `.beat(4_)` = 4-on-the-floor for mono drum modules (not Strudel hit markers)
+- `.beat:16(1,5,9,13)` = explicit 16th positions; positions are **always 1-based** (musician view) and normalized to 0-based for Bitwig
 - `.c` / `.clip` = clip cell (new/start/stop), **not** notes
 - `.device(...)` / `.add(...)` = insert Bitwig device (see below)
 
@@ -136,18 +135,18 @@ UI and CLI both go through **`codewig-core`** → TCP `:9470`. The UI does **not
 
 ## Status
 
-| Component | Status |
-|-----------|--------|
-| Fluent | ✅ create track, device insert, `.n` / `.beat`, mute, clip |
+| Phase / Component | Status |
+|-------------------|--------|
+| **Authoring** | |
+| Fluent structure | ✅ create track, device insert, `.n` / `.beat`, mute, clip |
 | Colon notes | ✅ `n` / `chord` / `arp` with quoted mini-notation |
-| Param (`track&device:`) | ✅ catalog snapshot (`devices/*.yaml`; v9 Kick shipped) |
-| Performance | ✅ play/stop, tempo, mute (incl. timed), scene/clip launch |
-| Mini-notation | ✅ spaces, rests `~`, groups `[…]` |
+| Mini-notation | ✅ spaces, rests `~`, groups `[…]`, euclid, suffixes |
 | Device insert | ✅ open Bitwig resolve (UUID / library file); no closed name list |
 | Devices UI list | ✅ only entries from `devices/*.yaml` |
-| Expander | 🚧 pattern → MIDI (partial edge cases) |
-| Polymer params | ⏸ deferred (empty YAML) |
-| **Not supported** | Sampler / Drum Machine insert, `d "bd hh"`, kit `:909`, bare Tidal, VST3/LV2 params |
+| **Performance** | |
+| Param (`track&device:`) | ✅ catalog snapshot (`devices/*.yaml`; v9 Kick shipped) |
+| Live triggers | ✅ play/stop, tempo, mute (incl. timed), scene/clip launch |
+| **Open / not supported** | Expander edge cases 🚧 · Polymer params ⏸ · Sampler / Drum Machine insert, `d "bd hh"`, kit `:909`, bare Tidal, VST3/LV2 params |
 
 ---
 
@@ -156,18 +155,18 @@ UI and CLI both go through **`codewig-core`** → TCP `:9470`. The UI does **not
 Bitwig running with **Codewig Bridge** loaded, then:
 
 ```powershell
-# Build structure
+# Authoring: build structure + clip content
 codewig-cli eval "new track(bass).device(Polymer).n(\"c e g\").clip(start)"
 codewig-cli eval "new track(kick).device(v9 kick).beat(4_).clip(start)"
 
-# Notes into existing cells
+# Authoring: notes into existing cells
 codewig-cli eval "bass: n \"c e g\""
 codewig-cli eval "lead@verse: n \"e c g\""
 
-# Params (device must be on the track; YAML required)
+# Performance: param snapshot
 codewig-cli eval "kick&v9kick: decay(50) pitch(40)"
 
-# Live
+# Performance: live
 codewig-cli eval "new scene(verse)"
 codewig-cli eval "s(verse).start"
 codewig-cli eval "mute(kick)"

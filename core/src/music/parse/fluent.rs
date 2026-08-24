@@ -154,17 +154,25 @@ fn parse_beat_step<'a>(input: &'a str, full_input: &str) -> ParseResult<(BeatSpe
         let positions: Result<Vec<u32>, _> = pos_str.split(',').map(|s| s.trim().parse::<u32>()).collect();
         let mut positions = positions.map_err(|_|
             ParseError::new(format!("invalid beat positions: '{pos_str}'"), full_input.len() - input.len(), full_input.to_string()))?;
-        // Accept 1-based counts (1..grid) like musicians type; store 0-based for Bitwig.
-        if !positions.is_empty()
-            && positions.iter().all(|&p| p >= 1 && p <= grid)
-            && positions.iter().any(|&p| p == grid || p > 0)
-        {
-            // If any 0 present, leave as 0-based; only convert pure 1..=grid sets
-            if !positions.contains(&0) {
-                for p in &mut positions {
-                    *p -= 1;
-                }
+        // Positions are always 1-based (musician view). Validate and convert to 0-based for Bitwig.
+        if positions.is_empty() {
+            return Err(ParseError::new(
+                "beat positions cannot be empty",
+                full_input.len() - input.len(),
+                full_input.to_string(),
+            ));
+        }
+        for p in &positions {
+            if *p == 0 || *p > grid {
+                return Err(ParseError::new(
+                    format!("beat position {p} out of range; use 1..={grid}"),
+                    full_input.len() - input.len(),
+                    full_input.to_string(),
+                ));
             }
+        }
+        for p in &mut positions {
+            *p -= 1;
         }
 
         Ok((BeatSpec::Explicit { grid, positions }, &after_paren[closing + 1..]))
@@ -240,10 +248,32 @@ mod tests {
             assert_eq!(cmd.track, "hat");
             if let FluentStep::Beat(BeatSpec::Explicit { grid, positions }) = &cmd.steps[1] {
                 assert_eq!(*grid, 16);
-                // 1-based input 1,5,9,13 → stored 0-based 0,4,8,12
+                // Positions are always 1-based; stored 0-based for Bitwig.
                 assert_eq!(*positions, vec![0, 4, 8, 12]);
             } else { panic!("expected Beat::Explicit"); }
         } else { panic!("expected Fluent"); }
+    }
+
+    #[test]
+    fn test_parse_fluent_explicit_beat_no_silent_shift() {
+        // Previously 1,2,3 would be mis-detected as 1-based and shifted to 0,1,2.
+        // With strict 1-based interpretation it becomes 0,1,2 by design.
+        // The regression we protect against is *silent double-conversion*.
+        let line = "new track(hat).device(hat.v8).beat:16(1,2,3)";
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Fluent(cmd) = result {
+            if let FluentStep::Beat(BeatSpec::Explicit { grid, positions }) = &cmd.steps[1] {
+                assert_eq!(*grid, 16);
+                assert_eq!(*positions, vec![0, 1, 2]);
+            } else { panic!("expected Beat::Explicit"); }
+        } else { panic!("expected Fluent"); }
+    }
+
+    #[test]
+    fn test_parse_fluent_explicit_beat_rejects_zero_based() {
+        // 0 is no longer a valid 1-based position.
+        let line = "new track(hat).device(hat.v8).beat:16(0,4,8,12)";
+        assert!(parse_music_line(line).is_err());
     }
 
     #[test]

@@ -5,7 +5,7 @@
 
 use super::ast::*;
 use super::device::{catalog_to_bitwig, catalog_to_drum, is_banned};
-use super::expand::{expand_chord, expand_music_line, ExpandError};
+use super::expand::{expand_beat, expand_chord, expand_music_line, ExpandError};
 use super::scale::{Scale, ScaleError};
 use crate::{Client, Error, NoteSpec};
 use serde_json::{json, Value};
@@ -638,18 +638,8 @@ fn fluent(
                 let midi = session
                     .last_drum_midi
                     .unwrap_or(super::device::MONO_DRUM_NOTE);
-                let dur = b.hit_duration_steps();
-                let notes: Vec<NoteSpec> = b
-                    .steps()
-                    .into_iter()
-                    .map(|s| NoteSpec {
-                        step: s as i32,
-                        key: midi,
-                        vel: 100,
-                        dur,
-                        ..NoteSpec::default()
-                    })
-                    .collect();
+                let (notes, _total_steps) =
+                    expand_beat(b, midi, session.steps_per_bar);
                 log.push(json!({
                     "beat": write_notes(client, &cmd.track, slot0, session.default_beats, &notes)?
                 }));
