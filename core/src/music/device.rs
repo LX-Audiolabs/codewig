@@ -101,67 +101,229 @@ pub static INSERTABLE: &[Device] = &[
 /// Prefer writing `.device(v9 kick)` / `.device(v9kick)` — avoid `.` inside the name
 /// (fluent already uses `.` as step separator).
 pub static DRUM_DEVICES: &[Device] = &[
-    Device { name: "v0 Cymbal", kind: DeviceKind::Drum, alias: "v0cymbal", params: &["decay", "tone"] },
-    Device { name: "v0 Hat", kind: DeviceKind::Drum, alias: "v0hat", params: &["decay", "tone"] },
-    Device { name: "v0 Kick", kind: DeviceKind::Drum, alias: "v0kick", params: &["decay", "pitch", "tone", "attack"] },
-    Device { name: "v0 Snare", kind: DeviceKind::Drum, alias: "v0snare", params: &["decay", "pitch"] },
-    Device { name: "v0 Tom", kind: DeviceKind::Drum, alias: "v0tom", params: &["decay", "pitch", "tone"] },
-    Device { name: "v0 Zap Kick", kind: DeviceKind::Drum, alias: "v0zapkick", params: &["decay", "pitch"] },
-    Device { name: "v1 Clap", kind: DeviceKind::Drum, alias: "v1clap", params: &["decay", "tone"] },
-    Device { name: "v1 Cowbell", kind: DeviceKind::Drum, alias: "v1cowbell", params: &["decay", "pitch"] },
-    Device { name: "v1 Hat", kind: DeviceKind::Drum, alias: "v1hat", params: &["decay", "tone"] },
-    Device { name: "v1 Kick", kind: DeviceKind::Drum, alias: "v1kick", params: &["decay", "pitch"] },
-    Device { name: "v1 Snare", kind: DeviceKind::Drum, alias: "v1snare", params: &["decay", "pitch"] },
-    Device { name: "v1 Tom", kind: DeviceKind::Drum, alias: "v1tom", params: &["decay", "pitch"] },
-    Device { name: "v8 Clap", kind: DeviceKind::Drum, alias: "v8clap", params: &["decay", "tone"] },
-    Device { name: "v8 Claves", kind: DeviceKind::Drum, alias: "v8claves", params: &["decay"] },
-    Device { name: "v8 Cowbell", kind: DeviceKind::Drum, alias: "v8cowbell", params: &["decay", "pitch"] },
-    Device { name: "v8 Cymbal", kind: DeviceKind::Drum, alias: "v8cymbal", params: &["decay", "tone"] },
-    Device { name: "v8 Hat", kind: DeviceKind::Drum, alias: "v8hat", params: &["decay", "tone"] },
-    Device { name: "v8 Kick", kind: DeviceKind::Drum, alias: "v8kick", params: &["decay", "pitch"] },
-    Device { name: "v8 Maracas", kind: DeviceKind::Drum, alias: "v8maracas", params: &["decay"] },
-    Device { name: "v8 Rimshot", kind: DeviceKind::Drum, alias: "v8rimshot", params: &["decay", "pitch"] },
-    Device { name: "v8 Snare", kind: DeviceKind::Drum, alias: "v8snare", params: &["decay", "pitch"] },
-    Device { name: "v8 Tom", kind: DeviceKind::Drum, alias: "v8tom", params: &["decay", "pitch"] },
+    Device {
+        name: "v0 Cymbal",
+        kind: DeviceKind::Drum,
+        alias: "v0cymbal",
+        params: &["decay", "tone"],
+    },
+    Device {
+        name: "v0 Hat",
+        kind: DeviceKind::Drum,
+        alias: "v0hat",
+        params: &["decay", "tone"],
+    },
+    Device {
+        name: "v0 Kick",
+        kind: DeviceKind::Drum,
+        alias: "v0kick",
+        params: &["decay", "pitch", "tone", "attack"],
+    },
+    Device {
+        name: "v0 Snare",
+        kind: DeviceKind::Drum,
+        alias: "v0snare",
+        params: &["decay", "pitch"],
+    },
+    Device {
+        name: "v0 Tom",
+        kind: DeviceKind::Drum,
+        alias: "v0tom",
+        params: &["decay", "pitch", "tone"],
+    },
+    Device {
+        name: "v0 Zap Kick",
+        kind: DeviceKind::Drum,
+        alias: "v0zapkick",
+        params: &["decay", "pitch"],
+    },
+    Device {
+        name: "v1 Clap",
+        kind: DeviceKind::Drum,
+        alias: "v1clap",
+        params: &["decay", "tone"],
+    },
+    Device {
+        name: "v1 Cowbell",
+        kind: DeviceKind::Drum,
+        alias: "v1cowbell",
+        params: &["decay", "pitch"],
+    },
+    Device {
+        name: "v1 Hat",
+        kind: DeviceKind::Drum,
+        alias: "v1hat",
+        params: &["decay", "tone"],
+    },
+    Device {
+        name: "v1 Kick",
+        kind: DeviceKind::Drum,
+        alias: "v1kick",
+        params: &["decay", "pitch"],
+    },
+    Device {
+        name: "v1 Snare",
+        kind: DeviceKind::Drum,
+        alias: "v1snare",
+        params: &["decay", "pitch"],
+    },
+    Device {
+        name: "v1 Tom",
+        kind: DeviceKind::Drum,
+        alias: "v1tom",
+        params: &["decay", "pitch"],
+    },
+    Device {
+        name: "v8 Clap",
+        kind: DeviceKind::Drum,
+        alias: "v8clap",
+        params: &["decay", "tone"],
+    },
+    Device {
+        name: "v8 Claves",
+        kind: DeviceKind::Drum,
+        alias: "v8claves",
+        params: &["decay"],
+    },
+    Device {
+        name: "v8 Cowbell",
+        kind: DeviceKind::Drum,
+        alias: "v8cowbell",
+        params: &["decay", "pitch"],
+    },
+    Device {
+        name: "v8 Cymbal",
+        kind: DeviceKind::Drum,
+        alias: "v8cymbal",
+        params: &["decay", "tone"],
+    },
+    Device {
+        name: "v8 Hat",
+        kind: DeviceKind::Drum,
+        alias: "v8hat",
+        params: &["decay", "tone"],
+    },
+    Device {
+        name: "v8 Kick",
+        kind: DeviceKind::Drum,
+        alias: "v8kick",
+        params: &["decay", "pitch"],
+    },
+    Device {
+        name: "v8 Maracas",
+        kind: DeviceKind::Drum,
+        alias: "v8maracas",
+        params: &["decay"],
+    },
+    Device {
+        name: "v8 Rimshot",
+        kind: DeviceKind::Drum,
+        alias: "v8rimshot",
+        params: &["decay", "pitch"],
+    },
+    Device {
+        name: "v8 Snare",
+        kind: DeviceKind::Drum,
+        alias: "v8snare",
+        params: &["decay", "pitch"],
+    },
+    Device {
+        name: "v8 Tom",
+        kind: DeviceKind::Drum,
+        alias: "v8tom",
+        params: &["decay", "pitch"],
+    },
     // Param names/ranges: devices/v9clap.yaml (source of truth).
     // YAML = knobs/sliders only (no toggles). Source of truth: devices/*.yaml
     Device {
         name: "v9 Clap",
         kind: DeviceKind::Drum,
         alias: "v9clap",
-        params: &["tune", "decay", "flam", "width", "variation", "output", "velocity"],
+        params: &[
+            "tune",
+            "decay",
+            "flam",
+            "width",
+            "variation",
+            "output",
+            "velocity",
+        ],
     },
     Device {
         name: "v9 Crash",
         kind: DeviceKind::Drum,
         alias: "v9crash",
-        params: &["tune", "decay", "impact", "density", "width", "variation", "output", "velocity"],
+        params: &[
+            "tune",
+            "decay",
+            "impact",
+            "density",
+            "width",
+            "variation",
+            "output",
+            "velocity",
+        ],
     },
     Device {
         name: "v9 Hat Closed",
         kind: DeviceKind::Drum,
         alias: "v9hatclosed",
-        params: &["tune", "decay", "impact", "density", "width", "variation", "output", "velocity"],
+        params: &[
+            "tune",
+            "decay",
+            "impact",
+            "density",
+            "width",
+            "variation",
+            "output",
+            "velocity",
+        ],
     },
     Device {
         name: "v9 Hat Open",
         kind: DeviceKind::Drum,
         alias: "v9hatopen",
-        params: &["tune", "decay", "impact", "density", "width", "variation", "output", "velocity"],
+        params: &[
+            "tune",
+            "decay",
+            "impact",
+            "density",
+            "width",
+            "variation",
+            "output",
+            "velocity",
+        ],
     },
     Device {
         name: "v9 Kick",
         kind: DeviceKind::Drum,
         alias: "v9kick",
         params: &[
-            "tune", "decay", "punch", "shape", "buzz", "click", "compression", "output", "velocity",
+            "tune",
+            "decay",
+            "punch",
+            "shape",
+            "buzz",
+            "click",
+            "compression",
+            "output",
+            "velocity",
         ],
     },
     Device {
         name: "v9 Ride",
         kind: DeviceKind::Drum,
         alias: "v9ride",
-        params: &["tune", "decay", "impact", "density", "width", "variation", "output", "velocity"],
+        params: &[
+            "tune",
+            "decay",
+            "impact",
+            "density",
+            "width",
+            "variation",
+            "output",
+            "velocity",
+        ],
     },
     Device {
         name: "v9 Rimshot",
@@ -173,13 +335,17 @@ pub static DRUM_DEVICES: &[Device] = &[
         name: "v9 Snare",
         kind: DeviceKind::Drum,
         alias: "v9snare",
-        params: &["tune", "decay", "drive", "snappy", "click", "tone", "output", "velocity"],
+        params: &[
+            "tune", "decay", "drive", "snappy", "click", "tone", "output", "velocity",
+        ],
     },
     Device {
         name: "v9 Tom",
         kind: DeviceKind::Drum,
         alias: "v9tom",
-        params: &["tune", "decay", "tone", "shape", "snap", "punch", "output", "velocity"],
+        params: &[
+            "tune", "decay", "tone", "shape", "snap", "punch", "output", "velocity",
+        ],
     },
 ];
 
@@ -377,7 +543,10 @@ mod tests {
     #[test]
     fn insertable_chorus_dist() {
         assert_eq!(catalog_to_bitwig("Chorus"), Some("Chorus+".to_string()));
-        assert_eq!(catalog_to_bitwig("Distortion"), Some("Saturator".to_string()));
+        assert_eq!(
+            catalog_to_bitwig("Distortion"),
+            Some("Saturator".to_string())
+        );
     }
 
     #[test]
@@ -395,9 +564,15 @@ mod tests {
     #[test]
     fn drum_catalog_mono_midi() {
         // Device resolve + monophonic trigger for .beat
-        assert_eq!(catalog_to_drum("v9 kick"), Some(("v9 Kick", MONO_DRUM_NOTE)));
+        assert_eq!(
+            catalog_to_drum("v9 kick"),
+            Some(("v9 Kick", MONO_DRUM_NOTE))
+        );
         assert_eq!(catalog_to_drum("v8hat"), Some(("v8 Hat", MONO_DRUM_NOTE)));
-        assert_eq!(catalog_to_drum("kick.v9"), Some(("v9 Kick", MONO_DRUM_NOTE)));
+        assert_eq!(
+            catalog_to_drum("kick.v9"),
+            Some(("v9 Kick", MONO_DRUM_NOTE))
+        );
     }
 
     #[test]
@@ -410,7 +585,10 @@ mod tests {
         assert_eq!(catalog_to_drum("clap"), Some(("v8 Clap", MONO_DRUM_NOTE)));
         assert_eq!(catalog_to_drum("cp"), Some(("v8 Clap", MONO_DRUM_NOTE)));
         assert_eq!(catalog_to_drum("cy"), Some(("v0 Cymbal", MONO_DRUM_NOTE)));
-        assert_eq!(catalog_to_drum("zap"), Some(("v0 Zap Kick", MONO_DRUM_NOTE)));
+        assert_eq!(
+            catalog_to_drum("zap"),
+            Some(("v0 Zap Kick", MONO_DRUM_NOTE))
+        );
         assert_eq!(catalog_to_drum("ride"), Some(("v9 Ride", MONO_DRUM_NOTE)));
         assert_eq!(catalog_to_drum("rim"), Some(("v9 Rimshot", MONO_DRUM_NOTE)));
         assert_eq!(catalog_to_drum("crash"), Some(("v9 Crash", MONO_DRUM_NOTE)));
@@ -420,9 +598,18 @@ mod tests {
         assert_eq!(catalog_to_drum("v8sn"), Some(("v8 Snare", MONO_DRUM_NOTE)));
         assert_eq!(catalog_to_drum("v8hh"), Some(("v8 Hat", MONO_DRUM_NOTE)));
         assert_eq!(catalog_to_drum("v9sn"), Some(("v9 Snare", MONO_DRUM_NOTE)));
-        assert_eq!(catalog_to_drum("v9hh"), Some(("v9 Hat Closed", MONO_DRUM_NOTE)));
-        assert_eq!(catalog_to_drum("v1perc"), Some(("v1 Cowbell", MONO_DRUM_NOTE)));
-        assert_eq!(catalog_to_drum("v8perc"), Some(("v8 Cowbell", MONO_DRUM_NOTE)));
+        assert_eq!(
+            catalog_to_drum("v9hh"),
+            Some(("v9 Hat Closed", MONO_DRUM_NOTE))
+        );
+        assert_eq!(
+            catalog_to_drum("v1perc"),
+            Some(("v1 Cowbell", MONO_DRUM_NOTE))
+        );
+        assert_eq!(
+            catalog_to_drum("v8perc"),
+            Some(("v8 Cowbell", MONO_DRUM_NOTE))
+        );
     }
 
     #[test]
@@ -438,6 +625,9 @@ mod tests {
             catalog_to_bitwig("Instrument Layer"),
             Some("Instrument Layer".to_string())
         );
-        assert_eq!(catalog_to_bitwig("layer"), Some("Instrument Layer".to_string()));
+        assert_eq!(
+            catalog_to_bitwig("layer"),
+            Some("Instrument Layer".to_string())
+        );
     }
 }

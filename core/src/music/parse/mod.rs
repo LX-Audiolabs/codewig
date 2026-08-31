@@ -31,7 +31,13 @@ impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "parse error at {}: {}", self.pos, self.msg)?;
         if !self.input.is_empty() {
-            write!(f, "\n  {}\n  {:>width$}", self.input, "^", width = self.pos + 2)?;
+            write!(
+                f,
+                "\n  {}\n  {:>width$}",
+                self.input,
+                "^",
+                width = self.pos + 2
+            )?;
         }
         Ok(())
     }
@@ -41,7 +47,11 @@ impl std::error::Error for ParseError {}
 
 impl ParseError {
     pub(crate) fn new(msg: impl Into<String>, pos: usize, input: impl Into<String>) -> Self {
-        Self { msg: msg.into(), pos, input: input.into() }
+        Self {
+            msg: msg.into(),
+            pos,
+            input: input.into(),
+        }
     }
 }
 

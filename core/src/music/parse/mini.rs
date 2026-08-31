@@ -12,7 +12,7 @@ pub fn parse_mini_pattern(input: &str) -> ParseResult<Pattern> {
 
 #[derive(Debug, Clone, PartialEq)]
 enum Token {
-    NoteName(String),    // "c4", "eb", "f#"
+    NoteName(String), // "c4", "eb", "f#"
     Number(i32),
     Float(f64),
     LBracket,
@@ -47,27 +47,90 @@ fn tokenize(input: &str) -> ParseResult<Vec<(Token, usize)>> {
         let pos = i;
 
         match ch {
-            ' ' | '\t' | '\n' => { i += 1; continue; }
-            '[' => { tokens.push((Token::LBracket, pos)); i += 1; }
-            ']' => { tokens.push((Token::RBracket, pos)); i += 1; }
-            '<' => { tokens.push((Token::LAngle, pos)); i += 1; }
-            '>' => { tokens.push((Token::RAngle, pos)); i += 1; }
-            '{' => { tokens.push((Token::LBrace, pos)); i += 1; }
-            '}' => { tokens.push((Token::RBrace, pos)); i += 1; }
-            '(' => { tokens.push((Token::LParen, pos)); i += 1; }
-            ')' => { tokens.push((Token::RParen, pos)); i += 1; }
-            '*' => { tokens.push((Token::Star, pos)); i += 1; }
-            '/' => { tokens.push((Token::Slash, pos)); i += 1; }
-            '!' => { tokens.push((Token::Bang, pos)); i += 1; }
-            '_' => { tokens.push((Token::Underscore, pos)); i += 1; }
-            '?' => { tokens.push((Token::Question, pos)); i += 1; }
-            '@' => { tokens.push((Token::At, pos)); i += 1; }
-            '|' => { tokens.push((Token::Pipe, pos)); i += 1; }
-            '~' => { tokens.push((Token::Tilde, pos)); i += 1; }
-            '.' => { tokens.push((Token::Dot, pos)); i += 1; }
-            ',' => { tokens.push((Token::Comma, pos)); i += 1; }
-            ':' => { tokens.push((Token::Colon, pos)); i += 1; }
-            '%' => { tokens.push((Token::Percent, pos)); i += 1; }
+            ' ' | '\t' | '\n' => {
+                i += 1;
+                continue;
+            }
+            '[' => {
+                tokens.push((Token::LBracket, pos));
+                i += 1;
+            }
+            ']' => {
+                tokens.push((Token::RBracket, pos));
+                i += 1;
+            }
+            '<' => {
+                tokens.push((Token::LAngle, pos));
+                i += 1;
+            }
+            '>' => {
+                tokens.push((Token::RAngle, pos));
+                i += 1;
+            }
+            '{' => {
+                tokens.push((Token::LBrace, pos));
+                i += 1;
+            }
+            '}' => {
+                tokens.push((Token::RBrace, pos));
+                i += 1;
+            }
+            '(' => {
+                tokens.push((Token::LParen, pos));
+                i += 1;
+            }
+            ')' => {
+                tokens.push((Token::RParen, pos));
+                i += 1;
+            }
+            '*' => {
+                tokens.push((Token::Star, pos));
+                i += 1;
+            }
+            '/' => {
+                tokens.push((Token::Slash, pos));
+                i += 1;
+            }
+            '!' => {
+                tokens.push((Token::Bang, pos));
+                i += 1;
+            }
+            '_' => {
+                tokens.push((Token::Underscore, pos));
+                i += 1;
+            }
+            '?' => {
+                tokens.push((Token::Question, pos));
+                i += 1;
+            }
+            '@' => {
+                tokens.push((Token::At, pos));
+                i += 1;
+            }
+            '|' => {
+                tokens.push((Token::Pipe, pos));
+                i += 1;
+            }
+            '~' => {
+                tokens.push((Token::Tilde, pos));
+                i += 1;
+            }
+            '.' => {
+                tokens.push((Token::Dot, pos));
+                i += 1;
+            }
+            ',' => {
+                tokens.push((Token::Comma, pos));
+                i += 1;
+            }
+            ':' => {
+                tokens.push((Token::Colon, pos));
+                i += 1;
+            }
+            '%' => {
+                tokens.push((Token::Percent, pos));
+                i += 1;
+            }
 
             // Number
             '0'..='9' | '-' => {
@@ -80,7 +143,11 @@ fn tokenize(input: &str) -> ParseResult<Vec<(Token, usize)>> {
                     let c = chars[i];
                     if c.is_ascii_digit() {
                         i += 1;
-                    } else if c == '.' && !has_dot && i + 1 < chars.len() && chars[i + 1].is_ascii_digit() {
+                    } else if c == '.'
+                        && !has_dot
+                        && i + 1 < chars.len()
+                        && chars[i + 1].is_ascii_digit()
+                    {
                         has_dot = true;
                         i += 1;
                     } else {
@@ -92,14 +159,21 @@ fn tokenize(input: &str) -> ParseResult<Vec<(Token, usize)>> {
                     if let Ok(f) = num_str.parse::<f64>() {
                         tokens.push((Token::Float(f), pos));
                     } else {
-                        return Err(ParseError::new(format!("invalid float: {num_str}"), pos, input.to_string()));
+                        return Err(ParseError::new(
+                            format!("invalid float: {num_str}"),
+                            pos,
+                            input.to_string(),
+                        ));
                     }
                 } else {
                     match num_str.parse::<i32>() {
                         Ok(n) => tokens.push((Token::Number(n), pos)),
                         Err(_) => {
                             return Err(ParseError::new(
-                                format!("invalid integer: {num_str}"), pos, input.to_string()));
+                                format!("invalid integer: {num_str}"),
+                                pos,
+                                input.to_string(),
+                            ));
                         }
                     }
                 }
@@ -122,7 +196,10 @@ fn tokenize(input: &str) -> ParseResult<Vec<(Token, usize)>> {
 
             _ => {
                 return Err(ParseError::new(
-                    format!("unexpected character: '{ch}'"), pos, input.to_string()));
+                    format!("unexpected character: '{ch}'"),
+                    pos,
+                    input.to_string(),
+                ));
             }
         }
     }
@@ -138,7 +215,11 @@ struct MiniParser {
 
 impl MiniParser {
     fn new(tokens: Vec<(Token, usize)>, input: &str) -> Self {
-        Self { tokens, input: input.to_string(), pos: 0 }
+        Self {
+            tokens,
+            input: input.to_string(),
+            pos: 0,
+        }
     }
 
     fn peek(&self) -> Option<&Token> {
@@ -146,7 +227,10 @@ impl MiniParser {
     }
 
     fn peek_pos(&self) -> usize {
-        self.tokens.get(self.pos).map(|(_, p)| *p).unwrap_or(self.input.len())
+        self.tokens
+            .get(self.pos)
+            .map(|(_, p)| *p)
+            .unwrap_or(self.input.len())
     }
 
     fn advance(&mut self) -> Option<(Token, usize)> {
@@ -176,9 +260,13 @@ impl MiniParser {
         let mut events = Vec::new();
         loop {
             match self.peek() {
-                None | Some(Token::Comma) | Some(Token::RBracket)
-                    | Some(Token::RAngle) | Some(Token::RBrace)
-                    | Some(Token::RParen) | Some(Token::Pipe) => break,
+                None
+                | Some(Token::Comma)
+                | Some(Token::RBracket)
+                | Some(Token::RAngle)
+                | Some(Token::RBrace)
+                | Some(Token::RParen)
+                | Some(Token::Pipe) => break,
                 Some(Token::Dot) => {
                     self.advance(); // skip dot separator
                     continue;
@@ -205,7 +293,9 @@ impl MiniParser {
                     .into_iter()
                     .flatten()
                     .flat_map(|seq| {
-                        seq.events.into_iter().map(|ev| Sequence { events: vec![ev] })
+                        seq.events
+                            .into_iter()
+                            .map(|ev| Sequence { events: vec![ev] })
                     })
                     .collect();
                 Atom::Subdivide(seqs, n)
@@ -262,7 +352,11 @@ impl MiniParser {
                 Some(Token::LParen) => {
                     self.advance();
                     let (beats, steps, offset) = self.parse_euclid_args()?;
-                    suffixes.push(Suffix::Euclid { beats, steps, offset });
+                    suffixes.push(Suffix::Euclid {
+                        beats,
+                        steps,
+                        offset,
+                    });
                 }
                 _ => break,
             }
@@ -300,7 +394,9 @@ impl MiniParser {
                     loop {
                         events.push(self.parse_event()?);
                         match self.peek() {
-                            Some(Token::Pipe) => { self.advance(); }
+                            Some(Token::Pipe) => {
+                                self.advance();
+                            }
                             Some(Token::RBracket) => break,
                             _ => return Err(self.err("expected | or ] in random choice")),
                         }
@@ -330,12 +426,23 @@ impl MiniParser {
                 // Spaces separate alternatives, so <[c d] e> = two alternatives.
                 loop {
                     let event = self.parse_event()?;
-                    alts.push(vec![Sequence { events: vec![event] }]);
+                    alts.push(vec![Sequence {
+                        events: vec![event],
+                    }]);
                     match self.peek() {
-                        Some(Token::Pipe) => { self.advance(); }
-                        Some(Token::RAngle) => { self.advance(); break; }
-                        Some(Token::NoteName(_)) | Some(Token::Number(_)) | Some(Token::Tilde)
-                        | Some(Token::LBracket) | Some(Token::LBrace) | Some(Token::LParen) => {
+                        Some(Token::Pipe) => {
+                            self.advance();
+                        }
+                        Some(Token::RAngle) => {
+                            self.advance();
+                            break;
+                        }
+                        Some(Token::NoteName(_))
+                        | Some(Token::Number(_))
+                        | Some(Token::Tilde)
+                        | Some(Token::LBracket)
+                        | Some(Token::LBrace)
+                        | Some(Token::LParen) => {
                             // next space-separated alternative
                         }
                         _ => return Err(self.err("expected | or > in alternate")),
@@ -364,9 +471,13 @@ impl MiniParser {
             Some(Token::LParen) => {
                 self.advance();
                 let (beats, steps, offset) = self.parse_euclid_args()?;
-                Ok(Atom::Euclid { beats, steps, offset })
+                Ok(Atom::Euclid {
+                    beats,
+                    steps,
+                    offset,
+                })
             }
-            _ => Err(self.err("expected note, drum, number, ~, [, <, {, or ("))
+            _ => Err(self.err("expected note, drum, number, ~, [, <, {, or (")),
         }
     }
 
@@ -393,7 +504,9 @@ impl MiniParser {
     fn expect_number(&mut self, context: &str) -> ParseResult<i32> {
         match self.advance() {
             Some((Token::Number(n), _)) => Ok(n),
-            Some((tok, _)) => Err(self.err(format!("expected number after {context}, got {:?}", tok))),
+            Some((tok, _)) => {
+                Err(self.err(format!("expected number after {context}, got {:?}", tok)))
+            }
             None => Err(self.err(format!("expected number after {context}, got end of input"))),
         }
     }
@@ -449,13 +562,23 @@ mod tests {
         let pat = parse_mini_pattern("c(3,8)").unwrap();
         assert_eq!(pat.sequences[0].events.len(), 1);
         assert!(matches!(pat.sequences[0].events[0].atom, Atom::Note(_)));
-        assert!(pat.sequences[0].events[0].suffixes.iter().any(|s| matches!(s, Suffix::Euclid { beats: 3, steps: 8, offset: None })));
+        assert!(pat.sequences[0].events[0].suffixes.iter().any(|s| matches!(
+            s,
+            Suffix::Euclid {
+                beats: 3,
+                steps: 8,
+                offset: None
+            }
+        )));
     }
 
     #[test]
     fn test_mini_alternate() {
         let pat = parse_mini_pattern("<c e g>").unwrap();
-        assert!(matches!(pat.sequences[0].events[0].atom, Atom::Alternate(_)));
+        assert!(matches!(
+            pat.sequences[0].events[0].atom,
+            Atom::Alternate(_)
+        ));
     }
 
     #[test]
@@ -477,7 +600,11 @@ mod tests {
         assert_eq!(pat.sequences.len(), 1);
         assert_eq!(pat.sequences[0].events.len(), 1);
         let ev = &pat.sequences[0].events[0];
-        assert!(matches!(ev.atom, Atom::Subdivide(_, 3)), "expected Subdivide(3), got {:?}", ev.atom);
+        assert!(
+            matches!(ev.atom, Atom::Subdivide(_, 3)),
+            "expected Subdivide(3), got {:?}",
+            ev.atom
+        );
     }
 
     #[test]

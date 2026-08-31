@@ -149,7 +149,8 @@ mod tests {
     fn frame_length_cap_16mib() {
         let (mut a, mut b) = socket_pair();
         // Hand-write a header claiming 16 MiB + 1 — must fail before body read.
-        a.write_all(&(16 * 1024 * 1024u32 + 1).to_be_bytes()).unwrap();
+        a.write_all(&(16 * 1024 * 1024u32 + 1).to_be_bytes())
+            .unwrap();
         a.flush().unwrap();
         let err = read_frame(&mut b).unwrap_err();
         assert!(err.to_string().contains("response too large"), "{err}");

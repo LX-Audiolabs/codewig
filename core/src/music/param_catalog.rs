@@ -78,9 +78,7 @@ impl ParamCatalog {
     pub fn resolve(&self, name: &str) -> Option<&DeviceParamFile> {
         let n = norm(name);
         self.devices.iter().find(|d| {
-            norm(&d.id) == n
-                || norm(&d.bitwig_name) == n
-                || d.aliases.iter().any(|a| norm(a) == n)
+            norm(&d.id) == n || norm(&d.bitwig_name) == n || d.aliases.iter().any(|a| norm(a) == n)
         })
     }
 
@@ -90,9 +88,9 @@ impl ParamCatalog {
         name: &str,
     ) -> Option<&'a ParamDef> {
         let n = norm(name);
-        dev.params.iter().find(|p| {
-            norm(&p.name) == n || p.aliases.iter().any(|a| norm(a) == n)
-        })
+        dev.params
+            .iter()
+            .find(|p| norm(&p.name) == n || p.aliases.iter().any(|a| norm(a) == n))
     }
 
     /// Map user display value → wire 0..1 (clamped).
@@ -134,13 +132,13 @@ impl ParamCatalog {
         let dev = self.resolve(device);
         let mut out = Vec::with_capacity(sets.len());
         for (name, value) in sets {
-            if let Some(dev) = dev {
-                if let Some(p) = self.resolve_param(dev, name) {
-                    // Help path: aliases + display→wire
-                    let wire_name = bitwig_match_name(p);
-                    out.push((wire_name, Self::display_to_wire(p, *value)));
-                    continue;
-                }
+            if let Some(dev) = dev
+                && let Some(p) = self.resolve_param(dev, name)
+            {
+                // Help path: aliases + display→wire
+                let wire_name = bitwig_match_name(p);
+                out.push((wire_name, Self::display_to_wire(p, *value)));
+                continue;
             }
             // Open path: name as typed, value already wire-normalized
             out.push(wire_passthrough(name, *value)?);
@@ -293,13 +291,13 @@ pub fn candidate_dirs() -> Vec<PathBuf> {
     }
     // Dev / portable: next to cwd and binary
     dirs.push(PathBuf::from("devices"));
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            dirs.push(parent.join("devices"));
-            dirs.push(parent.join("../devices"));
-            dirs.push(parent.join("../../devices"));
-            dirs.push(parent.join("../../../devices"));
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        dirs.push(parent.join("devices"));
+        dirs.push(parent.join("../devices"));
+        dirs.push(parent.join("../../devices"));
+        dirs.push(parent.join("../../../devices"));
     }
     if let Ok(cwd) = std::env::current_dir() {
         dirs.push(cwd.join("devices"));
@@ -329,11 +327,9 @@ fn load_dir(dir: &Path, into: &mut HashMap<String, DeviceParamFile>, errors: &mu
             continue;
         }
         // Skip docs / non-device files
-        if path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .is_some_and(|n| n.eq_ignore_ascii_case("README.yaml") || n.eq_ignore_ascii_case("README.yml"))
-        {
+        if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+            n.eq_ignore_ascii_case("README.yaml") || n.eq_ignore_ascii_case("README.yml")
+        }) {
             continue;
         }
         let Ok(text) = std::fs::read_to_string(&path) else {
@@ -402,10 +398,7 @@ fn global() -> &'static RwLock<Arc<ParamCatalog>> {
 
 /// Snapshot of the process-wide catalog (Arc clone — cheap, lock released).
 pub fn catalog() -> Arc<ParamCatalog> {
-    global()
-        .read()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+    global().read().unwrap_or_else(|e| e.into_inner()).clone()
 }
 
 /// Rescan `devices/` dirs and replace the global catalog.
@@ -499,18 +492,12 @@ mod tests {
             "output",
             "velocity",
         ] {
-            assert!(
-                cat.resolve_param(d, name).is_some(),
-                "missing param {name}"
-            );
+            assert!(cat.resolve_param(d, name).is_some(), "missing param {name}");
         }
         assert!(cat.resolve_param(d, "stereo").is_some());
         assert!(cat.resolve_param(d, "var").is_some());
         let sets = cat
-            .map_param_sets(
-                "v9clap",
-                &[("decay".into(), 50.0), ("flam".into(), 40.0)],
-            )
+            .map_param_sets("v9clap", &[("decay".into(), 50.0), ("flam".into(), 40.0)])
             .unwrap();
         assert_eq!(sets[0].0, "decay");
         assert!((sets[0].1 - 0.5).abs() < 1e-9);
@@ -537,10 +524,7 @@ mod tests {
             "output",
             "velocity",
         ] {
-            assert!(
-                cat.resolve_param(d, name).is_some(),
-                "missing param {name}"
-            );
+            assert!(cat.resolve_param(d, name).is_some(), "missing param {name}");
         }
         // legacy aliases
         assert!(cat.resolve_param(d, "pitch").is_some());
@@ -604,9 +588,10 @@ mod tests {
     fn unknown_device_display_value_errors() {
         let cat = catalog_from_repo_devices();
         // no YAML → 50 is not valid wire
-        assert!(cat
-            .map_param_sets("Surge XT", &[("cutoff".into(), 50.0)])
-            .is_err());
+        assert!(
+            cat.map_param_sets("Surge XT", &[("cutoff".into(), 50.0)])
+                .is_err()
+        );
     }
 
     #[test]
@@ -617,9 +602,9 @@ mod tests {
         // "Codewig", so concurrent env *readers* (paths tests) stay green.
         let tmp = std::env::temp_dir().join(format!("Codewig-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&tmp);
-        std::env::set_var(crate::paths::ENV_HOME, &tmp);
+        unsafe { std::env::set_var(crate::paths::ENV_HOME, &tmp) };
         let n = reload_catalog();
-        std::env::remove_var(crate::paths::ENV_HOME);
+        unsafe { std::env::remove_var(crate::paths::ENV_HOME) };
         assert!(n >= 9, "expected v9 family + polymer, got {n}");
         assert!(catalog().resolve("v9kick").is_some());
         let _ = std::fs::remove_dir_all(&tmp);

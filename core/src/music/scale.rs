@@ -13,7 +13,9 @@ pub enum ScaleError {
     UnknownNote(String),
     #[error("invalid octave: '{0}'")]
     InvalidOctave(String),
-    #[error("unknown scale: '{0}'. Known: major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic, blues, chromatic")]
+    #[error(
+        "unknown scale: '{0}'. Known: major, minor, dorian, phrygian, lydian, mixolydian, locrian, pentatonic, blues, chromatic"
+    )]
     UnknownScale(String),
     #[error("note '{note}' → MIDI {midi} out of range 0..127")]
     OutOfRange { note: String, midi: i32 },
@@ -24,7 +26,7 @@ pub enum ScaleError {
 /// A musical scale: root MIDI note + interval pattern.
 #[derive(Debug, Clone)]
 pub struct Scale {
-    pub root: i32,            // MIDI note of root (e.g. C4 = 60)
+    pub root: i32, // MIDI note of root (e.g. C4 = 60)
     pub kind: ScaleKind,
     pub intervals: &'static [u8], // semitones between scale degrees
 }
@@ -73,18 +75,45 @@ pub static SCALES: &[(&str, ScaleKind, &[u8])] = &[
     ("locrian", ScaleKind::Locrian, &[1, 2, 2, 1, 2, 2, 2]),
     ("pentatonic", ScaleKind::Pentatonic, &[2, 2, 3, 2, 3]),
     ("blues", ScaleKind::Blues, &[3, 2, 1, 1, 3, 2]),
-    ("chromatic", ScaleKind::Chromatic, &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]),
+    (
+        "chromatic",
+        ScaleKind::Chromatic,
+        &[1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    ),
 ];
 
 /// Note name → semitone offset from C (within octave).
 /// English + German accidentals (cis, des, …). `b` alone = B natural (English).
 static NOTE_OFFSETS: &[(&str, i32)] = &[
-    ("c", 0), ("c#", 1), ("db", 1), ("cis", 1), ("des", 1),
-    ("d", 2), ("d#", 3), ("eb", 3), ("dis", 3), ("es", 3),
-    ("e", 4), ("eis", 5), ("fb", 4),
-    ("f", 5), ("f#", 6), ("gb", 6), ("fis", 6), ("ges", 6),
-    ("g", 7), ("g#", 8), ("ab", 8), ("gis", 8), ("as", 8),
-    ("a", 9), ("a#", 10), ("bb", 10), ("ais", 10), ("b", 11), ("h", 11),
+    ("c", 0),
+    ("c#", 1),
+    ("db", 1),
+    ("cis", 1),
+    ("des", 1),
+    ("d", 2),
+    ("d#", 3),
+    ("eb", 3),
+    ("dis", 3),
+    ("es", 3),
+    ("e", 4),
+    ("eis", 5),
+    ("fb", 4),
+    ("f", 5),
+    ("f#", 6),
+    ("gb", 6),
+    ("fis", 6),
+    ("ges", 6),
+    ("g", 7),
+    ("g#", 8),
+    ("ab", 8),
+    ("gis", 8),
+    ("as", 8),
+    ("a", 9),
+    ("a#", 10),
+    ("bb", 10),
+    ("ais", 10),
+    ("b", 11),
+    ("h", 11),
 ];
 
 /// Default octave when omitted: **3** in **Bitwig/Yamaha** naming.
@@ -98,11 +127,17 @@ fn bitwig_octave_to_midi(note_offset: i32, octave: i32) -> i32 {
 }
 
 fn lookup_note_offset(name: &str) -> Option<i32> {
-    NOTE_OFFSETS.iter().find(|(n, _)| *n == name).map(|(_, o)| *o)
+    NOTE_OFFSETS
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, o)| *o)
 }
 
 fn lookup_scale(name: &str) -> Option<(ScaleKind, &'static [u8])> {
-    SCALES.iter().find(|(n, _, _)| *n == name).map(|(_, k, i)| (*k, *i))
+    SCALES
+        .iter()
+        .find(|(n, _, _)| *n == name)
+        .map(|(_, k, i)| (*k, *i))
 }
 
 impl Scale {
@@ -128,20 +163,21 @@ impl Scale {
     /// Degree 0 = root, 1 = second, -1 = 7th below, etc.
     pub fn degree_to_midi(&self, degree: i32) -> i32 {
         let len = self.intervals.len() as i32;
-        if len == 0 { return self.root; }
-
-        // Handle wrapping
-        let octave_shift;
-        let idx;
-        if degree < 0 {
-            octave_shift = (degree + 1) / len - 1;
-            idx = ((degree % len) + len) % len;
-        } else {
-            octave_shift = degree / len;
-            idx = degree % len;
+        if len == 0 {
+            return self.root;
         }
 
-        let semitones: i32 = self.intervals[..idx as usize].iter().map(|&s| s as i32).sum();
+        // Handle wrapping
+        let (octave_shift, idx) = if degree < 0 {
+            ((degree + 1) / len - 1, ((degree % len) + len) % len)
+        } else {
+            (degree / len, degree % len)
+        };
+
+        let semitones: i32 = self.intervals[..idx as usize]
+            .iter()
+            .map(|&s| s as i32)
+            .sum();
         self.root + semitones + octave_shift * 12
     }
 

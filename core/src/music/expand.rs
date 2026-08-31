@@ -16,7 +16,7 @@
 use super::ast::*;
 use super::scale::{self, Scale};
 use crate::NoteSpec;
-use rand::Rng;
+use rand::RngExt;
 use std::fmt;
 
 /// Error during pattern expansion.
@@ -76,12 +76,12 @@ pub fn expand_music_line(
     }
 
     // Apply scale transpose
-    if let Some(st) = cmd.scale_transpose {
-        if let Some(s) = scale {
-            for n in &mut notes {
-                if n.vel > 0 {
-                    n.key = s.scale_transpose(n.key, st);
-                }
+    if let Some(st) = cmd.scale_transpose
+        && let Some(s) = scale
+    {
+        for n in &mut notes {
+            if n.vel > 0 {
+                n.key = s.scale_transpose(n.key, st);
             }
         }
     }
@@ -122,7 +122,8 @@ fn expand_sequence(
     let mut current_step = base_step;
 
     for event in &seq.events {
-        let (mut event_notes, steps_used) = expand_event(event, cmd, scale, steps_per_bar, current_step)?;
+        let (mut event_notes, steps_used) =
+            expand_event(event, cmd, scale, steps_per_bar, current_step)?;
         notes.append(&mut event_notes);
         current_step += steps_used;
     }
@@ -150,8 +151,7 @@ fn expand_event(
     // Determine the base notes and step count for the atom
     let (base_notes, atom_steps) = match &event.atom {
         Atom::Note(name) => {
-            let midi = scale::note_to_midi(name)
-                .map_err(|e| ExpandError { msg: e.to_string() })?;
+            let midi = scale::note_to_midi(name).map_err(|e| ExpandError { msg: e.to_string() })?;
             (
                 vec![NoteSpec {
                     step: base_step as i32,
@@ -205,7 +205,7 @@ fn expand_event(
                 beat,
             )
         }
-        Atom::Group(ref seqs) => {
+        Atom::Group(seqs) => {
             // One beat wall-time → N equal grid slots (16-grid, 4 notes → steps +0..+3, dur 1 each).
             let events: Vec<&Event> = seqs.iter().flat_map(|s| s.events.iter()).collect();
             let division = events.len().max(1) as u32;
@@ -254,20 +254,15 @@ fn expand_event(
             }
             (all_notes, beat)
         }
-        Atom::Alternate(ref alts) => {
+        Atom::Alternate(alts) => {
             // Alternate cycles through options. For static expansion, pick first.
             // ponytail: first alternative only until cycle state exists.
             if let Some(first) = alts.first() {
                 let mut all_notes = Vec::new();
                 let mut max_len = 0u32;
                 for seq in first {
-                    let (mut seq_notes, used) = expand_sequence(
-                        seq,
-                        cmd,
-                        scale,
-                        steps_per_bar,
-                        base_step,
-                    )?;
+                    let (mut seq_notes, used) =
+                        expand_sequence(seq, cmd, scale, steps_per_bar, base_step)?;
                     max_len = max_len.max(used);
                     all_notes.append(&mut seq_notes);
                 }
@@ -276,7 +271,11 @@ fn expand_event(
                 (vec![], beat)
             }
         }
-        Atom::Euclid { beats, steps, offset } => {
+        Atom::Euclid {
+            beats,
+            steps,
+            offset,
+        } => {
             // Same raster as Suffix::Euclid: one euclid cell = one grid step
             // (16th on the 16-grid), like `[c d e f]` subdividing into cells.
             let pattern = euclid_pattern(*beats, *steps, offset.unwrap_or(0));
@@ -297,12 +296,12 @@ fn expand_event(
             }
             (all_notes, (*steps).max(beat))
         }
-        Atom::RandomChoice(ref events) => {
+        Atom::RandomChoice(events) => {
             let mut rng = rand::rng();
             let idx = rng.random_range(0..events.len());
             expand_event(&events[idx], cmd, scale, steps_per_bar, base_step)?
         }
-        Atom::Polymetric(ref polys) => {
+        Atom::Polymetric(polys) => {
             // Polymetric: each sub-pattern runs at its own rate, wrapping
             // v1: take the longest pattern, wrap shorter ones.
             // `used` (consumed grid steps) — NOT events.len(): groups/euclid
@@ -330,7 +329,7 @@ fn expand_event(
             }
             (all_notes, max_len.max(beat))
         }
-        Atom::Subdivide(ref seqs, n) => {
+        Atom::Subdivide(seqs, n) => {
             if *n == 0 {
                 return Err(ExpandError {
                     msg: "subdivide by zero".into(),
@@ -342,14 +341,8 @@ fn expand_event(
             let mut all_notes = Vec::new();
             for (i, seq) in seqs.iter().enumerate() {
                 let sub_base = base_step + (i as f64 * sub_len_f).trunc() as u32;
-                let (mut seq_notes, _) = expand_sequence_stepped(
-                    seq,
-                    cmd,
-                    scale,
-                    steps_per_bar,
-                    sub_base,
-                    sub_dur,
-                )?;
+                let (mut seq_notes, _) =
+                    expand_sequence_stepped(seq, cmd, scale, steps_per_bar, sub_base, sub_dur)?;
                 all_notes.append(&mut seq_notes);
             }
             (all_notes, beat) // ponytail: subdivide fills one beat
@@ -382,7 +375,8 @@ fn expand_sequence_stepped(
     let mut current_step = base_step;
 
     for event in &seq.events {
-        let (mut event_notes, steps_used) = expand_event(event, cmd, scale, steps_per_bar, current_step)?;
+        let (mut event_notes, steps_used) =
+            expand_event(event, cmd, scale, steps_per_bar, current_step)?;
         // Adjust step positions and durations for subdivision
         for n in &mut event_notes {
             n.dur = sub_dur;
@@ -405,14 +399,16 @@ fn apply_suffix(
     match suffix {
         Suffix::Repeat(n) => {
             let n = *n as f64;
-            if notes.is_empty() || n <= 1.0 { return notes; }
+            if notes.is_empty() || n <= 1.0 {
+                return notes;
+            }
             let mut out = Vec::with_capacity(notes.len() * n as usize);
             for i in 0..n as usize {
                 for note in &notes {
                     let mut new_note = note.clone();
                     let relative = (note.step - _base_step) as f64;
-                    new_note.step = _base_step
-                        + (relative / n + i as f64 * step_dur / n).trunc() as i32;
+                    new_note.step =
+                        _base_step + (relative / n + i as f64 * step_dur / n).trunc() as i32;
                     new_note.dur = note.dur / n;
                     out.push(new_note);
                 }
@@ -421,15 +417,22 @@ fn apply_suffix(
         }
         Suffix::Slow(n) => {
             let n = *n;
-            if n <= 1 { return notes; }
-            notes.into_iter().map(|mut note| {
-                note.dur *= n as f64;
-                note
-            }).collect()
+            if n <= 1 {
+                return notes;
+            }
+            notes
+                .into_iter()
+                .map(|mut note| {
+                    note.dur *= n as f64;
+                    note
+                })
+                .collect()
         }
         Suffix::Replicate(n) => {
             let n = *n as usize;
-            if notes.is_empty() || n <= 1 { return notes; }
+            if notes.is_empty() || n <= 1 {
+                return notes;
+            }
             let mut out = Vec::with_capacity(notes.len() * n);
             for i in 0..n {
                 for note in &notes {
@@ -440,32 +443,42 @@ fn apply_suffix(
             }
             out
         }
-        Suffix::Elongate => {
-            notes.into_iter().map(|mut note| {
+        Suffix::Elongate => notes
+            .into_iter()
+            .map(|mut note| {
                 note.dur *= 2.0;
                 note
-            }).collect()
-        }
-        Suffix::ElongateN(n) => {
-            notes.into_iter().map(|mut note| {
+            })
+            .collect(),
+        Suffix::ElongateN(n) => notes
+            .into_iter()
+            .map(|mut note| {
                 note.dur *= *n as f64;
                 note
-            }).collect()
-        }
+            })
+            .collect(),
         Suffix::RandomDrop(prob) => {
             let p = prob.unwrap_or(0.5);
             let mut rng = rand::rng();
-            notes.into_iter().filter(|_| rng.random::<f64>() > p).collect()
+            notes
+                .into_iter()
+                .filter(|_| rng.random::<f64>() > p)
+                .collect()
         }
-        Suffix::Octave(n) => {
-            notes.into_iter().map(|mut note| {
+        Suffix::Octave(n) => notes
+            .into_iter()
+            .map(|mut note| {
                 if note.vel > 0 {
                     note.key = (note.key + n * 12).clamp(0, 127);
                 }
                 note
-            }).collect()
-        }
-        Suffix::Euclid { beats, steps, offset } => {
+            })
+            .collect(),
+        Suffix::Euclid {
+            beats,
+            steps,
+            offset,
+        } => {
             // One cell = one grid step (same raster as Atom::Euclid).
             // Source notes cycle across hits, so `c(3,8)` yields 3 notes.
             let pattern = euclid_pattern(*beats, *steps, offset.unwrap_or(0));
@@ -514,28 +527,31 @@ fn euclid_pattern(beats: u32, steps: u32, offset: u32) -> Vec<bool> {
 
 /// Chord quality → semitone intervals from root.
 static CHORD_INTERVALS: &[(&str, &[i32])] = &[
-    ("", &[0, 4, 7]),              // major
-    ("m", &[0, 3, 7]),             // minor
+    ("", &[0, 4, 7]),  // major
+    ("m", &[0, 3, 7]), // minor
     ("min", &[0, 3, 7]),
-    ("dim", &[0, 3, 6]),           // diminished
-    ("aug", &[0, 4, 8]),           // augmented
-    ("7", &[0, 4, 7, 10]),         // dominant 7
-    ("m7", &[0, 3, 7, 10]),        // minor 7
-    ("maj7", &[0, 4, 7, 11]),      // major 7
-    ("m7b5", &[0, 3, 6, 10]),      // half-diminished
-    ("dim7", &[0, 3, 6, 9]),       // diminished 7
-    ("sus4", &[0, 5, 7]),          // suspended 4
-    ("sus2", &[0, 2, 7]),          // suspended 2
-    ("6", &[0, 4, 7, 9]),          // major 6
-    ("m6", &[0, 3, 7, 9]),         // minor 6
-    ("9", &[0, 4, 7, 10, 14]),     // dominant 9
-    ("m9", &[0, 3, 7, 10, 14]),    // minor 9
-    ("maj9", &[0, 4, 7, 11, 14]),  // major 9
+    ("dim", &[0, 3, 6]),          // diminished
+    ("aug", &[0, 4, 8]),          // augmented
+    ("7", &[0, 4, 7, 10]),        // dominant 7
+    ("m7", &[0, 3, 7, 10]),       // minor 7
+    ("maj7", &[0, 4, 7, 11]),     // major 7
+    ("m7b5", &[0, 3, 6, 10]),     // half-diminished
+    ("dim7", &[0, 3, 6, 9]),      // diminished 7
+    ("sus4", &[0, 5, 7]),         // suspended 4
+    ("sus2", &[0, 2, 7]),         // suspended 2
+    ("6", &[0, 4, 7, 9]),         // major 6
+    ("m6", &[0, 3, 7, 9]),        // minor 6
+    ("9", &[0, 4, 7, 10, 14]),    // dominant 9
+    ("m9", &[0, 3, 7, 10, 14]),   // minor 9
+    ("maj9", &[0, 4, 7, 11, 14]), // major 9
 ];
 
 /// Look up chord intervals by quality string (e.g., "m", "7", "m7b5").
 pub fn chord_intervals(quality: &str) -> Option<&'static [i32]> {
-    CHORD_INTERVALS.iter().find(|(q, _)| *q == quality).map(|(_, iv)| *iv)
+    CHORD_INTERVALS
+        .iter()
+        .find(|(q, _)| *q == quality)
+        .map(|(_, iv)| *iv)
 }
 
 /// Expand a chord string like "C Am F G" into NoteSpec entries.
@@ -562,8 +578,9 @@ pub fn expand_chord(
             scale::note_to_midi(&root).unwrap_or(48)
         };
 
-        let intervals = chord_intervals(&quality)
-            .ok_or_else(|| ExpandError { msg: format!("unknown chord quality: '{quality}'") })?;
+        let intervals = chord_intervals(&quality).ok_or_else(|| ExpandError {
+            msg: format!("unknown chord quality: '{quality}'"),
+        })?;
 
         for &iv in intervals {
             notes.push(NoteSpec {
@@ -583,12 +600,16 @@ pub fn expand_chord(
 fn parse_chord_token(token: &str) -> Result<(String, String), ExpandError> {
     let s = token.trim();
     if s.is_empty() {
-        return Err(ExpandError { msg: "empty chord token".into() });
+        return Err(ExpandError {
+            msg: "empty chord token".into(),
+        });
     }
     let chars: Vec<char> = s.chars().collect();
 
     // Roman numerals: all chars are i/v/x (case insensitive)
-    let is_roman = chars.iter().all(|c| matches!(c, 'i' | 'I' | 'v' | 'V' | 'x' | 'X'));
+    let is_roman = chars
+        .iter()
+        .all(|c| matches!(c, 'i' | 'I' | 'v' | 'V' | 'x' | 'X'));
     if is_roman {
         return Ok((s.to_string(), String::new()));
     }
@@ -609,8 +630,13 @@ fn parse_chord_token(token: &str) -> Result<(String, String), ExpandError> {
 fn parse_roman_degree(s: &str) -> Result<i32, ()> {
     let lower = s.to_lowercase();
     match lower.as_str() {
-        "i" => Ok(0), "ii" => Ok(1), "iii" => Ok(2),
-        "iv" => Ok(3), "v" => Ok(4), "vi" => Ok(5), "vii" => Ok(6),
+        "i" => Ok(0),
+        "ii" => Ok(1),
+        "iii" => Ok(2),
+        "iv" => Ok(3),
+        "v" => Ok(4),
+        "vi" => Ok(5),
+        "vii" => Ok(6),
         _ => Err(()),
     }
 }
@@ -630,14 +656,14 @@ fn arp_source_pitches(pattern: &str, scale: Option<&Scale>) -> Result<Vec<i32>, 
     }
 
     // Single token: prefer chord (C, Am7, iii) so `arp "C"` = triad tones
-    if tokens.len() == 1 {
-        if let Ok(block) = expand_chord(tokens[0], scale, 1, 0) {
-            let mut keys: Vec<i32> = block.iter().map(|n| n.key).collect();
-            keys.sort_unstable();
-            keys.dedup();
-            if !keys.is_empty() {
-                return Ok(keys);
-            }
+    if tokens.len() == 1
+        && let Ok(block) = expand_chord(tokens[0], scale, 1, 0)
+    {
+        let mut keys: Vec<i32> = block.iter().map(|n| n.key).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        if !keys.is_empty() {
+            return Ok(keys);
         }
     }
 
@@ -650,19 +676,19 @@ fn arp_source_pitches(pattern: &str, scale: Option<&Scale>) -> Result<Vec<i32>, 
 
 fn resolve_arp_pitch(token: &str, scale: Option<&Scale>) -> Result<i32, ExpandError> {
     if let Ok(d) = token.parse::<i32>() {
-        if let Some(s) = scale {
-            if (-24..24).contains(&d) {
-                return Ok(s.degree_to_midi(d));
-            }
+        if let Some(s) = scale
+            && (-24..24).contains(&d)
+        {
+            return Ok(s.degree_to_midi(d));
         }
         if (0..=127).contains(&d) {
             return Ok(d);
         }
     }
-    if let Some(s) = scale {
-        if let Ok(d) = parse_roman_degree(token) {
-            return Ok(s.degree_to_midi(d));
-        }
+    if let Some(s) = scale
+        && let Ok(d) = parse_roman_degree(token)
+    {
+        return Ok(s.degree_to_midi(d));
     }
     scale::note_to_midi(token).map_err(|e| ExpandError { msg: e.to_string() })
 }
@@ -710,7 +736,9 @@ pub fn expand_arp(
             let period = if period == 0 { 1 } else { period };
             for i in 0..steps {
                 let mut p = i as usize % period;
-                if p >= n { p = period - p; }
+                if p >= n {
+                    p = period - p;
+                }
                 out.push(NoteSpec {
                     step: base_step + i as i32,
                     key: notes[p],
@@ -739,9 +767,9 @@ pub fn expand_arp(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::parse;
     use super::super::scale::Scale;
+    use super::*;
 
     #[test]
     fn test_expand_simple_notes() {
@@ -848,13 +876,20 @@ mod tests {
     fn test_euclid_pattern() {
         let pat = euclid_pattern(3, 8, 0);
         assert_eq!(pat.len(), 8);
-        let hits: Vec<usize> = pat.iter().enumerate().filter(|(_, &h)| h).map(|(i, _)| i).collect();
+        let hits: Vec<usize> = pat
+            .iter()
+            .enumerate()
+            .filter(|&(_, &h)| h)
+            .map(|(i, _)| i)
+            .collect();
         assert_eq!(hits.len(), 3);
     }
 
     fn expand_steps(line: &str) -> (Vec<i32>, u32) {
         let parsed = parse::parse_music_line(line).unwrap();
-        let MusicLine::Music(ref cmd) = parsed else { panic!("expected Music") };
+        let MusicLine::Music(ref cmd) = parsed else {
+            panic!("expected Music")
+        };
         let (notes, steps) = expand_music_line(cmd, None, 16).unwrap();
         (notes.iter().map(|n| n.step).collect(), steps)
     }
@@ -871,7 +906,9 @@ mod tests {
     fn test_expand_euclid_suffix_grid() {
         // `c(3,8)` suffix: same raster as the atom form, source note cycles over hits
         let line = parse::parse_music_line(r#"bass: n "c(3,8)""#).unwrap();
-        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let MusicLine::Music(ref cmd) = line else {
+            panic!("expected Music")
+        };
         let (notes, total) = expand_music_line(cmd, None, 16).unwrap();
         assert_eq!(notes.len(), 3);
         let positions: Vec<i32> = notes.iter().map(|n| n.step).collect();
@@ -892,7 +929,9 @@ mod tests {
     fn test_expand_repeat_positions() {
         // `c*3` — three hits at grid steps 0,1,2, dur shrunk to beat/3
         let line = parse::parse_music_line(r#"bass: n "c*3""#).unwrap();
-        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let MusicLine::Music(ref cmd) = line else {
+            panic!("expected Music")
+        };
         let (notes, total) = expand_music_line(cmd, None, 16).unwrap();
         let positions: Vec<i32> = notes.iter().map(|n| n.step).collect();
         assert_eq!(positions, vec![0, 1, 2]);
@@ -988,11 +1027,21 @@ mod tests {
         // `{c e g}%3` squeezes three events into one beat evenly.
         // 16-grid: beat = 4 steps; each slot = 4/3 steps, truncated to grid steps.
         let line = parse::parse_music_line(r#"bass: n "{c e g}%3""#).unwrap();
-        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let MusicLine::Music(ref cmd) = line else {
+            panic!("expected Music")
+        };
         let (notes, total) = expand_music_line(cmd, None, 16).unwrap();
-        assert_eq!(notes.len(), 3, "subdivide should produce one note per sub-slot");
+        assert_eq!(
+            notes.len(),
+            3,
+            "subdivide should produce one note per sub-slot"
+        );
         let positions: Vec<i32> = notes.iter().map(|n| n.step).collect();
-        assert_eq!(positions, vec![0, 1, 2], "sub-slot steps should be distributed across the beat");
+        assert_eq!(
+            positions,
+            vec![0, 1, 2],
+            "sub-slot steps should be distributed across the beat"
+        );
         assert!(notes.iter().all(|n| (n.dur - 4.0 / 3.0).abs() < 1e-9));
         assert_eq!(total, 4);
     }
@@ -1001,10 +1050,15 @@ mod tests {
     fn test_expand_random_choice_preserves_suffixes() {
         // `[c*2 | d]` — the chosen atom may carry its own suffix.
         let line = parse::parse_music_line(r#"bass: n "[c*2 | d]""#).unwrap();
-        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let MusicLine::Music(ref cmd) = line else {
+            panic!("expected Music")
+        };
         let (notes, total) = expand_music_line(cmd, None, 16).unwrap();
         // Either c*2 (2 notes) or d (1 note), but never a bare c.
-        assert!(notes.len() == 1 || notes.len() == 2, "random choice should keep inner suffixes");
+        assert!(
+            notes.len() == 1 || notes.len() == 2,
+            "random choice should keep inner suffixes"
+        );
         assert_eq!(total, 4);
     }
 
@@ -1012,7 +1066,9 @@ mod tests {
     fn test_expand_repeat_on_group() {
         // `[c e]*2` repeats the group twice inside one beat.
         let line = parse::parse_music_line(r#"bass: n "[c e]*2""#).unwrap();
-        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let MusicLine::Music(ref cmd) = line else {
+            panic!("expected Music")
+        };
         let (notes, total) = expand_music_line(cmd, None, 16).unwrap();
         assert_eq!(notes.len(), 4);
         let positions: Vec<i32> = notes.iter().map(|n| n.step).collect();
@@ -1024,7 +1080,9 @@ mod tests {
     fn test_expand_alternate_keeps_group_subdivision() {
         // `<[c d] e>` — the [c d] group should stay as 8ths inside its beat.
         let line = parse::parse_music_line(r#"bass: n "<[c d] e>""#).unwrap();
-        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let MusicLine::Music(ref cmd) = line else {
+            panic!("expected Music")
+        };
         let (notes, total) = expand_music_line(cmd, None, 16).unwrap();
         // First alternative only; [c d] should occupy steps 0 and 2 (8ths).
         assert_eq!(notes.len(), 2);
@@ -1038,7 +1096,9 @@ mod tests {
     #[test]
     fn test_expand_subdivide_zero_rejected() {
         let line = parse::parse_music_line(r#"bass: n "{c e}%0""#).unwrap();
-        let MusicLine::Music(ref cmd) = line else { panic!("expected Music") };
+        let MusicLine::Music(ref cmd) = line else {
+            panic!("expected Music")
+        };
         let err = expand_music_line(cmd, None, 16).unwrap_err();
         assert!(err.to_string().contains("subdivide"), "{err}");
     }

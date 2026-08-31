@@ -11,5 +11,5 @@ repository = "https://github.com/LX-Audiolabs/codewig"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
-rand = "0.9"
+rand = "0.10"
 serde_norway = "0.9"

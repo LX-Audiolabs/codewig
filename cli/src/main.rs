@@ -1,10 +1,10 @@
 use clap::{CommandFactory, Parser, Subcommand};
 use clap_complete::Shell;
 use codewig_core::music::{
-    execute_line, key_to_midi, parse_music_line, resolve_track_at, run_chain, MusicLine,
-    MusicSession,
+    MusicLine, MusicSession, execute_line, key_to_midi, parse_music_line, resolve_track_at,
+    run_chain,
 };
-use codewig_core::{parse_name_eq_value, parse_note_spec, Client, NoteSpec};
+use codewig_core::{Client, NoteSpec, parse_name_eq_value, parse_note_spec};
 use serde_json::Value;
 use std::process::ExitCode;
 
@@ -429,7 +429,10 @@ fn run_with(
 
 /// Send a single command over the shared client via typed `Client` methods and
 /// return the extension's result value, or `None` when the command only returns `{ok:true}`.
-fn dispatch(client: &Client, command: Commands) -> Result<Option<Value>, Box<dyn std::error::Error>> {
+fn dispatch(
+    client: &Client,
+    command: Commands,
+) -> Result<Option<Value>, Box<dyn std::error::Error>> {
     let result = match command {
         Commands::Chain { .. }
         | Commands::Batch { .. }
@@ -507,17 +510,9 @@ fn dispatch(client: &Client, command: Commands) -> Result<Option<Value>, Box<dyn
             ClipCmd::List { track } => client.clip_list(&track)?,
             ClipCmd::Launch { track, slot } => client.clip_launch(&track, slot)?,
             ClipCmd::Stop { track } => client.clip_stop(&track)?,
-            ClipCmd::Rename {
-                track,
-                slot,
-                name,
-            } => client.clip_rename(&track, slot, &name)?,
+            ClipCmd::Rename { track, slot, name } => client.clip_rename(&track, slot, &name)?,
             ClipCmd::Delete { track, slot } => client.clip_delete(&track, slot)?,
-            ClipCmd::Note {
-                track,
-                slot,
-                notes,
-            } => {
+            ClipCmd::Note { track, slot, notes } => {
                 // replace = clear + write one RPC (live pattern rewrite)
                 let parsed: Result<Vec<NoteSpec>, _> =
                     notes.iter().map(|s| parse_note_spec(s)).collect();

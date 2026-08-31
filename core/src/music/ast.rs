@@ -42,7 +42,7 @@ pub enum MusicLine {
 /// Fluent creation/update: `new track(kick).device(kick.v9).beat(4_).mute().clip(start)`
 #[derive(Debug, Clone, PartialEq)]
 pub struct FluentCmd {
-    pub create: bool,                   // true for "new track(...)", false for "t(...)"
+    pub create: bool, // true for "new track(...)", false for "t(...)"
     pub track: String,
     pub steps: Vec<FluentStep>,
 }
@@ -71,7 +71,7 @@ pub enum FluentStep {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeviceSpec {
-    pub catalog_name: String,   // "kick.v9", "hat.v8", "Polymer", "Delay-2"
+    pub catalog_name: String, // "kick.v9", "hat.v8", "Polymer", "Delay-2"
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -218,17 +218,17 @@ pub struct NoteMods {
 pub struct MusicCmd {
     pub target: Target,
     pub action: MusicAction,
-    pub pattern: String,                  // mini-notation string (without quotes)
+    pub pattern: String, // mini-notation string (without quotes)
     pub params: Vec<ParamSet>,
-    pub transpose: Option<i32>,           // ^N
-    pub scale_transpose: Option<i32>,     // ^^N
+    pub transpose: Option<i32>,       // ^N
+    pub scale_transpose: Option<i32>, // ^^N
     pub note_mods: NoteMods,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MusicAction {
-    Notes,      // n — exact pitches (any track, including drum modules if user wants)
-    Chord,      // chord
+    Notes, // n — exact pitches (any track, including drum modules if user wants)
+    Chord, // chord
     /// `arp` / `arp:up` / `arp:down` / `arp:updown` / `arp:rand` — expand_arp
     Arp(ArpStyle),
 }
@@ -246,7 +246,7 @@ pub enum ArpStyle {
 pub struct Target {
     pub track: String,
     pub clip: Option<ClipRef>,
-    pub drum_kit: Option<String>,  // "808", "909", "retro"
+    pub drum_kit: Option<String>, // "808", "909", "retro"
 }
 
 /// Clip / scene-row address on a track (Bitwig: column=track, row=scene slot).
@@ -269,7 +269,9 @@ pub struct SceneTrackClipCmd {
 #[derive(Debug, Clone, PartialEq)]
 pub enum SceneClipAction {
     /// Create empty launcher clip at track × scene (optional clip display name).
-    New { name: Option<String> },
+    New {
+        name: Option<String>,
+    },
     Start,
     Stop,
 }
@@ -286,7 +288,7 @@ pub struct ParamSet {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChainCmd {
     pub name: String,
-    pub kind: String,          // "instrument" default
+    pub kind: String, // "instrument" default
     pub drum_kit: Option<String>,
     pub devices: Vec<String>,
 }
@@ -340,7 +342,7 @@ pub enum LaunchAction {
 /// A parsed mini-notation pattern.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Pattern {
-    pub sequences: Vec<Sequence>,  // comma-separated (superposition)
+    pub sequences: Vec<Sequence>, // comma-separated (superposition)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -356,13 +358,13 @@ pub struct Event {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Atom {
-    Note(String),           // "c4", "eb", "f#"
-    Midi(i32),              // 60, 36, 127
+    Note(String), // "c4", "eb", "f#"
+    Midi(i32),    // 60, 36, 127
     Rest,
-    Group(Vec<Sequence>),   // [ ... ]
-    Alternate(Vec<Vec<Sequence>>), // < ... >
+    Group(Vec<Sequence>),           // [ ... ]
+    Alternate(Vec<Vec<Sequence>>),  // < ... >
     Polymetric(Vec<Vec<Sequence>>), // { ... }
-    RandomChoice(Vec<Event>),   // | inside group
+    RandomChoice(Vec<Event>),       // | inside group
     Euclid {
         beats: u32,
         steps: u32,
@@ -373,12 +375,16 @@ pub enum Atom {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Suffix {
-    Repeat(u32),       // *N
-    Slow(u32),         // /N
-    Replicate(u32),    // !N
-    Elongate,          // _
-    ElongateN(u32),    // @N
+    Repeat(u32),             // *N
+    Slow(u32),               // /N
+    Replicate(u32),          // !N
+    Elongate,                // _
+    ElongateN(u32),          // @N
     RandomDrop(Option<f64>), // ? or ?0.3
-    Octave(i32),       // :N
-    Euclid { beats: u32, steps: u32, offset: Option<u32> }, // (beats,steps) or (beats,steps,offset)
+    Octave(i32),             // :N
+    Euclid {
+        beats: u32,
+        steps: u32,
+        offset: Option<u32>,
+    }, // (beats,steps) or (beats,steps,offset)
 }

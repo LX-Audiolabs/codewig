@@ -18,13 +18,7 @@ pub(crate) fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
     } else {
         s.strip_prefix("track(").or_else(|| s.strip_prefix("t("))
     }
-    .ok_or_else(|| {
-        ParseError::new(
-            "expected new track(|new t(|track(|t(",
-            0,
-            s.to_string(),
-        )
-    })?;
+    .ok_or_else(|| ParseError::new("expected new track(|new t(|track(|t(", 0, s.to_string()))?;
 
     let (track_name, mut rest) = parse_paren_arg(rest, s, 0)?;
 
@@ -56,11 +50,20 @@ pub(crate) fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
             rest = &rest[6..];
         } else if rest.starts_with("rename(") {
             let after = rest.strip_prefix("rename(").unwrap();
-            let closing = after.find(')').ok_or_else(||
-                ParseError::new("expected ')' after rename name", s.len() - after.len(), s.to_string()))?;
+            let closing = after.find(')').ok_or_else(|| {
+                ParseError::new(
+                    "expected ')' after rename name",
+                    s.len() - after.len(),
+                    s.to_string(),
+                )
+            })?;
             let name = after[..closing].trim();
             if name.is_empty() {
-                return Err(ParseError::new("rename needs a name: .rename(name)", s.len() - after.len(), s.to_string()));
+                return Err(ParseError::new(
+                    "rename needs a name: .rename(name)",
+                    s.len() - after.len(),
+                    s.to_string(),
+                ));
             }
             steps.push(FluentStep::Rename(name.to_string()));
             rest = &after[closing + 1..];
@@ -68,9 +71,14 @@ pub(crate) fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
             steps.push(FluentStep::Delete);
             rest = &rest[8..];
         } else if rest.starts_with("clip(") || rest.starts_with("c(") {
-            let after = rest.find('(').map(|i| &rest[i+1..]).unwrap_or("");
-            let closing = after.find(')').ok_or_else(||
-                ParseError::new("expected ')' after clip/c", s.len() - rest.len(), s.to_string()))?;
+            let after = rest.find('(').map(|i| &rest[i + 1..]).unwrap_or("");
+            let closing = after.find(')').ok_or_else(|| {
+                ParseError::new(
+                    "expected ')' after clip/c",
+                    s.len() - rest.len(),
+                    s.to_string(),
+                )
+            })?;
             let content = after[..closing].trim();
             // Check if content is a slot number or "start"/"stop"
             if content == "start" || content == "stop" || content == "launch" {
@@ -84,13 +92,22 @@ pub(crate) fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
                 rest = &after[closing + 1..];
             } else {
                 // .c(0) or .c(0,1) → ClipCtrl with slot refs
-                let refs: Result<Vec<ClipCtrlRef>, _> = content.split(',')
+                let refs: Result<Vec<ClipCtrlRef>, _> = content
+                    .split(',')
                     .map(|r| r.trim())
                     .filter(|r| !r.is_empty())
                     .map(|r| {
-                        let slot: i32 = r.parse().map_err(|_|
-                            ParseError::new(format!("invalid slot: '{r}'"), s.len() - rest.len(), s.to_string()))?;
-                        Ok(ClipCtrlRef { track: String::new(), slot })
+                        let slot: i32 = r.parse().map_err(|_| {
+                            ParseError::new(
+                                format!("invalid slot: '{r}'"),
+                                s.len() - rest.len(),
+                                s.to_string(),
+                            )
+                        })?;
+                        Ok(ClipCtrlRef {
+                            track: String::new(),
+                            slot,
+                        })
                     })
                     .collect();
                 let refs = refs?;
@@ -100,38 +117,72 @@ pub(crate) fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
                 // Advance past the action text (.start/.stop/.delete()/.rename(…));
                 // rename may contain spaces inside its parens.
                 let action_len = if after_paren.trim_start().starts_with(".rename(") {
-                    after_paren.find(')').map(|i| i + 1).unwrap_or(after_paren.len())
+                    after_paren
+                        .find(')')
+                        .map(|i| i + 1)
+                        .unwrap_or(after_paren.len())
                 } else {
-                    after_paren.chars().take_while(|c| !c.is_whitespace()).count()
+                    after_paren
+                        .chars()
+                        .take_while(|c| !c.is_whitespace())
+                        .count()
                 };
                 rest = &after_paren[action_len..];
             }
         } else {
             return Err(ParseError::new(
-                format!("unknown fluent step: '.{}'", rest.chars().take(10).collect::<String>()),
-                s.len() - rest.len(), s.to_string()));
+                format!(
+                    "unknown fluent step: '.{}'",
+                    rest.chars().take(10).collect::<String>()
+                ),
+                s.len() - rest.len(),
+                s.to_string(),
+            ));
         }
     }
 
-    Ok(MusicLine::Fluent(FluentCmd { create, track: track_name, steps }))
+    Ok(MusicLine::Fluent(FluentCmd {
+        create,
+        track: track_name,
+        steps,
+    }))
 }
 
-pub(crate) fn parse_paren_arg<'a>(input: &'a str, full_input: &str, _offset: usize) -> ParseResult<(String, &'a str)> {
-    let closing = input.find(')').ok_or_else(||
-        ParseError::new("expected ')' after argument", full_input.len() - input.len(), full_input.to_string()))?;
+pub(crate) fn parse_paren_arg<'a>(
+    input: &'a str,
+    full_input: &str,
+    _offset: usize,
+) -> ParseResult<(String, &'a str)> {
+    let closing = input.find(')').ok_or_else(|| {
+        ParseError::new(
+            "expected ')' after argument",
+            full_input.len() - input.len(),
+            full_input.to_string(),
+        )
+    })?;
     let name = input[..closing].trim().to_string();
     Ok((name, &input[closing + 1..]))
 }
 
 fn parse_device_step<'a>(input: &'a str, full_input: &str) -> ParseResult<(DeviceSpec, &'a str)> {
-    let after = input.strip_prefix("device(").or_else(|| input.strip_prefix("d("))
+    let after = input
+        .strip_prefix("device(")
+        .or_else(|| input.strip_prefix("d("))
         .unwrap();
     parse_device_in_paren(after, full_input)
 }
 
-pub(crate) fn parse_device_in_paren<'a>(after: &'a str, full_input: &str) -> ParseResult<(DeviceSpec, &'a str)> {
-    let closing = after.find(')').ok_or_else(||
-        ParseError::new("expected ')' after device name", full_input.len() - after.len(), full_input.to_string()))?;
+pub(crate) fn parse_device_in_paren<'a>(
+    after: &'a str,
+    full_input: &str,
+) -> ParseResult<(DeviceSpec, &'a str)> {
+    let closing = after.find(')').ok_or_else(|| {
+        ParseError::new(
+            "expected ')' after device name",
+            full_input.len() - after.len(),
+            full_input.to_string(),
+        )
+    })?;
     let name = after[..closing].trim().to_string();
     Ok((DeviceSpec { catalog_name: name }, &after[closing + 1..]))
 }
@@ -141,19 +192,42 @@ fn parse_beat_step<'a>(input: &'a str, full_input: &str) -> ParseResult<(BeatSpe
 
     // beat:16(1,5,11,14)  — explicit
     if let Some(after_colon) = rest.strip_prefix(':') {
-        let paren = after_colon.find('(').ok_or_else(||
-            ParseError::new("expected '(positions)' after beat:N", full_input.len() - input.len(), full_input.to_string()))?;
+        let paren = after_colon.find('(').ok_or_else(|| {
+            ParseError::new(
+                "expected '(positions)' after beat:N",
+                full_input.len() - input.len(),
+                full_input.to_string(),
+            )
+        })?;
         let grid_str = &after_colon[..paren];
-        let grid: u32 = grid_str.parse().map_err(|_|
-            ParseError::new(format!("invalid grid size: '{grid_str}'"), full_input.len() - input.len(), full_input.to_string()))?;
+        let grid: u32 = grid_str.parse().map_err(|_| {
+            ParseError::new(
+                format!("invalid grid size: '{grid_str}'"),
+                full_input.len() - input.len(),
+                full_input.to_string(),
+            )
+        })?;
 
         let after_paren = &after_colon[paren + 1..];
-        let closing = after_paren.find(')').ok_or_else(||
-            ParseError::new("expected ')' after beat positions", full_input.len() - input.len(), full_input.to_string()))?;
+        let closing = after_paren.find(')').ok_or_else(|| {
+            ParseError::new(
+                "expected ')' after beat positions",
+                full_input.len() - input.len(),
+                full_input.to_string(),
+            )
+        })?;
         let pos_str = &after_paren[..closing];
-        let positions: Result<Vec<u32>, _> = pos_str.split(',').map(|s| s.trim().parse::<u32>()).collect();
-        let mut positions = positions.map_err(|_|
-            ParseError::new(format!("invalid beat positions: '{pos_str}'"), full_input.len() - input.len(), full_input.to_string()))?;
+        let positions: Result<Vec<u32>, _> = pos_str
+            .split(',')
+            .map(|s| s.trim().parse::<u32>())
+            .collect();
+        let mut positions = positions.map_err(|_| {
+            ParseError::new(
+                format!("invalid beat positions: '{pos_str}'"),
+                full_input.len() - input.len(),
+                full_input.to_string(),
+            )
+        })?;
         // Positions are always 1-based (musician view). Validate and convert to 0-based for Bitwig.
         if positions.is_empty() {
             return Err(ParseError::new(
@@ -175,16 +249,28 @@ fn parse_beat_step<'a>(input: &'a str, full_input: &str) -> ParseResult<(BeatSpe
             *p -= 1;
         }
 
-        Ok((BeatSpec::Explicit { grid, positions }, &after_paren[closing + 1..]))
+        Ok((
+            BeatSpec::Explicit { grid, positions },
+            &after_paren[closing + 1..],
+        ))
     } else if rest.starts_with('(') {
         // beat(4_) or beat(off)
-        let closing = rest.find(')').ok_or_else(||
-            ParseError::new("expected ')' after beat shorthand", full_input.len() - input.len(), full_input.to_string()))?;
+        let closing = rest.find(')').ok_or_else(|| {
+            ParseError::new(
+                "expected ')' after beat shorthand",
+                full_input.len() - input.len(),
+                full_input.to_string(),
+            )
+        })?;
         let shorthand = &rest[1..closing].trim();
         let spec = parse_beat_shorthand(shorthand, full_input, input)?;
         Ok((spec, &rest[closing + 1..]))
     } else {
-        Err(ParseError::new("expected beat(4_) or beat:16(...)", full_input.len() - input.len(), full_input.to_string()))
+        Err(ParseError::new(
+            "expected beat(4_) or beat:16(...)",
+            full_input.len() - input.len(),
+            full_input.to_string(),
+        ))
     }
 }
 
@@ -196,13 +282,15 @@ fn parse_beat_shorthand(s: &str, full_input: &str, input: &str) -> ParseResult<B
         "bk2" => Ok(BeatSpec::Break2),
         _ => Err(ParseError::new(
             format!("unknown beat shorthand: '{s}'. Use 4_, 2_4, off, bk2, or beat:16(1,5,...)"),
-            full_input.len() - input.len(), full_input.to_string())),
+            full_input.len() - input.len(),
+            full_input.to_string(),
+        )),
     }
 }
 
 /// Extract content from `name("pattern")` — for `n("c e g")` inside fluent chain.
 fn extract_paren_quoted<'a>(input: &'a str, full_input: &str) -> ParseResult<(String, &'a str)> {
-    let after = input.find('(').map(|i| &input[i+1..]).unwrap_or("");
+    let after = input.find('(').map(|i| &input[i + 1..]).unwrap_or("");
     let after = after.trim_start();
     if after.starts_with('"') {
         let (content, remainder) = extract_quoted(after, full_input)?;
@@ -211,8 +299,13 @@ fn extract_paren_quoted<'a>(input: &'a str, full_input: &str) -> ParseResult<(St
         let remainder = remainder.strip_prefix(')').unwrap_or(remainder);
         Ok((content, remainder))
     } else {
-        let closing = after.find(')').ok_or_else(||
-            ParseError::new("expected ')' after pattern", full_input.len() - after.len(), full_input.to_string()))?;
+        let closing = after.find(')').ok_or_else(|| {
+            ParseError::new(
+                "expected ')' after pattern",
+                full_input.len() - after.len(),
+                full_input.to_string(),
+            )
+        })?;
         Ok((after[..closing].trim().to_string(), &after[closing + 1..]))
     }
 }
@@ -232,9 +325,15 @@ mod tests {
             assert_eq!(cmd.track, "kick");
             assert_eq!(cmd.steps.len(), 4);
             assert!(matches!(cmd.steps[0], FluentStep::Device(_)));
-            assert!(matches!(cmd.steps[1], FluentStep::Beat(BeatSpec::FourToFloor)));
+            assert!(matches!(
+                cmd.steps[1],
+                FluentStep::Beat(BeatSpec::FourToFloor)
+            ));
             assert!(matches!(cmd.steps[2], FluentStep::Mute));
-            assert!(matches!(cmd.steps[3], FluentStep::ClipAction(ClipAction::Start)));
+            assert!(matches!(
+                cmd.steps[3],
+                FluentStep::ClipAction(ClipAction::Start)
+            ));
         } else {
             panic!("expected Fluent, got {:?}", result);
         }
@@ -250,8 +349,12 @@ mod tests {
                 assert_eq!(*grid, 16);
                 // Positions are always 1-based; stored 0-based for Bitwig.
                 assert_eq!(*positions, vec![0, 4, 8, 12]);
-            } else { panic!("expected Beat::Explicit"); }
-        } else { panic!("expected Fluent"); }
+            } else {
+                panic!("expected Beat::Explicit");
+            }
+        } else {
+            panic!("expected Fluent");
+        }
     }
 
     #[test]
@@ -265,8 +368,12 @@ mod tests {
             if let FluentStep::Beat(BeatSpec::Explicit { grid, positions }) = &cmd.steps[1] {
                 assert_eq!(*grid, 16);
                 assert_eq!(*positions, vec![0, 1, 2]);
-            } else { panic!("expected Beat::Explicit"); }
-        } else { panic!("expected Fluent"); }
+            } else {
+                panic!("expected Beat::Explicit");
+            }
+        } else {
+            panic!("expected Fluent");
+        }
     }
 
     #[test]
@@ -286,7 +393,9 @@ mod tests {
             assert!(matches!(cmd.steps[0], FluentStep::Device(_)));
             assert!(matches!(cmd.steps[1], FluentStep::Add(_)));
             assert!(matches!(cmd.steps[2], FluentStep::Pattern { .. }));
-        } else { panic!("expected Fluent"); }
+        } else {
+            panic!("expected Fluent");
+        }
     }
     #[test]
     fn test_parse_fluent_c_slots() {
@@ -297,19 +406,25 @@ mod tests {
             assert!(!cmd.create);
             assert_eq!(cmd.track, "bass");
             assert!(matches!(&cmd.steps[0], FluentStep::ClipCtrl(_)));
-        } else { panic!("expected Fluent, got {:?}", result); }
+        } else {
+            panic!("expected Fluent, got {:?}", result);
+        }
     }
     #[test]
     fn test_parse_fluent_rename_delete() {
         let result = parse_music_line("t(kick).rename(drums)").unwrap();
         if let MusicLine::Fluent(cmd) = result {
             assert_eq!(cmd.steps, vec![FluentStep::Rename("drums".to_string())]);
-        } else { panic!("expected Fluent, got {:?}", result); }
+        } else {
+            panic!("expected Fluent, got {:?}", result);
+        }
 
         let result = parse_music_line("t(kick).delete()").unwrap();
         if let MusicLine::Fluent(cmd) = result {
             assert_eq!(cmd.steps, vec![FluentStep::Delete]);
-        } else { panic!("expected Fluent"); }
+        } else {
+            panic!("expected Fluent");
+        }
 
         // clip slot rename inside a chain
         let result = parse_music_line("t(bass).c(0).rename(intro)").unwrap();
@@ -318,7 +433,9 @@ mod tests {
                 &cmd.steps[0],
                 FluentStep::ClipCtrl(cc) if cc.action == LaunchAction::Rename("intro".to_string())
             ));
-        } else { panic!("expected Fluent"); }
+        } else {
+            panic!("expected Fluent");
+        }
     }
     #[test]
     fn test_parse_fluent_note_mods() {

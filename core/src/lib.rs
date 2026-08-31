@@ -6,10 +6,10 @@ pub mod music;
 pub mod paths;
 pub mod protocol;
 
-pub use paths::{ensure_user_layout, user_data_dir, user_devices_dir, APP_DIR_NAME};
+pub use paths::{APP_DIR_NAME, ensure_user_layout, user_data_dir, user_devices_dir};
 
-use protocol::{connect, send_request, Request, Response, DEFAULT_HOST, DEFAULT_PORT};
-use serde_json::{json, Map, Value};
+use protocol::{DEFAULT_HOST, DEFAULT_PORT, Request, Response, connect, send_request};
+use serde_json::{Map, Value, json};
 use std::cell::RefCell;
 use std::net::TcpStream;
 use std::thread;
@@ -177,7 +177,12 @@ impl Client {
 
     // Tracks
 
-    pub fn track_new(&self, kind: &str, at: i32, name: Option<&str>) -> Result<Option<Value>, Error> {
+    pub fn track_new(
+        &self,
+        kind: &str,
+        at: i32,
+        name: Option<&str>,
+    ) -> Result<Option<Value>, Error> {
         let mut r = self.req("track.new").field("type", kind).field("at", at);
         if let Some(n) = name {
             r = r.field("name", n);
@@ -239,10 +244,7 @@ impl Client {
         bars: Option<u32>,
         q: Option<&str>,
     ) -> Result<Option<Value>, Error> {
-        let mut r = self
-            .req("track.mute")
-            .field("refs", refs)
-            .field("on", on);
+        let mut r = self.req("track.mute").field("refs", refs).field("on", on);
         if let Some(b) = bars {
             r = r.field("bars", b);
         }
@@ -253,11 +255,7 @@ impl Client {
     }
 
     pub fn track_solo(&self, refs: &[String], on: bool) -> Result<Option<Value>, Error> {
-        self.send(
-            self.req("track.solo")
-                .field("refs", refs)
-                .field("on", on),
-        )
+        self.send(self.req("track.solo").field("refs", refs).field("on", on))
     }
 
     pub fn track_volume(&self, r#ref: &str, value: f64) -> Result<Option<Value>, Error> {
@@ -315,11 +313,7 @@ impl Client {
     }
 
     pub fn param_set_name_value(&self, name: &str, value: f64) -> Result<Option<Value>, Error> {
-        self.send(
-            self.req("param.set")
-                .field("name", name)
-                .field("v", value),
-        )
+        self.send(self.req("param.set").field("name", name).field("v", value))
     }
 
     pub fn param_set_id_value(&self, id: &str, value: f64) -> Result<Option<Value>, Error> {
@@ -343,7 +337,10 @@ impl Client {
         beats: i32,
         name: Option<&str>,
     ) -> Result<Option<Value>, Error> {
-        let mut r = self.req("clip.new").field("track", track).field("beats", beats);
+        let mut r = self
+            .req("clip.new")
+            .field("track", track)
+            .field("beats", beats);
         if let Some(s) = slot {
             r = r.field("slot", s);
         }
@@ -610,19 +607,46 @@ mod tests {
     #[test]
     fn test_idempotent_whitelist() {
         for c in [
-            "ping", "status", "play", "stop", "set",
-            "track.list", "device.list", "clip.list", "scene.list", "param.list",
-            "param.set", "track.mute", "track.solo", "track.volume", "track.select",
-            "track.rename", "device.select", "clip.set-notes", "clip.launch", "clip.stop",
-            "scene.launch", "scene.stop",
+            "ping",
+            "status",
+            "play",
+            "stop",
+            "set",
+            "track.list",
+            "device.list",
+            "clip.list",
+            "scene.list",
+            "param.list",
+            "param.set",
+            "track.mute",
+            "track.solo",
+            "track.volume",
+            "track.select",
+            "track.rename",
+            "device.select",
+            "clip.set-notes",
+            "clip.launch",
+            "clip.stop",
+            "scene.launch",
+            "scene.stop",
         ] {
             assert!(is_idempotent(c), "{c} should be retryable");
         }
         for c in [
-            "track.new", "track.delete", "track.move", "device.add", "device.delete",
-            "clip.new", "scene.new", "clip.replace-notes", "clip.clear-notes",
+            "track.new",
+            "track.delete",
+            "track.move",
+            "device.add",
+            "device.delete",
+            "clip.new",
+            "scene.new",
+            "clip.replace-notes",
+            "clip.clear-notes",
         ] {
-            assert!(!is_idempotent(c), "{c} must not be retried (double side effect)");
+            assert!(
+                !is_idempotent(c),
+                "{c} must not be retried (double side effect)"
+            );
         }
     }
 
@@ -651,7 +675,10 @@ mod tests {
 
     #[test]
     fn test_parse_name_eq_value() {
-        assert_eq!(parse_name_eq_value("cutoff=0.5").unwrap(), ("cutoff".into(), 0.5));
+        assert_eq!(
+            parse_name_eq_value("cutoff=0.5").unwrap(),
+            ("cutoff".into(), 0.5)
+        );
         assert_eq!(parse_name_eq_value("a=1").unwrap(), ("a".into(), 1.0));
         assert_eq!(parse_name_eq_value(" b =0.5").unwrap(), ("b".into(), 0.5)); // name trimmed
         assert!(parse_name_eq_value("cutoff").is_err());

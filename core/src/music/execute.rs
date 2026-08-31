@@ -5,10 +5,10 @@
 
 use super::ast::*;
 use super::device::{catalog_to_bitwig, catalog_to_drum, is_banned};
-use super::expand::{expand_beat, expand_chord, expand_music_line, ExpandError};
+use super::expand::{ExpandError, expand_beat, expand_chord, expand_music_line};
 use super::scale::{Scale, ScaleError};
 use crate::{Client, Error, NoteSpec};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::thread;
 use std::time::Duration;
 
@@ -83,7 +83,9 @@ pub fn execute_line(
                 "root_midi": session.scale.as_ref().map(|s| s.root),
             })))
         }
-        MusicLine::ModeSwitch(mode) => Ok(Some(json!({ "mode": mode, "note": "UI/CLI mode is cosmetic here" }))),
+        MusicLine::ModeSwitch(mode) => Ok(Some(
+            json!({ "mode": mode, "note": "UI/CLI mode is cosmetic here" }),
+        )),
         MusicLine::PassThrough(cmd) => Err(usage(format!(
             "passthrough `> {cmd}` not handled in execute_line — use UI/CLI entry (commands::run / codewig-cli eval), or drop `>`"
         ))),
@@ -106,12 +108,13 @@ pub fn execute_line(
 /// Shared by WIGSCRIPT `chain`/fluent and `codewig-cli chain`.
 pub fn wait_track_named(client: &Client, name: &str) -> Result<(), ExecuteError> {
     for _ in 0..20 {
-        if let Ok(Some(list)) = client.track_list() {
-            if let Some(arr) = list.get("tracks").and_then(Value::as_array) {
-                if arr.iter().any(|t| t.get("name").and_then(Value::as_str) == Some(name)) {
-                    return Ok(());
-                }
-            }
+        if let Ok(Some(list)) = client.track_list()
+            && let Some(arr) = list.get("tracks").and_then(Value::as_array)
+            && arr
+                .iter()
+                .any(|t| t.get("name").and_then(Value::as_str) == Some(name))
+        {
+            return Ok(());
         }
         thread::sleep(Duration::from_millis(20));
     }
@@ -123,15 +126,16 @@ pub fn wait_track_named(client: &Client, name: &str) -> Result<(), ExecuteError>
 /// Poll until launcher slot has content (after clip_new).
 fn wait_clip_content(client: &Client, track: &str, slot: i32) -> Result<(), ExecuteError> {
     for _ in 0..25 {
-        if let Ok(Some(list)) = client.clip_list(track) {
-            if let Some(arr) = list.get("clips").and_then(Value::as_array) {
-                if arr.iter().any(|c| {
-                    c.get("slot").and_then(Value::as_i64) == Some(slot as i64)
-                        && c.get("hasContent").and_then(Value::as_bool).unwrap_or(false)
-                }) {
-                    return Ok(());
-                }
-            }
+        if let Ok(Some(list)) = client.clip_list(track)
+            && let Some(arr) = list.get("clips").and_then(Value::as_array)
+            && arr.iter().any(|c| {
+                c.get("slot").and_then(Value::as_i64) == Some(slot as i64)
+                    && c.get("hasContent")
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false)
+            })
+        {
+            return Ok(());
         }
         thread::sleep(Duration::from_millis(20));
     }
@@ -163,7 +167,8 @@ fn resolve_scene_index(client: &Client, scene: &SceneRef) -> Result<i32, Execute
                     let idx = s
                         .get("index")
                         .and_then(Value::as_i64)
-                        .ok_or_else(|| usage("scene missing index"))? as i32;
+                        .ok_or_else(|| usage("scene missing index"))?
+                        as i32;
                     return Ok(idx);
                 }
             }
@@ -332,20 +337,18 @@ fn ensure_clip_at(
     name: Option<&str>,
 ) -> Result<i32, ExecuteError> {
     // If slot already has content, reuse.
-    if let Ok(Some(list)) = client.clip_list(track) {
-        if let Some(arr) = list.get("clips").and_then(Value::as_array) {
-            if let Some(c) = arr
-                .iter()
-                .find(|c| c.get("slot").and_then(Value::as_i64) == Some(slot as i64))
-            {
-                let has = c
-                    .get("hasContent")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(false);
-                if has {
-                    return Ok(slot);
-                }
-            }
+    if let Ok(Some(list)) = client.clip_list(track)
+        && let Some(arr) = list.get("clips").and_then(Value::as_array)
+        && let Some(c) = arr
+            .iter()
+            .find(|c| c.get("slot").and_then(Value::as_i64) == Some(slot as i64))
+    {
+        let has = c
+            .get("hasContent")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        if has {
+            return Ok(slot);
         }
     }
     client.clip_new(track, Some(slot), beats, name)?;
@@ -357,7 +360,9 @@ fn ensure_clip_at(
             // best-effort: one retry create; if the slot is still empty the
             // following note write errors in the extension — user sees it there
             let _ = client.clip_new(track, Some(slot), beats, name);
-            wait_clip_content(client, track, slot).map(|_| slot).or(Ok(slot))
+            wait_clip_content(client, track, slot)
+                .map(|_| slot)
+                .or(Ok(slot))
         }
     }
 }
@@ -431,9 +436,15 @@ fn write_notes(
     Ok(client.clip_replace_notes(track, slot, &playable)?)
 }
 
-fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<Option<Value>, ExecuteError> {
+fn music(
+    client: &Client,
+    session: &mut MusicSession,
+    cmd: &MusicCmd,
+) -> Result<Option<Value>, ExecuteError> {
     let track = if cmd.target.track.is_empty() {
-        return Err(usage("music line needs a track name, e.g. bass: n \"c e g\""));
+        return Err(usage(
+            "music line needs a track name, e.g. bass: n \"c e g\"",
+        ));
     } else {
         cmd.target.track.clone()
     };
@@ -456,8 +467,7 @@ fn music(client: &Client, session: &mut MusicSession, cmd: &MusicCmd) -> Result<
             0,
         )?,
         MusicAction::Notes | MusicAction::Arp(_) => {
-            let (notes, _) =
-                expand_music_line(cmd, session.scale.as_ref(), session.steps_per_bar)?;
+            let (notes, _) = expand_music_line(cmd, session.scale.as_ref(), session.steps_per_bar)?;
             notes
         }
     };
@@ -521,7 +531,12 @@ fn chain(
     }
 
     // best-effort: starter clip is a convenience; track + devices are already live
-    let _ = ensure_clip(client, &cmd.name, session.default_slot, session.default_beats);
+    let _ = ensure_clip(
+        client,
+        &cmd.name,
+        session.default_slot,
+        session.default_beats,
+    );
 
     Ok(Some(json!({
         "chain": { "name": cmd.name, "kind": cmd.kind, "drum_kit": cmd.drum_kit },
@@ -542,7 +557,9 @@ pub fn run_chain(
     devices: &[String],
 ) -> Result<Value, ExecuteError> {
     if devices.is_empty() {
-        return Err(usage("chain needs at least one device (e.g. Polymer Delay+)"));
+        return Err(usage(
+            "chain needs at least one device (e.g. Polymer Delay+)",
+        ));
     }
 
     let at = resolve_track_at(client, at)?;
@@ -554,9 +571,7 @@ pub fn run_chain(
     // Bitwig renames async — poll until name visible
     if let Some(n) = name {
         wait_track_named(client, n)?;
-        let sel = client
-            .track_select(n)?
-            .unwrap_or(Value::Bool(true));
+        let sel = client.track_select(n)?.unwrap_or(Value::Bool(true));
         eprintln!("select: {sel}");
         wait_cursor();
     }
@@ -599,12 +614,10 @@ fn fluent(
     session: &mut MusicSession,
     cmd: &FluentCmd,
 ) -> Result<Option<Value>, ExecuteError> {
-    let needs_cursor = cmd.steps.iter().any(|s| {
-        matches!(
-            s,
-            FluentStep::Device(_) | FluentStep::Add(_)
-        )
-    });
+    let needs_cursor = cmd
+        .steps
+        .iter()
+        .any(|s| matches!(s, FluentStep::Device(_) | FluentStep::Add(_)));
 
     if cmd.create {
         let at = resolve_track_at(client, -1)?;
@@ -638,8 +651,7 @@ fn fluent(
                 let midi = session
                     .last_drum_midi
                     .unwrap_or(super::device::MONO_DRUM_NOTE);
-                let (notes, _total_steps) =
-                    expand_beat(b, midi, session.steps_per_bar);
+                let (notes, _total_steps) = expand_beat(b, midi, session.steps_per_bar);
                 log.push(json!({
                     "beat": write_notes(client, &cmd.track, slot0, session.default_beats, &notes)?
                 }));
@@ -729,7 +741,9 @@ fn fluent(
         }
     }
 
-    Ok(Some(json!({ "fluent": cmd.track, "create": cmd.create, "slot": slot0, "steps": log })))
+    Ok(Some(
+        json!({ "fluent": cmd.track, "create": cmd.create, "slot": slot0, "steps": log }),
+    ))
 }
 
 fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, ExecuteError> {
@@ -743,27 +757,26 @@ fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, ExecuteError>
     wait_cursor();
 
     // Focus device by name if possible
-    if let Ok(Some(list)) = client.device_list() {
-        if let Some(arr) = list.get("devices").and_then(Value::as_array) {
-            let want = catalog_to_bitwig(&cmd.device.catalog_name)
-                .or_else(|| {
-                    cat.resolve(&cmd.device.catalog_name)
-                        .map(|d| d.bitwig_name.clone())
-                })
-                .unwrap_or_else(|| cmd.device.catalog_name.clone());
-            let want_l = want.to_lowercase();
-            if let Some(dev) = arr.iter().find(|d| {
-                d.get("name")
-                    .and_then(Value::as_str)
-                    .map(|n| n.to_lowercase() == want_l || n.to_lowercase().contains(&want_l))
-                    .unwrap_or(false)
-            }) {
-                if let Some(idx) = dev.get("index").and_then(Value::as_i64) {
-                    // best-effort: param.set matches by name even without cursor focus
-                    let _ = client.device_select(idx as i32);
-                    wait_cursor();
-                }
-            }
+    if let Ok(Some(list)) = client.device_list()
+        && let Some(arr) = list.get("devices").and_then(Value::as_array)
+    {
+        let want = catalog_to_bitwig(&cmd.device.catalog_name)
+            .or_else(|| {
+                cat.resolve(&cmd.device.catalog_name)
+                    .map(|d| d.bitwig_name.clone())
+            })
+            .unwrap_or_else(|| cmd.device.catalog_name.clone());
+        let want_l = want.to_lowercase();
+        if let Some(dev) = arr.iter().find(|d| {
+            d.get("name")
+                .and_then(Value::as_str)
+                .map(|n| n.to_lowercase() == want_l || n.to_lowercase().contains(&want_l))
+                .unwrap_or(false)
+        }) && let Some(idx) = dev.get("index").and_then(Value::as_i64)
+        {
+            // best-effort: param.set matches by name even without cursor focus
+            let _ = client.device_select(idx as i32);
+            wait_cursor();
         }
     }
 
@@ -815,13 +828,13 @@ fn resolve_device_index(client: &Client, name: &str) -> Result<i32, ExecuteError
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::parse::parse_music_line;
+    use super::*;
     use std::io::{Read, Write};
     use std::net::{TcpListener, TcpStream};
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-    use std::sync::mpsc::{channel, Receiver, Sender};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::mpsc::{Receiver, Sender, channel};
 
     // ── Fake extension server ────────────────────────────────────────
     //
@@ -1085,7 +1098,10 @@ mod tests {
             other => panic!("unexpected request {other}"),
         });
         let client = fake_client(fake.port);
-        assert_eq!(ensure_clip_at(&client, "bass", 0, 4, Some("verse")).unwrap(), 0);
+        assert_eq!(
+            ensure_clip_at(&client, "bass", 0, 4, Some("verse")).unwrap(),
+            0
+        );
         let reqs = fake.drain();
         assert_eq!(cmds(&reqs), ["clip.list", "clip.new", "clip.list"]);
         let new = &reqs[1];
@@ -1113,7 +1129,11 @@ mod tests {
         });
         let client = fake_client(fake.port);
         assert_eq!(ensure_clip_at(&client, "bass", 0, 4, None).unwrap(), 0);
-        assert_eq!(creates.load(Ordering::Relaxed), 2, "initial create + one retry");
+        assert_eq!(
+            creates.load(Ordering::Relaxed),
+            2,
+            "initial create + one retry"
+        );
     }
 
     #[test]

@@ -1,6 +1,6 @@
-use codewig_core::music::param_catalog::{catalog, reload_catalog, DeviceHostKind};
-use codewig_core::music::MusicSession;
 use codewig_core::Client;
+use codewig_core::music::MusicSession;
+use codewig_core::music::param_catalog::{DeviceHostKind, catalog, reload_catalog};
 use std::sync::mpsc;
 use std::thread;
 
@@ -83,10 +83,7 @@ fn device_detail_for(name: &str) -> String {
             ));
         }
     }
-    detail.push_str(&format!(
-        "\nWIGSCRIPT:\n  track&{}: param(50)\n",
-        d.id
-    ));
+    detail.push_str(&format!("\nWIGSCRIPT:\n  track&{}: param(50)\n", d.id));
     detail
 }
 
@@ -187,7 +184,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reconnect_weak = ui.as_weak();
     let tx_reconnect = tx.clone();
     ui.on_reconnect(move || {
-        let Some(ui) = reconnect_weak.upgrade() else { return };
+        let Some(ui) = reconnect_weak.upgrade() else {
+            return;
+        };
         ui.set_status("checking…".into());
         let _ = tx_reconnect.send(WorkerCmd::Reconnect);
     });
@@ -196,7 +195,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ui.on_reload_devices(move || {
         let n = reload_catalog();
         let load_errors: Vec<String> = catalog().load_errors().to_vec();
-        let Some(ui) = reload_weak.upgrade() else { return };
+        let Some(ui) = reload_weak.upgrade() else {
+            return;
+        };
         ui.set_devices(slint::ModelRc::new(slint::VecModel::from(
             device_entries_from_catalog(),
         )));
@@ -207,7 +208,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let errors = if load_errors.is_empty() {
             String::new()
         } else {
-            format!("\nYAML errors ({}):\n  {}", load_errors.len(), load_errors.join("\n  "))
+            format!(
+                "\nYAML errors ({}):\n  {}",
+                load_errors.len(),
+                load_errors.join("\n  ")
+            )
         };
         ui.set_help_text(
             format!(
@@ -222,13 +227,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let insert_weak = ui.as_weak();
     ui.on_insert_command(move |cmd| {
-        let Some(ui) = insert_weak.upgrade() else { return };
+        let Some(ui) = insert_weak.upgrade() else {
+            return;
+        };
         ui.set_command(cmd);
     });
 
     let help_weak = ui.as_weak();
     ui.on_show_help(move |help| {
-        let Some(ui) = help_weak.upgrade() else { return };
+        let Some(ui) = help_weak.upgrade() else {
+            return;
+        };
         ui.set_help_text(help);
     });
 

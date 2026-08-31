@@ -6,8 +6,8 @@
 //! Fallback: legacy flat CLI tokens (`track mute kick`, `play`, …) for old habits
 //! and `> track list` passthrough.
 
-use codewig_core::music::{execute_line, key_to_midi, parse_music_line, MusicLine, MusicSession};
-use codewig_core::{parse_name_eq_value, parse_note_spec, Client, NoteSpec};
+use codewig_core::music::{MusicLine, MusicSession, execute_line, key_to_midi, parse_music_line};
+use codewig_core::{Client, NoteSpec, parse_name_eq_value, parse_note_spec};
 use serde_json::Value;
 
 /// Run one input line. `session` holds key/scale across lines.
@@ -75,7 +75,9 @@ fn dispatch_set<'a>(
             ensure_no_more(args)?;
             client.set_tempo(bpm).map_err(|e| e.to_string())
         }
-        _ => Err(format!("set: unknown target '{target}' (or use WIGSCRIPT: tempo 128)")),
+        _ => Err(format!(
+            "set: unknown target '{target}' (or use WIGSCRIPT: tempo 128)"
+        )),
     }
 }
 
@@ -114,7 +116,9 @@ fn dispatch_track<'a>(
             let r#ref = next_string(&mut args, "ref")?;
             let name = next_string(&mut args, "name")?;
             ensure_no_more(args)?;
-            client.track_rename(&r#ref, &name).map_err(|e| e.to_string())
+            client
+                .track_rename(&r#ref, &name)
+                .map_err(|e| e.to_string())
         }
         "delete" => {
             let r#ref = next_string(&mut args, "ref")?;
@@ -139,7 +143,9 @@ fn dispatch_track<'a>(
             let r#ref = next_string(&mut args, "ref")?;
             let value: f64 = next_parse(&mut args, "value")?;
             ensure_no_more(args)?;
-            client.track_volume(&r#ref, value).map_err(|e| e.to_string())
+            client
+                .track_volume(&r#ref, value)
+                .map_err(|e| e.to_string())
         }
         _ => Err(format!("track: unknown action '{action}'")),
     }
@@ -178,7 +184,9 @@ fn dispatch_device<'a>(
         "off" => {
             let index: i32 = next_parse(&mut args, "index")?;
             ensure_no_more(args)?;
-            client.device_enable(index, false).map_err(|e| e.to_string())
+            client
+                .device_enable(index, false)
+                .map_err(|e| e.to_string())
         }
         "move" => {
             let index: i32 = next_parse(&mut args, "index")?;
@@ -223,7 +231,9 @@ fn dispatch_param<'a>(
             }
             let v = value.ok_or("param set: missing --value")?;
             match (name, id) {
-                (Some(n), None) => client.param_set_name_value(&n, v).map_err(|e| e.to_string()),
+                (Some(n), None) => client
+                    .param_set_name_value(&n, v)
+                    .map_err(|e| e.to_string()),
                 (None, Some(i)) => client.param_set_id_value(&i, v).map_err(|e| e.to_string()),
                 _ => Err("param set: need --name or --id".into()),
             }
@@ -308,7 +318,12 @@ fn dispatch_clip<'a>(
             while let Some(tok) = args.next() {
                 match tok {
                     "--step" => step = Some(next_parse(&mut args, "step")?),
-                    "--key" => key = Some(key_to_midi(&next_string(&mut args, "key")?).map_err(|e| e.to_string())?),
+                    "--key" => {
+                        key = Some(
+                            key_to_midi(&next_string(&mut args, "key")?)
+                                .map_err(|e| e.to_string())?,
+                        )
+                    }
                     _ => return Err(format!("clip clear-notes: unexpected '{tok}'")),
                 }
             }
@@ -349,7 +364,9 @@ fn dispatch_scene<'a>(
             let r#ref = next_string(&mut args, "ref")?;
             let name = next_string(&mut args, "name")?;
             ensure_no_more(args)?;
-            client.scene_rename(&r#ref, &name).map_err(|e| e.to_string())
+            client
+                .scene_rename(&r#ref, &name)
+                .map_err(|e| e.to_string())
         }
         "delete" => {
             let r#ref = next_string(&mut args, "ref")?;
@@ -396,8 +413,7 @@ where
     let s = args
         .next()
         .ok_or_else(|| format!("missing argument: {label}"))?;
-    s.parse()
-        .map_err(|e| format!("bad {label} '{s}': {e}"))
+    s.parse().map_err(|e| format!("bad {label} '{s}': {e}"))
 }
 
 fn ensure_no_more<'a>(mut args: impl Iterator<Item = &'a str>) -> Result<(), String> {

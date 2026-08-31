@@ -15,13 +15,19 @@ pub fn parse_music_line(input: &str) -> ParseResult<MusicLine> {
     let s = trimmed;
 
     // Transport
-    if s == "play" { return Ok(MusicLine::Transport(TransportCmd::Play)); }
-    if s == "stop" { return Ok(MusicLine::Transport(TransportCmd::Stop)); }
+    if s == "play" {
+        return Ok(MusicLine::Transport(TransportCmd::Play));
+    }
+    if s == "stop" {
+        return Ok(MusicLine::Transport(TransportCmd::Stop));
+    }
 
     // Tempo
     if let Some(rest) = s.strip_prefix("tempo ") {
-        let bpm: f64 = rest.trim().parse().map_err(|_|
-            ParseError::new("invalid tempo", 6, s.to_string()))?;
+        let bpm: f64 = rest
+            .trim()
+            .parse()
+            .map_err(|_| ParseError::new("invalid tempo", 6, s.to_string()))?;
         return Ok(MusicLine::Tempo(bpm));
     }
 
@@ -31,9 +37,14 @@ pub fn parse_music_line(input: &str) -> ParseResult<MusicLine> {
         if parts.len() != 2 {
             return Err(ParseError::new(
                 "key expects: k <root> <scale>, e.g. 'k C minor'",
-                0, s.to_string()));
+                0,
+                s.to_string(),
+            ));
         }
-        return Ok(MusicLine::Key { root: parts[0].to_string(), scale: parts[1].to_string() });
+        return Ok(MusicLine::Key {
+            root: parts[0].to_string(),
+            scale: parts[1].to_string(),
+        });
     }
 
     // Mode switch
@@ -104,7 +115,11 @@ pub fn parse_music_line(input: &str) -> ParseResult<MusicLine> {
 fn parse_chain(rest: &str, full_input: &str) -> ParseResult<MusicLine> {
     let mut parts: Vec<&str> = rest.split_whitespace().collect();
     if parts.is_empty() {
-        return Err(ParseError::new("chain: missing name", 1, full_input.to_string()));
+        return Err(ParseError::new(
+            "chain: missing name",
+            1,
+            full_input.to_string(),
+        ));
     }
 
     let name_kind = parts.remove(0);
@@ -144,7 +159,7 @@ fn parse_music_cmd(input: &str) -> ParseResult<MusicLine> {
     // First, try to split on `: ` or just find the command
     let (target_str, rest) = if let Some(pos) = find_colon_sep(s) {
         let (t, r) = s.split_at(pos);
-        (t, r[1..].trim_start())  // skip the colon
+        (t, r[1..].trim_start()) // skip the colon
     } else {
         // No colon — could be `d "pattern"` shorthand
         return parse_shorthand(s);
@@ -177,7 +192,12 @@ fn find_colon_sep(s: &str) -> Option<usize> {
     while i < bytes.len() {
         if bytes[i] == b':' {
             // colon at position i — check if next char is space or we're at a cmd boundary
-            if i + 1 >= bytes.len() || bytes[i + 1] == b' ' || bytes[i + 1] == b'n' || bytes[i + 1] == b'd' || bytes[i + 1] == b'c' {
+            if i + 1 >= bytes.len()
+                || bytes[i + 1] == b' '
+                || bytes[i + 1] == b'n'
+                || bytes[i + 1] == b'd'
+                || bytes[i + 1] == b'c'
+            {
                 return Some(i);
             }
         }
@@ -189,7 +209,11 @@ fn find_colon_sep(s: &str) -> Option<usize> {
 fn parse_target(s: &str) -> ParseResult<Target> {
     let s = s.trim();
     if s.is_empty() {
-        return Ok(Target { track: String::new(), clip: None, drum_kit: None });
+        return Ok(Target {
+            track: String::new(),
+            clip: None,
+            drum_kit: None,
+        });
     }
 
     let mut track = s.to_string();
@@ -222,7 +246,11 @@ fn parse_target(s: &str) -> ParseResult<Target> {
         }
     }
 
-    Ok(Target { track, clip, drum_kit })
+    Ok(Target {
+        track,
+        clip,
+        drum_kit,
+    })
 }
 
 fn parse_shorthand(input: &str) -> ParseResult<MusicLine> {
@@ -244,7 +272,11 @@ fn parse_shorthand(input: &str) -> ParseResult<MusicLine> {
     reject_trailing(rest4, s)?;
 
     Ok(MusicLine::Music(MusicCmd {
-        target: Target { track: String::new(), clip: None, drum_kit },
+        target: Target {
+            track: String::new(),
+            clip: None,
+            drum_kit,
+        },
         action,
         pattern,
         params,
@@ -296,12 +328,18 @@ fn parse_arp_style(s: &str) -> ParseResult<ArpStyle> {
     }
 }
 
-fn parse_action_pattern<'a>(rest: &'a str, full_input: &str) -> ParseResult<(MusicAction, String, &'a str)> {
+fn parse_action_pattern<'a>(
+    rest: &'a str,
+    full_input: &str,
+) -> ParseResult<(MusicAction, String, &'a str)> {
     let trimmed = rest.trim();
-    let (action_name, rest1) = trimmed.split_once(' ')
-        .ok_or_else(|| ParseError::new(
+    let (action_name, rest1) = trimmed.split_once(' ').ok_or_else(|| {
+        ParseError::new(
             "expected action (n, chord, arp) followed by pattern",
-            full_input.len() - rest.len(), full_input.to_string()))?;
+            full_input.len() - rest.len(),
+            full_input.to_string(),
+        )
+    })?;
 
     let (action, _drum_kit) = parse_action_name(action_name)?;
 
@@ -311,12 +349,17 @@ fn parse_action_pattern<'a>(rest: &'a str, full_input: &str) -> ParseResult<(Mus
 }
 
 /// Extract a double-quoted string, returning content and remaining input.
-pub(crate) fn extract_quoted<'a>(input: &'a str, full_input: &str) -> ParseResult<(String, &'a str)> {
+pub(crate) fn extract_quoted<'a>(
+    input: &'a str,
+    full_input: &str,
+) -> ParseResult<(String, &'a str)> {
     let trimmed = input.trim_start();
     if !trimmed.starts_with('"') {
         return Err(ParseError::new(
             "expected quoted pattern starting with '\"'",
-            full_input.len() - input.len(), full_input.to_string()));
+            full_input.len() - input.len(),
+            full_input.to_string(),
+        ));
     }
 
     let mut chars = trimmed[1..].char_indices();
@@ -345,7 +388,9 @@ pub(crate) fn extract_quoted<'a>(input: &'a str, full_input: &str) -> ParseResul
         }
         None => Err(ParseError::new(
             "unclosed quote in pattern",
-            full_input.len() - input.len(), full_input.to_string())),
+            full_input.len() - input.len(),
+            full_input.to_string(),
+        )),
     }
 }
 
@@ -363,7 +408,8 @@ fn parse_params<'a>(mut rest: &'a str, full_input: &str) -> ParseResult<ParamsOu
         if rest.starts_with('+') {
             // +name:value — single snapshot only (no sequences / automation)
             // Find the end of this param token (next space or + or ^ or end)
-            let end = rest[1..].find(|c: char| c.is_whitespace())
+            let end = rest[1..]
+                .find(|c: char| c.is_whitespace())
                 .map(|p| p + 1)
                 .unwrap_or(rest.len());
             let token = &rest[..end];
@@ -398,25 +444,45 @@ fn parse_params<'a>(mut rest: &'a str, full_input: &str) -> ParseResult<ParamsOu
             } else {
                 return Err(ParseError::new(
                     "param format: +name:value",
-                    full_input.len() - rest.len(), full_input.to_string()));
+                    full_input.len() - rest.len(),
+                    full_input.to_string(),
+                ));
             }
         } else if rest.starts_with("^^") {
             if let Some(num_str) = rest[2..].split_whitespace().next() {
-                let n: i32 = num_str.parse().map_err(|_|
-                    ParseError::new("invalid scaleTranspose value", full_input.len() - rest.len(), full_input.to_string()))?;
+                let n: i32 = num_str.parse().map_err(|_| {
+                    ParseError::new(
+                        "invalid scaleTranspose value",
+                        full_input.len() - rest.len(),
+                        full_input.to_string(),
+                    )
+                })?;
                 scale_transpose = Some(n);
                 rest = &rest[2 + num_str.len()..];
             } else {
-                return Err(ParseError::new("^^ requires number", full_input.len() - rest.len(), full_input.to_string()));
+                return Err(ParseError::new(
+                    "^^ requires number",
+                    full_input.len() - rest.len(),
+                    full_input.to_string(),
+                ));
             }
         } else if rest.starts_with('^') {
             if let Some(num_str) = rest[1..].split_whitespace().next() {
-                let n: i32 = num_str.parse().map_err(|_|
-                    ParseError::new("invalid transpose value", full_input.len() - rest.len(), full_input.to_string()))?;
+                let n: i32 = num_str.parse().map_err(|_| {
+                    ParseError::new(
+                        "invalid transpose value",
+                        full_input.len() - rest.len(),
+                        full_input.to_string(),
+                    )
+                })?;
                 transpose = Some(n);
                 rest = &rest[1 + num_str.len()..];
             } else {
-                return Err(ParseError::new("^ requires number", full_input.len() - rest.len(), full_input.to_string()));
+                return Err(ParseError::new(
+                    "^ requires number",
+                    full_input.len() - rest.len(),
+                    full_input.to_string(),
+                ));
             }
         } else if rest.starts_with('!') && rest.len() <= 2 {
             // Lone trailing `!` (legacy launch marker) — reject_trailing tolerates it
@@ -448,7 +514,10 @@ fn reject_trailing(rest: &str, full_input: &str) -> ParseResult<()> {
 
 /// Parse consecutive `.vel(…)` / `.pres(…)` / `.tim(…)` / `.pan(…)` / `.gain(…)` / `.chnz(…)`
 /// suffixes after a pattern. Returns the consumed modifiers and the remaining input.
-pub(crate) fn parse_note_mods<'a>(input: &'a str, full_input: &str) -> ParseResult<(NoteMods, &'a str)> {
+pub(crate) fn parse_note_mods<'a>(
+    input: &'a str,
+    full_input: &str,
+) -> ParseResult<(NoteMods, &'a str)> {
     let mut mods = NoteMods::default();
     let mut rest = input;
 
@@ -482,7 +551,10 @@ pub(crate) fn parse_note_mods<'a>(input: &'a str, full_input: &str) -> ParseResu
 }
 
 /// Parse the contents of one parenthesized modifier: space-separated numbers or `~` for skip.
-fn parse_paren_values<'a>(input: &'a str, full_input: &str) -> ParseResult<(Vec<Option<f64>>, &'a str)> {
+fn parse_paren_values<'a>(
+    input: &'a str,
+    full_input: &str,
+) -> ParseResult<(Vec<Option<f64>>, &'a str)> {
     let s = input.trim_start();
     let mut depth = 1usize;
     let mut end = None;
@@ -534,7 +606,9 @@ fn parse_paren_values<'a>(input: &'a str, full_input: &str) -> ParseResult<(Vec<
 /// Parse `kick&v9kick: decay(50) pitch(40)` or `kick&v9kick: +decay(50) +pitch(40)`.
 fn parse_amp_param_cmd(input: &str) -> ParseResult<MusicLine> {
     let s = input;
-    let amp = s.find('&').ok_or_else(|| ParseError::new("expected 'track&device:'", 0, s.to_string()))?;
+    let amp = s
+        .find('&')
+        .ok_or_else(|| ParseError::new("expected 'track&device:'", 0, s.to_string()))?;
     let track = s[..amp].trim().to_string();
     if track.is_empty() {
         return Err(ParseError::new("empty track before '&'", 0, s.to_string()));
@@ -549,7 +623,11 @@ fn parse_amp_param_cmd(input: &str) -> ParseResult<MusicLine> {
     })?;
     let device_name = rest[..colon].trim().to_string();
     if device_name.is_empty() {
-        return Err(ParseError::new("empty device after '&'", amp + 1, s.to_string()));
+        return Err(ParseError::new(
+            "empty device after '&'",
+            amp + 1,
+            s.to_string(),
+        ));
     }
     // Scene/slot uses `@` — reject accidental `track@scene&...` confusion later if needed.
     let content = rest[colon + 1..].trim();
@@ -563,7 +641,11 @@ fn parse_amp_param_cmd(input: &str) -> ParseResult<MusicLine> {
         "off" => Some(DeviceOp::Off),
         "delete" => Some(DeviceOp::Delete),
         _ => content.strip_prefix("move").and_then(|m| {
-            m.trim().parse::<i32>().ok().filter(|_| !m.trim().is_empty()).map(DeviceOp::Move)
+            m.trim()
+                .parse::<i32>()
+                .ok()
+                .filter(|_| !m.trim().is_empty())
+                .map(DeviceOp::Move)
         }),
     };
     if let Some(op) = op {
@@ -577,27 +659,53 @@ fn parse_amp_param_cmd(input: &str) -> ParseResult<MusicLine> {
         ));
     }
     let params = parse_param_assignments(content, s)?;
-    Ok(MusicLine::Param(ParamCmd { track, device, params }))
+    Ok(MusicLine::Param(ParamCmd {
+        track,
+        device,
+        params,
+    }))
 }
 
 /// Parse `t(kick).d(kick.v9): decay(50) pitch(40)` (legacy).
 fn parse_param_cmd(input: &str) -> ParseResult<MusicLine> {
     let s = input;
-    let rest = s.strip_prefix("t(").or_else(|| s.strip_prefix("track("))
+    let rest = s
+        .strip_prefix("t(")
+        .or_else(|| s.strip_prefix("track("))
         .ok_or_else(|| ParseError::new("expected 't(' or 'track('", 0, s.to_string()))?;
 
     let (track_name, rest) = parse_paren_arg(rest, s, 0)?;
 
-    let rest = rest.strip_prefix(".d(").or_else(|| rest.strip_prefix(".device("))
-        .ok_or_else(|| ParseError::new("expected '.d(' or '.device('", s.len() - rest.len(), s.to_string()))?;
+    let rest = rest
+        .strip_prefix(".d(")
+        .or_else(|| rest.strip_prefix(".device("))
+        .ok_or_else(|| {
+            ParseError::new(
+                "expected '.d(' or '.device('",
+                s.len() - rest.len(),
+                s.to_string(),
+            )
+        })?;
 
     let (dev, rest) = parse_device_in_paren(rest, s)?;
 
-    let rest = rest.strip_prefix(":").or_else(|| rest.strip_prefix(": "))
-        .ok_or_else(|| ParseError::new("expected ': params...' after device", s.len() - rest.len(), s.to_string()))?;
+    let rest = rest
+        .strip_prefix(":")
+        .or_else(|| rest.strip_prefix(": "))
+        .ok_or_else(|| {
+            ParseError::new(
+                "expected ': params...' after device",
+                s.len() - rest.len(),
+                s.to_string(),
+            )
+        })?;
 
     let params = parse_param_assignments(rest, s)?;
-    Ok(MusicLine::Param(ParamCmd { track: track_name, device: dev, params }))
+    Ok(MusicLine::Param(ParamCmd {
+        track: track_name,
+        device: dev,
+        params,
+    }))
 }
 
 /// `decay(50) pitch(40)` or `+decay(50) +pitch(40)` — space-separated, no dots between.
@@ -649,7 +757,6 @@ fn parse_param_assignments(rest: &str, full: &str) -> ParseResult<Vec<(String, f
 
 /// Parse `mute(kick)` / `mute(kick) 4` / `mute(kick) @bar` / `mute(kick) 4 @bar`
 fn parse_mute_cmd(rest: &str, unmute: bool, full_input: &str) -> ParseResult<MusicLine> {
-
     let rest = rest.trim();
     let closing = rest.find(')').ok_or_else(|| {
         ParseError::new(
@@ -837,11 +944,7 @@ fn parse_scene_cmd(input: &str) -> ParseResult<MusicLine> {
 }
 
 /// `.t(lead).c(new)` | `.t(lead).c(new, intro)` | `.t(lead).c(start)`
-fn parse_scene_track_clip(
-    scene: SceneRef,
-    rest: &str,
-    full: &str,
-) -> ParseResult<MusicLine> {
+fn parse_scene_track_clip(scene: SceneRef, rest: &str, full: &str) -> ParseResult<MusicLine> {
     let after_t = rest
         .strip_prefix(".t(")
         .or_else(|| rest.strip_prefix(".track("))
@@ -937,9 +1040,7 @@ fn parse_scene_clip_action(content: &str, full: &str) -> ParseResult<SceneClipAc
         });
     }
     Err(ParseError::new(
-        format!(
-            "unknown s().t().c(…) action '{c}' — use new | new, name | start | stop"
-        ),
+        format!("unknown s().t().c(…) action '{c}' — use new | new, name | start | stop"),
         0,
         full.to_string(),
     ))
@@ -951,13 +1052,7 @@ fn parse_clip_ctrl_cmd(input: &str) -> ParseResult<MusicLine> {
     let after = input
         .strip_prefix("clip(")
         .or_else(|| input.strip_prefix("c("))
-        .ok_or_else(|| {
-            ParseError::new(
-                "expected c(…) or clip(…)",
-                0,
-                input.to_string(),
-            )
-        })?;
+        .ok_or_else(|| ParseError::new("expected c(…) or clip(…)", 0, input.to_string()))?;
     let closing = after.find(')').ok_or_else(|| {
         ParseError::new(
             "expected ')' after clip ref(s)",
@@ -1042,8 +1137,13 @@ pub(crate) fn parse_launch_action(rest: &str, full_input: &str) -> ParseResult<L
         }
     } else {
         Err(ParseError::new(
-            format!("expected .start/.stop/.rename(name)/.delete() after ref, got '{}'", rest.chars().take(10).collect::<String>()),
-            full_input.len() - rest.len(), full_input.to_string()))
+            format!(
+                "expected .start/.stop/.rename(name)/.delete() after ref, got '{}'",
+                rest.chars().take(10).collect::<String>()
+            ),
+            full_input.len() - rest.len(),
+            full_input.to_string(),
+        ))
     }
 }
 
@@ -1122,8 +1222,14 @@ mod tests {
 
     #[test]
     fn test_parse_transport() {
-        assert!(matches!(parse_music_line("play").unwrap(), MusicLine::Transport(TransportCmd::Play)));
-        assert!(matches!(parse_music_line("stop").unwrap(), MusicLine::Transport(TransportCmd::Stop)));
+        assert!(matches!(
+            parse_music_line("play").unwrap(),
+            MusicLine::Transport(TransportCmd::Play)
+        ));
+        assert!(matches!(
+            parse_music_line("stop").unwrap(),
+            MusicLine::Transport(TransportCmd::Stop)
+        ));
     }
 
     #[test]
@@ -1205,10 +1311,7 @@ mod tests {
                 r#"new track(lead).device(Polymer).add(Delay+)"#,
                 r#"new t(lead).d(Polymer).add(Delay+)"#,
             ),
-            (
-                r#"track(lead).device(Chorus+)"#,
-                r#"t(lead).d(Chorus+)"#,
-            ),
+            (r#"track(lead).device(Chorus+)"#, r#"t(lead).d(Chorus+)"#),
             (
                 r#"track(bass).notes("c e g").clip(start)"#,
                 r#"t(bass).n("c e g").c(start)"#,
@@ -1230,7 +1333,8 @@ mod tests {
         ];
         for (long, short) in pairs {
             let a = parse_music_line(long).unwrap_or_else(|e| panic!("long failed: {long}\n{e}"));
-            let b = parse_music_line(short).unwrap_or_else(|e| panic!("short failed: {short}\n{e}"));
+            let b =
+                parse_music_line(short).unwrap_or_else(|e| panic!("short failed: {short}\n{e}"));
             assert_eq!(a, b, "alias parity:\n  long  {long}\n  short {short}");
         }
     }
@@ -1397,7 +1501,9 @@ mod tests {
         if let MusicLine::Scene(cmd) = result {
             assert_eq!(cmd.scene, SceneRef::Index(1));
             assert!(matches!(cmd.action, LaunchAction::Start));
-        } else { panic!("expected Scene"); }
+        } else {
+            panic!("expected Scene");
+        }
     }
 
     #[test]
@@ -1407,7 +1513,9 @@ mod tests {
         if let MusicLine::Scene(cmd) = result {
             assert_eq!(cmd.scene, SceneRef::Index(0));
             assert!(matches!(cmd.action, LaunchAction::Stop));
-        } else { panic!("expected Scene"); }
+        } else {
+            panic!("expected Scene");
+        }
 
         let named = parse_music_line("scene(verse).start").unwrap();
         if let MusicLine::Scene(cmd) = named {
@@ -1434,7 +1542,9 @@ mod tests {
             assert_eq!(cmd.refs[0].track, "bass");
             assert_eq!(cmd.refs[0].slot, 0);
             assert!(matches!(cmd.action, LaunchAction::Start));
-        } else { panic!("expected ClipCtrl, got {:?}", result); }
+        } else {
+            panic!("expected ClipCtrl, got {:?}", result);
+        }
     }
 
     #[test]
@@ -1446,7 +1556,9 @@ mod tests {
             assert_eq!(cmd.refs[0].track, "bass");
             assert_eq!(cmd.refs[1].track, "kick");
             assert_eq!(cmd.refs[1].slot, 1);
-        } else { panic!("expected ClipCtrl"); }
+        } else {
+            panic!("expected ClipCtrl");
+        }
     }
 
     #[test]
@@ -1457,7 +1569,9 @@ mod tests {
             assert_eq!(cmd.refs[0].track, "lead");
             assert_eq!(cmd.refs[0].slot, 3);
             assert!(matches!(cmd.action, LaunchAction::Stop));
-        } else { panic!("expected ClipCtrl"); }
+        } else {
+            panic!("expected ClipCtrl");
+        }
     }
 
     #[test]
@@ -1466,13 +1580,17 @@ mod tests {
         if let MusicLine::Scene(cmd) = result {
             assert_eq!(cmd.scene, SceneRef::Name("verse".to_string()));
             assert_eq!(cmd.action, LaunchAction::Rename("drop".to_string()));
-        } else { panic!("expected Scene, got {:?}", result); }
+        } else {
+            panic!("expected Scene, got {:?}", result);
+        }
 
         let result = parse_music_line("s(0).delete()").unwrap();
         if let MusicLine::Scene(cmd) = result {
             assert_eq!(cmd.scene, SceneRef::Index(0));
             assert_eq!(cmd.action, LaunchAction::Delete);
-        } else { panic!("expected Scene"); }
+        } else {
+            panic!("expected Scene");
+        }
     }
 
     #[test]
@@ -1481,13 +1599,17 @@ mod tests {
         if let MusicLine::ClipCtrl(cmd) = result {
             assert_eq!(cmd.refs[0].track, "bass");
             assert_eq!(cmd.action, LaunchAction::Rename("intro".to_string()));
-        } else { panic!("expected ClipCtrl, got {:?}", result); }
+        } else {
+            panic!("expected ClipCtrl, got {:?}", result);
+        }
 
         let result = parse_music_line("c(bass.1).delete()").unwrap();
         if let MusicLine::ClipCtrl(cmd) = result {
             assert_eq!(cmd.refs[0].slot, 1);
             assert_eq!(cmd.action, LaunchAction::Delete);
-        } else { panic!("expected ClipCtrl"); }
+        } else {
+            panic!("expected ClipCtrl");
+        }
     }
 
     #[test]
@@ -1497,7 +1619,9 @@ mod tests {
             result,
             MusicLine::DeviceOp(DeviceOpCmd {
                 track: "kick".to_string(),
-                device: DeviceSpec { catalog_name: "Polymer".to_string() },
+                device: DeviceSpec {
+                    catalog_name: "Polymer".to_string()
+                },
                 op: DeviceOp::Off,
             })
         );
@@ -1555,7 +1679,10 @@ mod tests {
             ("clip(bass.0).start", "c(bass.0).start"),
             ("clip(bass.0).rename(intro)", "c(bass.0).rename(intro)"),
             ("clip(bass.0).delete()", "c(bass.0).delete()"),
-            ("track(kick).device(P): decay(50)", "t(kick).d(P): decay(50)"),
+            (
+                "track(kick).device(P): decay(50)",
+                "t(kick).d(P): decay(50)",
+            ),
             ("new scene(verse)", "new s(verse)"),
         ];
         for (long, short) in pairs {

@@ -89,16 +89,14 @@ fn platform_user_data_dir() -> Option<PathBuf> {
             .map(PathBuf::from)
             .or_else(|| {
                 // Rare fallback
-                std::env::var_os("USERPROFILE").map(|u| PathBuf::from(u).join("AppData").join("Local"))
+                std::env::var_os("USERPROFILE")
+                    .map(|u| PathBuf::from(u).join("AppData").join("Local"))
             })
     }
     #[cfg(target_os = "macos")]
     {
-        std::env::var_os("HOME").map(|h| {
-            PathBuf::from(h)
-                .join("Library")
-                .join("Application Support")
-        })
+        std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join("Library").join("Application Support"))
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -167,15 +165,15 @@ fn shipped_devices_sources() -> Vec<PathBuf> {
         dirs.push(root.join("devices"));
     }
 
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            // AppImage binary at $APPDIR/usr/bin/codewig-live
-            dirs.push(parent.join("devices"));
-            dirs.push(parent.join("../share/codewig/devices"));
-            dirs.push(parent.join("../devices"));
-            dirs.push(parent.join("../../devices"));
-            dirs.push(parent.join("../../../devices"));
-        }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(parent) = exe.parent()
+    {
+        // AppImage binary at $APPDIR/usr/bin/codewig-live
+        dirs.push(parent.join("devices"));
+        dirs.push(parent.join("../share/codewig/devices"));
+        dirs.push(parent.join("../devices"));
+        dirs.push(parent.join("../../devices"));
+        dirs.push(parent.join("../../../devices"));
     }
     if let Ok(cwd) = std::env::current_dir() {
         dirs.push(cwd.join("devices"));

@@ -40,8 +40,8 @@
     "allow_concurrent_runs": false
   },
   {
-    "label": "install mensor",
-    "command": "cargo aura install --clap -plug mensor",
+    "label": "install loom",
+    "command": "cargo aura install --clap -plug loom",
     "use_new_terminal": true,
     "reveal": "always",
     "allow_concurrent_runs": false
