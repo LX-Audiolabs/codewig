@@ -26,6 +26,6 @@ Thumbs.db
 .env
 *.log
 research/
-docs/
+docs/*
 
 AGENTS.md
