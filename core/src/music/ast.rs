@@ -67,6 +67,16 @@ pub enum FluentStep {
     ClipAction(ClipAction),
     /// .c(0).start or .c(0,1).start — launch specific clip slot(s)
     ClipCtrl(ClipCtrlCmd),
+    /// .perform(list) or .perform(s1=0.3)
+    Perform(PageAction),
+    /// .page(list) or .page(cutoff=0.3)
+    Page(PageAction),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PageAction {
+    List,
+    Set(Vec<ParamSet>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -276,10 +286,11 @@ pub enum SceneClipAction {
     Stop,
 }
 
-/// A parameter assignment: `+cutoff:0.3` — one snapshot via `param.set`.
+/// A parameter assignment: `+cutoff:0.3` or `+Polymer.cutoff:0.3` — one snapshot via page set.
 /// No sequences, ramps, or clip automation (Controller API limit + product choice).
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParamSet {
+    pub device: Option<String>,
     pub name: String,
     pub value: f64,
 }

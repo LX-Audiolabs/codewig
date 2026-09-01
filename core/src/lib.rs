@@ -328,6 +328,40 @@ impl Client {
         self.send(self.req("param.set").field("sets", Value::Array(values)))
     }
 
+    /// Track Perform page: list the 8 slots of the currently selected track.
+    pub fn track_perform_list(&self) -> Result<Option<Value>, Error> {
+        self.send(self.req("track.perform"))
+    }
+
+    /// Track Perform page: set one or more slots by name or slot index.
+    pub fn track_perform_set(&self, sets: &[(String, f64)]) -> Result<Option<Value>, Error> {
+        let values: Vec<Value> = sets
+            .iter()
+            .map(|(n, v)| json!({"name": n, "v": v}))
+            .collect();
+        self.send(
+            self.req("track.perform.set")
+                .field("sets", Value::Array(values)),
+        )
+    }
+
+    /// Device Remote Controls page: list the 8 slots of the cursor device.
+    pub fn device_page_list(&self) -> Result<Option<Value>, Error> {
+        self.send(self.req("device.page"))
+    }
+
+    /// Device Remote Controls page: set one or more slots by name or slot index.
+    pub fn device_page_set(&self, sets: &[(String, f64)]) -> Result<Option<Value>, Error> {
+        let values: Vec<Value> = sets
+            .iter()
+            .map(|(n, v)| json!({"name": n, "v": v}))
+            .collect();
+        self.send(
+            self.req("device.page.set")
+                .field("sets", Value::Array(values)),
+        )
+    }
+
     // Clips
 
     pub fn clip_new(

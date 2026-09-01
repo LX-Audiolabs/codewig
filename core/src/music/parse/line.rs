@@ -406,28 +406,34 @@ fn parse_params<'a>(mut rest: &'a str, full_input: &str) -> ParseResult<ParamsOu
 
     while !rest.is_empty() {
         if rest.starts_with('+') {
-            // +name:value — single snapshot only (no sequences / automation)
-            // Find the end of this param token (next space or + or ^ or end)
+            // +name:value or +device.name:value — single snapshot only
+            // Find the end of this param token (next whitespace or + or ^ or end)
             let end = rest[1..]
                 .find(|c: char| c.is_whitespace())
                 .map(|p| p + 1)
                 .unwrap_or(rest.len());
             let token = &rest[..end];
 
-            if let Some((name, val_str)) = token[1..].split_once(':') {
-                if val_str.contains(':') {
+            if let Some((body, val_str)) = token[1..].rsplit_once(':') {
+                if body.contains(':') {
                     return Err(ParseError::new(
                         format!(
-                            "param '{name}': sequences unsupported — snapshot only (+{name}:value)"
+                            "param '{body}': sequences unsupported — snapshot only (+name:value or +device.name:value)"
                         ),
                         full_input.len() - rest.len(),
                         full_input.to_string(),
                     ));
                 }
+                let (device, name) = if let Some((d, n)) = body.rsplit_once('.') {
+                    (Some(d.to_string()), n.to_string())
+                } else {
+                    (None, body.to_string())
+                };
                 match val_str.trim().parse::<f64>() {
                     Ok(value) => {
                         params.push(ParamSet {
-                            name: name.to_string(),
+                            device,
+                            name,
                             value,
                         });
                         rest = rest[end..].trim_start();
@@ -435,7 +441,7 @@ fn parse_params<'a>(mut rest: &'a str, full_input: &str) -> ParseResult<ParamsOu
                     }
                     Err(_) => {
                         return Err(ParseError::new(
-                            format!("invalid param value for '{name}'"),
+                            format!("invalid param value for '{body}'"),
                             full_input.len() - rest.len(),
                             full_input.to_string(),
                         ));
@@ -443,7 +449,7 @@ fn parse_params<'a>(mut rest: &'a str, full_input: &str) -> ParseResult<ParamsOu
                 }
             } else {
                 return Err(ParseError::new(
-                    "param format: +name:value",
+                    "param format: +name:value or +device.name:value",
                     full_input.len() - rest.len(),
                     full_input.to_string(),
                 ));
@@ -1170,10 +1176,29 @@ mod tests {
         let result = parse_music_line(line).unwrap();
         if let MusicLine::Music(cmd) = result {
             assert_eq!(cmd.params.len(), 2);
+            assert_eq!(cmd.params[0].device, None);
             assert_eq!(cmd.params[0].name, "cutoff");
             assert_eq!(cmd.params[0].value, 0.3);
+            assert_eq!(cmd.params[1].device, None);
             assert_eq!(cmd.params[1].name, "res");
             assert_eq!(cmd.params[1].value, 0.7);
+        } else {
+            panic!("expected Music");
+        }
+    }
+
+    #[test]
+    fn test_parse_with_device_prefixed_params() {
+        let line = r#"bass: n "c e g" +Polymer.cutoff:0.3 +kick.v9.decay:0.5"#;
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Music(cmd) = result {
+            assert_eq!(cmd.params.len(), 2);
+            assert_eq!(cmd.params[0].device.as_deref(), Some("Polymer"));
+            assert_eq!(cmd.params[0].name, "cutoff");
+            assert_eq!(cmd.params[0].value, 0.3);
+            assert_eq!(cmd.params[1].device.as_deref(), Some("kick.v9"));
+            assert_eq!(cmd.params[1].name, "decay");
+            assert_eq!(cmd.params[1].value, 0.5);
         } else {
             panic!("expected Music");
         }
