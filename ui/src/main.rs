@@ -1,6 +1,9 @@
 use codewig_core::Client;
 use codewig_core::music::MusicSession;
-use codewig_core::music::param_catalog::{DeviceHostKind, catalog, reload_catalog};
+use codewig_core::music::{
+    DeviceHostKind,
+    param_catalog::{catalog, reload_catalog},
+};
 use std::sync::mpsc;
 use std::thread;
 

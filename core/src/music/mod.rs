@@ -12,6 +12,7 @@ pub mod param_catalog;
 pub mod parse;
 pub mod scale;
 
+pub use alias_catalog::{DeviceAlias, DeviceHostKind};
 pub use ast::{
     ArpStyle, BeatSpec, ClipAction, ClipCtrlCmd, ClipCtrlRef, ClipRef, DeviceSpec, FluentCmd,
     FluentStep, LaunchAction, MusicAction, MusicCmd, MusicLine, MuteCmd, MuteQuantize, ParamCmd,
@@ -24,8 +25,7 @@ pub use device::{
 pub use execute::{ExecuteError, MusicSession, execute_line, resolve_track_at, run_chain};
 pub use expand::{ExpandError, expand_arp, expand_beat, expand_chord, expand_music_line};
 pub use param_catalog::{
-    DeviceHostKind, DeviceParamFile, ParamCatalog, ParamDef, catalog as param_catalog,
-    reload_catalog,
+    DeviceParamFile, ParamCatalog, ParamDef, catalog as param_catalog, reload_catalog,
 };
 pub use parse::{ParseError, parse_mini_pattern, parse_music_line};
 pub use scale::{SCALES, Scale, ScaleError, ScaleKind, key_to_midi, note_to_midi};

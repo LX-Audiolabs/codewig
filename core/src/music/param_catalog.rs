@@ -1,27 +1,14 @@
-//! File-based device param catalog (`devices/*.yaml`).
+//! Device alias catalog backed by `devices/aliases.yml`.
 //!
-//! Scope v1:
-//! - **bitwig** stock/library devices (YAML in `devices/`)
-//! - **clap** (drop a YAML for any CLAP — no plugin path queries)
-//! - **No** VST3 / LV2
-//!
-//! - **Source of truth = YAML on disk**, not compiled-in embeds.
-//! - Scan dirs at load / reload (`CODEWIG_DEVICES_DIR`, `./devices`, next to exe, …).
-//! - Later files override earlier ones with the same `id`.
-//! - File present → listed in UI + param-aware (even if `params: {}`).
-//! - No file → insert may still work; params unsupported.
+//! Params are no longer curated here; they are controlled through Bitwig's
+//! Remote Control / Perform pages at runtime. This module keeps the catalog
+//! surface for backward compatibility during the transition.
 
+use super::alias_catalog::{AliasCatalog, DeviceHostKind};
 use super::device::norm;
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, RwLock};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeviceHostKind {
-    Bitwig,
-    Clap,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ParamValueKind {
@@ -162,100 +149,6 @@ fn wire_passthrough(name: &str, v: f64) -> Result<(String, f64), String> {
 
 // ── YAML ───────────────────────────────────────────────────────────
 
-#[derive(Debug, Deserialize)]
-struct DeviceYaml {
-    id: String,
-    bitwig_name: String,
-    kind: String,
-    #[serde(default)]
-    path_hint: Option<PathHintYaml>,
-    #[serde(default)]
-    aliases: Option<Vec<String>>,
-    #[serde(default)]
-    params: Option<HashMap<String, ParamYaml>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct PathHintYaml {
-    #[serde(default)]
-    windows: Option<String>,
-    #[serde(default)]
-    linux: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct ParamYaml {
-    #[serde(default)]
-    wire: Option<Vec<f64>>,
-    #[serde(default)]
-    display: Option<Vec<f64>>,
-    #[serde(default)]
-    unit: Option<String>,
-    #[serde(default)]
-    aliases: Option<Vec<String>>,
-    #[serde(default, rename = "type")]
-    ty: Option<String>,
-}
-
-fn pair(v: Option<Vec<f64>>, default: (f64, f64)) -> (f64, f64) {
-    match v.as_deref() {
-        Some([a, b, ..]) => (*a, *b),
-        _ => default,
-    }
-}
-
-fn parse_kind(s: &str) -> Result<DeviceHostKind, String> {
-    match s.trim().to_lowercase().as_str() {
-        "bitwig" => Ok(DeviceHostKind::Bitwig),
-        "clap" => Ok(DeviceHostKind::Clap),
-        other => Err(format!(
-            "kind '{other}' unsupported — use bitwig|clap (no vst3/lv2 yet)"
-        )),
-    }
-}
-
-/// Parse one `devices/*.yaml` file.
-pub fn parse_device_yaml(content: &str, source: &str) -> Result<DeviceParamFile, String> {
-    let content = content.trim_start_matches('\u{feff}');
-    let y: DeviceYaml =
-        serde_norway::from_str(content).map_err(|e| format!("{source}: yaml: {e}"))?;
-    let kind = parse_kind(&y.kind).map_err(|e| format!("{source}: {e}"))?;
-
-    let mut params = Vec::new();
-    if let Some(map) = y.params {
-        for (name, py) in map {
-            let pkind = match py.ty.as_deref().unwrap_or("float") {
-                "bool" | "boolean" | "onoff" => ParamValueKind::Bool,
-                _ => ParamValueKind::Float,
-            };
-            params.push(ParamDef {
-                name,
-                aliases: py.aliases.unwrap_or_default(),
-                wire: pair(py.wire, (0.0, 1.0)),
-                display: pair(py.display, (0.0, 1.0)),
-                unit: py.unit.unwrap_or_default(),
-                kind: pkind,
-            });
-        }
-        params.sort_by(|a, b| a.name.cmp(&b.name));
-    }
-
-    let path_hint = y.path_hint.map(|h| PathHint {
-        windows: h.windows,
-        linux: h.linux,
-    });
-
-    Ok(DeviceParamFile {
-        id: y.id,
-        bitwig_name: y.bitwig_name,
-        kind,
-        path_hint,
-        aliases: y.aliases.unwrap_or_default(),
-        params,
-        source: source.to_string(),
-    })
-}
-
 /// Name sent to Bitwig `param.set` — full UI label when available via alias.
 fn bitwig_match_name(p: &ParamDef) -> String {
     p.aliases
@@ -309,40 +202,31 @@ pub fn candidate_dirs() -> Vec<PathBuf> {
     dirs
 }
 
-fn is_yaml(path: &Path) -> bool {
-    matches!(
-        path.extension().and_then(|e| e.to_str()),
-        Some("yaml") | Some("yml")
-    )
-}
-
-fn load_dir(dir: &Path, into: &mut HashMap<String, DeviceParamFile>, errors: &mut Vec<String>) {
-    let rd = match std::fs::read_dir(dir) {
-        Ok(r) => r,
-        Err(_) => return,
+fn load_aliases(dir: &Path, into: &mut HashMap<String, DeviceParamFile>, errors: &mut Vec<String>) {
+    let path = dir.join("aliases.yml");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
     };
-    for ent in rd.flatten() {
-        let path = ent.path();
-        if !is_yaml(&path) {
-            continue;
-        }
-        // Skip docs / non-device files
-        if path.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
-            n.eq_ignore_ascii_case("README.yaml") || n.eq_ignore_ascii_case("README.yml")
-        }) {
-            continue;
-        }
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        let src = path.display().to_string();
-        match parse_device_yaml(&text, &src) {
-            Ok(dev) => {
-                into.insert(dev.id.clone(), dev);
+    let src = path.display().to_string();
+    match AliasCatalog::from_yaml(&text) {
+        Ok(cat) => {
+            for alias in cat.devices() {
+                into.insert(
+                    alias.id.clone(),
+                    DeviceParamFile {
+                        id: alias.id.clone(),
+                        bitwig_name: alias.bitwig_name.clone(),
+                        kind: alias.kind,
+                        path_hint: None,
+                        aliases: alias.aliases.clone(),
+                        params: vec![],
+                        source: src.clone(),
+                    },
+                );
             }
-            Err(e) => {
-                errors.push(format!("skip {src}: {e}"));
-            }
+        }
+        Err(e) => {
+            errors.push(format!("skip {src}: {e}"));
         }
     }
 }
@@ -358,7 +242,7 @@ pub fn load_catalog() -> ParamCatalog {
     for dir in candidate_dirs() {
         let Ok(canon) = dir.canonicalize() else {
             if dir.is_dir() {
-                load_dir(&dir, &mut map, &mut errors);
+                load_aliases(&dir, &mut map, &mut errors);
                 seen_dirs.push(dir.display().to_string());
             }
             continue;
@@ -370,7 +254,7 @@ pub fn load_catalog() -> ParamCatalog {
             continue;
         }
         seen_dirs.push(canon.display().to_string());
-        load_dir(&canon, &mut map, &mut errors);
+        load_aliases(&canon, &mut map, &mut errors);
     }
     let mut devices: Vec<_> = map.into_values().collect();
     devices.sort_by(|a, b| a.id.cmp(&b.id));
@@ -414,7 +298,7 @@ pub fn reload_catalog() -> usize {
 pub fn catalog_from_dir(dir: &Path) -> ParamCatalog {
     let mut map = HashMap::new();
     let mut errors = Vec::new();
-    load_dir(dir, &mut map, &mut errors);
+    load_aliases(dir, &mut map, &mut errors);
     let mut devices: Vec<_> = map.into_values().collect();
     devices.sort_by(|a, b| a.id.cmp(&b.id));
     ParamCatalog {
@@ -438,107 +322,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn all_v9_family_from_devices_dir() {
+    fn aliases_load_from_devices_dir() {
         let cat = catalog_from_repo_devices();
         assert!(
             cat.load_errors().is_empty(),
             "repo devices must load clean: {:?}",
             cat.load_errors()
         );
-        // knobs/sliders only — no keytrack/consistent toggles
-        let expected: &[(&str, &str, usize)] = &[
-            ("v9kick", "v9 Kick", 9),
-            ("v9clap", "v9 Clap", 7),
-            ("v9snare", "v9 Snare", 8),
-            ("v9tom", "v9 Tom", 8),
-            ("v9rimshot", "v9 Rimshot", 4),
-            ("v9hatclosed", "v9 Hat Closed", 8),
-            ("v9hatopen", "v9 Hat Open", 8),
-            ("v9crash", "v9 Crash", 8),
-            ("v9ride", "v9 Ride", 8),
+        let expected: &[(&str, &str)] = &[
+            ("v9kick", "v9 Kick"),
+            ("v9clap", "v9 Clap"),
+            ("v9snare", "v9 Snare"),
+            ("v9tom", "v9 Tom"),
+            ("v9rimshot", "v9 Rimshot"),
+            ("v9hatclosed", "v9 Hat Closed"),
+            ("v9hatopen", "v9 Hat Open"),
+            ("v9crash", "v9 Crash"),
+            ("v9ride", "v9 Ride"),
+            ("polymer", "Polymer"),
+            ("extrabold", "ExtraBold"),
         ];
-        for &(id, bitwig, n) in expected {
+        for &(id, bitwig) in expected {
             let d = cat.resolve(id).unwrap_or_else(|| panic!("missing {id}"));
             assert_eq!(d.bitwig_name, bitwig);
-            assert_eq!(d.params.len(), n, "{id} param count");
-            assert!(cat.resolve_param(d, "output").is_some(), "{id} output");
+            // params now live in Bitwig pages, not the catalog
             assert!(
-                cat.resolve_param(d, "keytrack").is_none(),
-                "{id} must not list keytrack toggle"
+                d.params.is_empty(),
+                "{id} must have no params in alias model"
             );
         }
-        let rim = cat.resolve("v9rimshot").unwrap();
-        assert!(cat.resolve_param(rim, "decay").is_none());
-        assert!(cat.resolve_param(rim, "tone").is_some());
-        let sn = cat.resolve("v9snare").unwrap();
-        assert!(cat.resolve_param(sn, "noise").is_some());
-        let tom = cat.resolve("v9tom").unwrap();
-        assert!(cat.resolve_param(tom, "snap").is_some());
-        assert!(cat.resolve_param(tom, "click").is_some());
+        // aliases resolve too
+        assert!(cat.resolve("poly").is_some());
+        assert!(cat.resolve("kick909").is_some());
     }
 
     #[test]
-    fn parse_v9clap_from_disk() {
-        let cat = catalog_from_repo_devices();
-        let d = cat.resolve("v9 clap").expect("v9 clap");
-        assert_eq!(d.bitwig_name, "v9 Clap");
-        assert_eq!(d.params.len(), 7);
-        for name in [
-            "tune",
-            "decay",
-            "flam",
-            "width",
-            "variation",
-            "output",
-            "velocity",
-        ] {
-            assert!(cat.resolve_param(d, name).is_some(), "missing param {name}");
-        }
-        assert!(cat.resolve_param(d, "stereo").is_some());
-        assert!(cat.resolve_param(d, "var").is_some());
-        let sets = cat
-            .map_param_sets("v9clap", &[("decay".into(), 50.0), ("flam".into(), 40.0)])
-            .unwrap();
-        assert_eq!(sets[0].0, "decay");
-        assert!((sets[0].1 - 0.5).abs() < 1e-9);
-        assert_eq!(sets[1].0, "flam");
-        assert!((sets[1].1 - 0.4).abs() < 1e-9);
-    }
-
-    #[test]
-    fn parse_v9kick_from_disk() {
-        let cat = catalog_from_repo_devices();
-        let d = cat.resolve("v9 kick").expect("v9 kick");
-        assert_eq!(d.bitwig_name, "v9 Kick");
-        assert_eq!(d.kind, DeviceHostKind::Bitwig);
-        // 9 knobs only (no toggles)
-        assert_eq!(d.params.len(), 9);
-        for name in [
-            "tune",
-            "decay",
-            "punch",
-            "shape",
-            "buzz",
-            "click",
-            "compression",
-            "output",
-            "velocity",
-        ] {
-            assert!(cat.resolve_param(d, name).is_some(), "missing param {name}");
-        }
-        // legacy aliases
-        assert!(cat.resolve_param(d, "pitch").is_some());
-        assert!(cat.resolve_param(d, "p").is_some());
-        assert!(cat.resolve_param(d, "tone").is_some());
-        assert!(cat.resolve_param(d, "noise").is_some());
-    }
-
-    #[test]
-    fn polymer_empty_params_passthrough_wire() {
+    fn alias_model_wire_passthrough() {
         let cat = catalog_from_repo_devices();
         let d = cat.resolve("poly").expect("polymer");
         assert!(d.params.is_empty());
-        // empty YAML params → wire 0..1, not a hard block
+        // without param catalog, value must already be wire 0..1
         let sets = cat
             .map_param_sets("Polymer", &[("cutoff".into(), 0.3)])
             .unwrap();
@@ -562,40 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn display_percent_to_wire() {
-        let cat = catalog_from_repo_devices();
-        let sets = cat
-            .map_param_sets(
-                "v9kick",
-                &[
-                    ("decay".into(), 50.0),
-                    ("pitch".into(), 100.0), // alias → tune
-                    ("punch".into(), 0.0),
-                ],
-            )
-            .unwrap();
-        // short keys when no spaced alias
-        assert_eq!(sets[0].0, "decay");
-        assert!((sets[0].1 - 0.5).abs() < 1e-9);
-        // pitch alias → param tune (no spaced alias preferred beyond "tune")
-        assert_eq!(sets[1].0, "tune");
-        assert!((sets[1].1 - 1.0).abs() < 1e-9);
-        assert_eq!(sets[2].0, "punch");
-        assert!((sets[2].1 - 0.0).abs() < 1e-9);
-    }
-
-    #[test]
-    fn unknown_device_display_value_errors() {
-        let cat = catalog_from_repo_devices();
-        // no YAML → 50 is not valid wire
-        assert!(
-            cat.map_param_sets("Surge XT", &[("cutoff".into(), 50.0)])
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn reload_rescans_disk() {
+    fn reload_rescans_aliases() {
         // First global access triggers the lazy user-layout seed — keep it out
         // of the real user dir by pointing CODEWIG_HOME at a temp dir.
         // Only env writer in this test binary; the temp name contains
@@ -605,20 +395,12 @@ mod tests {
         unsafe { std::env::set_var(crate::paths::ENV_HOME, &tmp) };
         let n = reload_catalog();
         unsafe { std::env::remove_var(crate::paths::ENV_HOME) };
-        assert!(n >= 9, "expected v9 family + polymer, got {n}");
+        assert!(
+            n >= 10,
+            "expected aliases (v9 family + polymer + extrabold), got {n}"
+        );
         assert!(catalog().resolve("v9kick").is_some());
+        assert!(catalog().resolve("poly").is_some());
         let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn reject_vst3_kind() {
-        let yaml = r#"
-id: foo
-bitwig_name: "Foo"
-kind: vst3
-params: {}
-"#;
-        let err = parse_device_yaml(yaml, "test").unwrap_err();
-        assert!(err.contains("bitwig|clap"), "{err}");
     }
 }
