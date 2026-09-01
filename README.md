@@ -9,8 +9,8 @@
 **Live coding for Bitwig Studio** — program your DAW live with WIGSCRIPT, a
 music language built for Bitwig and live performance.
 
-> ⚠️ **WIGSCRIPT is under active development.** The two-phase model below is
-> stable, but individual grammar details may still change between releases.
+> ⚠️ **WIGSCRIPT is under active development.** Grammar and commands are stable
+> enough for live use, but details may still change between releases.
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -18,8 +18,9 @@ music language built for Bitwig and live performance.
 │  ┌─────────────────────────────────────────┐│
 │  │  WIGSCRIPT                              ││
 │  │  new track(bass).device(Polymer)        ││
-│  │  bass: n "c e g"                        ││
-│  │  kick&v9kick: decay(50)                 ││
+│  │  bass: n "c e g" +cutoff:0.3           ││
+│  │  t(bass).device(Polymer).page(list)     ││
+│  │  t(bass).perform(cutoff=0.3)            ││
 │  └─────────────────────────────────────────┘│
 │         ↓  TCP + JSON  (localhost :9470)     │
 │  Codewig.bwextension  (Bridge)               │
@@ -235,24 +236,42 @@ s(verse).t(lead).c(start)
 s(1).t(bass).c(stop)
 ```
 
-### Performance — param snapshots
+### Performance — param snapshots (page model)
 
-`track & device : param(value) …` — **`&`** separates track and device (`@` is
-reserved for scene/slot — don't mix them).
+Codewig controls Bitwig through **Remote Control / Perform pages** (8 slots per page),
+not the full direct-parameter dump. This matches how hardware controllers work:
+map the parameters you want on a page, then address them by name or slot.
+
+List the current page slots first, then set them:
 
 ```wigscript
-kick&v9kick: decay(50) punch(40)
-someClap&foo: cutoff(0.7)    # without YAML: wire 0..1 + name as typed
+# Track Perform page (track-level 8 slots)
+t(bass).perform(list)
+t(bass).perform(cutoff=0.3, resonance=0.7)
+
+# Device Remote Control page (cursor device 8 slots)
+t(bass).device(Polymer).page(list)
+t(bass).device(Polymer).page(cutoff=0.3)
 ```
 
-| Case | Meaning |
-|------|---------|
-| Device in `devices/*.yaml` | display range + aliases (`decay(50)` = display value) |
-| No YAML | raw wire **0..1** + param name as typed |
+Inline on a note line (writes notes + sets page slots in one line):
 
-Legacy form (equivalent): `t(kick).d(kick.v9): decay(50) pitch(40)`.
+```wigscript
+bass: n "c e g" +cutoff:0.3              # track Perform page
+bass: n "c e g" +Polymer.cutoff:0.3     # Polymer device page
+```
 
-Device lifecycle ops:
+| Syntax | Target |
+|--------|--------|
+| `+name:value` | track Perform page |
+| `+device.name:value` | that device's Remote Control page |
+| `.perform(...)` | track Perform page (list or name=value) |
+| `.page(...)` | cursor device's Remote Control page (list or name=value) |
+
+Values are wire-normalized **0..1**; Bitwig maps them to the parameter's real range.
+Use `.list` first to see exact slot names.
+
+Device lifecycle ops still use `&` addressing:
 
 ```wigscript
 kick&Polymer: on
@@ -271,19 +290,21 @@ k C minor                 # set key/scale for scale-degree notes
 
 ---
 
-## Devices — insert vs display vs params
+## Devices — aliases + page model
 
-Not a closed hard-coded allowlist of names.
+Codewig keeps a single alias catalog: `devices/aliases.yml`.
+It maps short names/aliases to Bitwig's canonical device names and declares whether
+a device is a Bitwig stock device or a CLAP plugin.
 
 | | Rule |
 |---|------|
-| **Insert** | Any resolvable Bitwig/library name (alias, `.bwdevice`, UUID). Not an allowlist. |
-| **UI Devices tab** | **Help only** — devices with `devices/*.yaml` (sensible coding targets). You can still drive unlisted devices. |
-| **Params** (`track&device:`) | With YAML: display ranges + aliases. Without: raw wire **0..1** + param name (CLI-style). |
-| **Not for help YAML** | Presets, browsers, ultra-complex UIs (e.g. Delay-4) — use Bitwig UI or raw CLI. |
-| **Out of scope** | Sampler / Drum Machine insert. No `d "bd hh"`. No VST3/LV2 help catalog. |
+| **Insert** | Any resolvable Bitwig/library name (alias, `.bwdevice`, UUID). Not closed. |
+| **UI Devices tab** | **Cheat sheet** — aliases from `aliases.yml`. Right-click inserts `.device(<name>)`. |
+| **Params** | Use Bitwig's Remote Control / Perform pages: `.page(list)`, `.perform(list)`, `+name:value`. |
+| **No per-device param YAMLs** | Old `devices/*.yaml` with `params:` sections are no longer loaded. |
+| **Out of scope** | Sampler / Drum Machine insert. No `d "bd hh"`. No auto VST3/LV2 param catalog. |
 
-Add a help entry → drop `devices/<id>.yaml` (see `devices/README.md`) → appears in Devices tab.
+Add an alias → edit `devices/aliases.yml` (see `devices/README.md`) → hit ↻ in the UI.
 
 ---
 
@@ -314,13 +335,15 @@ WIGSCRIPT is **functional but still in development** — expect grammar tweaks.
 | Key / scale | ✅ `k C minor`, scale-degree numbers `n "0 2 4"` |
 | Note modifiers | ✅ `.vel` / `.pres` / `.tim` / `.pan` / `.gain` / `.chnz` |
 | Device insert | ✅ open Bitwig resolve (UUID / library file); no closed name list |
-| Devices UI list | ✅ only entries from `devices/*.yaml` |
+| Devices UI list | ✅ alias cheat sheet from `devices/aliases.yml` |
 | **Performance** | |
-| Param (`track&device:`) | ✅ catalog snapshot (`devices/*.yaml`) or raw wire 0..1 |
+| Track Perform page | ✅ `.perform(list)` / `.perform(name=value)` / `+name:value` |
+| Device page | ✅ `.page(list)` / `.page(name=value)` / `+device.name:value` |
+| Legacy param (`track&device:`) | 🚧 still parses; maps to direct params, prefer page model |
 | Device ops | ✅ `on` / `off` / `delete` / `move N` |
 | Live triggers | ✅ play/stop, tempo, mute (incl. timed + `@bar`), scene/clip launch |
 | Scenes / clips | ✅ create/rename/delete; scene × track clip cells |
-| **Open / not supported** | Sequences/ramps/automation 🚧 · Expander edge cases 🚧 · Polymer params YAML ⏸ · Sampler / Drum Machine insert, `d "bd hh"`, kit `:909`, bare Tidal, VST3/LV2 params |
+| **Open / not supported** | Sequences/ramps/automation 🚧 · Expander edge cases 🚧 · Per-device param YAMLs removed · Sampler / Drum Machine insert, `d "bd hh"`, kit `:909`, bare Tidal, VST3/LV2 param catalog |
 
 ---
 
@@ -339,8 +362,10 @@ codewig-cli eval "lead@verse: n \"e c g\""
 codewig-cli eval "k C minor"
 codewig-cli eval "bass: n \"0 2 4\" .vel(100 80 60)"
 
-# Performance: param snapshot
-codewig-cli eval "kick&v9kick: decay(50) pitch(40)"
+# Performance: page-model param snapshots (use list first to see slot names)
+codewig-cli eval "t(bass).device(Polymer).page(list)"
+codewig-cli eval "t(bass).device(Polymer).page(cutoff=0.3)"
+codewig-cli eval "bass: n "c e g" +cutoff:0.3"
 
 # Performance: live
 codewig-cli eval "new scene(verse)"

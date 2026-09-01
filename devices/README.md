@@ -1,12 +1,17 @@
-# Device param catalog
+# Device alias catalog
 
-**Source of truth = YAML files on disk.**  
-Scanned at startup and on **reload** (codewig-live Devices tab → **↻**).  
+**Source of truth = `devices/aliases.yml`.**
+Scanned at startup and on **reload** (codewig-live Devices tab → **↻**).
 Nothing is compiled into the binary.
+
+Per-device parameter YAMLs are no longer used. Codewig controls Bitwig through
+**Remote Control pages** (device) and **Perform pages** (track) — 8 slots each.
+You map the parameters you want on those pages in Bitwig, then address them by
+name or slot from WIGSCRIPT.
 
 ## Install location (per user)
 
-On first run Codewig creates a user data folder and seeds factory YAMLs into `devices/`
+On first run Codewig creates a user data folder and seeds factory `aliases.yml` + this README into `devices/`
 (never overwrites files you already edited):
 
 | OS | Path |
@@ -22,25 +27,36 @@ Parent folder `Codewig/` is the app home — later we can put more under it (pre
 | `CODEWIG_HOME` | Override whole user data root |
 | `CODEWIG_DEVICES_DIR` | Override only the devices catalog dir |
 
-## Add a device (Bitwig or CLAP)
+## Add or edit an alias
 
-1. Copy schema from e.g. `v9kick.yaml`.
-2. Drop `mydevice.yaml` into the **user** `devices/` folder (or this repo folder while developing).
-3. In **codewig-live** → Devices → **↻**.
-4. Device appears with params. WIGSCRIPT: `track&device: param(50)`.
+1. Edit `devices/aliases.yml` in the user folder (or this repo folder while developing).
+2. In **codewig-live** → Devices → **↻**.
+3. The device appears in the list with its aliases.
 
-No rebuild for new YAML.
+Example entry:
 
-## Scope (v1)
+```yaml
+devices:
+  polymer:
+    bitwig_name: Polymer
+    kind: bitwig
+    aliases: [poly, Polymer]
+
+  v9kick:
+    bitwig_name: V9 Kick
+    kind: clap
+    aliases: [v9 kick, kick.v9]
+```
+
+## Scope
 
 | Supported | Not now |
 |-----------|---------|
-| **Bitwig** stock/library (YAML-documented) | VST3 |
-| **CLAP** params via your YAML (`kind: clap`) | LV2 |
-| | Auto-discover every plugin on disk |
+| **Bitwig** stock/library aliases | VST3/LV2 auto catalog |
+| **CLAP** plugin aliases (`kind: clap`) | Auto-discover every plugin on disk |
 
-Insert can still resolve Bitwig library devices by name without YAML.  
-**Params + Devices list** need a YAML.
+Insert can still resolve Bitwig library devices by name without an alias.
+The **Devices tab** simply makes aliases discoverable.
 
 ### Search order
 
@@ -49,47 +65,46 @@ Insert can still resolve Bitwig library devices by name without YAML.
 3. `./devices` (cwd) and next to the executable
 4. Dev: repo `devices/` last (so local edits win while developing)
 
-Later dirs / later files with the same `id` win.
+Later dirs / later entries with the same `id` win.
 
 ## Rules
 
-1. **YAML present** → listed in UI Devices tab as **help** (aliases + display ranges).
-2. **No file** → not listed in help; **insert + raw params still work** (wire 0..1).
-3. **Param omitted from YAML** → no help alias/range for it; user can still set raw by Bitwig name.
-4. `kind` must be `bitwig` or `clap`.
-5. Community CLAP: write YAML → drop in folder → **↻**.
-6. **Knobs/sliders only** in help — skip buttons, toggles, mode/type, presets.
-7. **Long lists OK**. UI loads light rows; full params on **click**.
-8. **Not everything needs YAML** — complex devices stay Bitwig-UI / raw CLI.
+1. **Aliases present** → listed in UI Devices tab as a **cheat sheet**.
+2. **No alias** → not listed in help; **insert + page control still work** by Bitwig name.
+3. `kind` must be `bitwig` or `clap`.
+4. Community CLAP: add to `aliases.yml` → drop in folder → **↻**.
+5. **Not everything needs an alias** — complex devices stay Bitwig-UI / raw CLI.
 
-## Why YAML
+## WIGSCRIPT page model
 
-Structured data, one parser (`serde_yaml`), git-diff friendly. No VST3/LV2 kinds.
+List first, then set:
 
-## Syntax
+```wigscript
+# Track Perform page (8 slots on the track)
+t(bass).perform(list)
+t(bass).perform(cutoff=0.3, resonance=0.7)
 
+# Device Remote Control page (8 slots on the cursor device)
+t(bass).device(Polymer).page(list)
+t(bass).device(Polymer).page(cutoff=0.3)
+
+# Inline on a note line
+bass: n "c e g" +cutoff:0.3              # track Perform page
+bass: n "c e g" +Polymer.cutoff:0.3     # Polymer device page
 ```
-track&device: param(displayValue) other(displayValue)
-```
 
-```
-kick&v9kick: decay(50) punch(70)
-```
+Values are wire-normalized **0..1**.
 
 ## Schema
 
 | Field | Meaning |
 |-------|---------|
-| `id` | Stable id (= filename without `.yaml`) |
+| `id` | Stable id (= YAML key) |
 | `bitwig_name` | Name as shown / matched in Bitwig |
-| `kind` | `bitwig` \| `clap` only |
-| `path_hint` | Human docs — not scanned for resolve yet |
-| `aliases` | Names after `&` |
-| `params.<name>` | Canonical name for `param.set` name match |
-| `params.*.wire` | Range on the wire (usually `[0, 1]`) |
-| `params.*.display` | What the user types (e.g. `[0, 100]`) |
-| `params.*.unit` | UI hint (`%`, …) |
-| `params.*.aliases` | e.g. `pitch` → `tune` |
-| `params.*.type` | `float` (default) or `bool` |
+| `kind` | `bitwig` \| `clap` |
+| `aliases` | Short names usable in `.device(...)` and `+device.name:value` |
 
-Comments with `#` are fine in YAML.
+## Old per-device YAMLs
+
+`devices/*.yaml` files with a `params:` section are **no longer loaded**. They can
+be safely deleted; only `aliases.yml` is used now.
