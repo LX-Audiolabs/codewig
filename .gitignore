@@ -27,5 +27,6 @@ Thumbs.db
 *.log
 research/
 docs/*
+.worktrees/
 
 AGENTS.md
