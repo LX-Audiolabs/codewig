@@ -3,6 +3,7 @@
 //! Line language is primary (`mute(kick)`, `new track(bass).device(Polymer)`, …).
 //! Mini-notation / chord expand live here so both frontends share one path.
 
+pub mod alias_catalog;
 pub mod ast;
 pub mod device;
 pub mod execute;
