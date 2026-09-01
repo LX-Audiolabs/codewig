@@ -157,7 +157,15 @@ mod tests {
 
         // exactly 16 MiB is accepted (send a real body of that size)
         let body = vec![7u8; 16 * 1024 * 1024];
-        write_frame(&mut a, &body).unwrap();
-        assert_eq!(read_frame(&mut b).unwrap(), body);
+        // Write in a separate thread: writing 16 MiB into a TCP socket without
+        // a concurrent reader can fill the kernel buffer and deadlock.
+        let mut writer = a;
+        let handle = std::thread::spawn(move || {
+            write_frame(&mut writer, &body).unwrap();
+            body
+        });
+        let got = read_frame(&mut b).unwrap();
+        let body = handle.join().unwrap();
+        assert_eq!(got, body);
     }
 }
