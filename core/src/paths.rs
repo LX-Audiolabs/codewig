@@ -68,11 +68,11 @@ pub fn ensure_user_layout_at(root: &Path) -> Result<PathBuf, String> {
     if !readme.exists() {
         let _ = fs::write(
             &readme,
-            "Codewig device param catalog\n\
+            "Codewig device aliases\n\
              \n\
-             Drop *.yaml here (bitwig or clap). In codewig-live: Devices tab → ↻ reload.\n\
-             Factory defs are copied on first run; your edits are never overwritten.\n\
-             See repo devices/README.md for schema.\n",
+             Drop aliases.yml here to add device aliases. In codewig-live: Devices tab → ↻ reload.\n\
+             Factory aliases.yml is copied on first run; your edits are never overwritten.\n\
+             See repo devices/README.md for the alias model.\n",
         );
     }
 
@@ -114,39 +114,22 @@ fn platform_user_data_dir() -> Option<PathBuf> {
     }
 }
 
-/// Copy factory YAMLs into user devices/ when the dest file does not exist.
+/// Copy factory aliases.yml + README.md into user devices/ when the dest file does not exist.
 fn seed_devices_if_missing(user_devices: &Path) {
     for src_dir in shipped_devices_sources() {
         if !src_dir.is_dir() {
             continue;
         }
-        let Ok(rd) = fs::read_dir(&src_dir) else {
-            continue;
-        };
-        let mut any = false;
-        for ent in rd.flatten() {
-            let path = ent.path();
-            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-                continue;
-            };
-            let lower = name.to_ascii_lowercase();
-            if !(lower.ends_with(".yaml") || lower.ends_with(".yml")) {
-                continue;
-            }
-            if lower == "readme.yaml" || lower == "readme.yml" {
+        for name in ["aliases.yml", "README.md"] {
+            let src = src_dir.join(name);
+            if !src.is_file() {
                 continue;
             }
             let dest = user_devices.join(name);
             if dest.exists() {
                 continue;
             }
-            if fs::copy(&path, &dest).is_ok() {
-                any = true;
-            }
-        }
-        if any {
-            // Prefer first source that had something to copy; still merge missing from later sources
-            // by not breaking — continue so all factory files land.
+            let _ = fs::copy(&src, &dest);
         }
     }
 }
@@ -205,6 +188,11 @@ mod tests {
         assert!(devices.is_dir());
         assert_eq!(devices.file_name().unwrap(), "devices");
         assert!(devices.join("README.txt").is_file());
+        assert!(devices.join("aliases.yml").is_file());
+        assert!(
+            !devices.join("v9kick.yaml").exists(),
+            "per-device param YAMLs must not be seeded"
+        );
         let _ = fs::remove_dir_all(&root);
     }
 }
