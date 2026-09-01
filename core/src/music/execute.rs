@@ -473,16 +473,33 @@ fn music(
     };
     apply_note_mods(&mut notes, &cmd.note_mods);
 
-    // +params need cursor track; pure note write uses track ref in clip.* — skip select
+    // +params: None → track perform page; Some(dev) → that device's remote page
     if !cmd.params.is_empty() {
         client.track_select(&track)?;
         wait_cursor();
-        let sets: Vec<(String, f64)> = cmd
-            .params
-            .iter()
-            .map(|p| (p.name.clone(), p.value))
-            .collect();
-        client.param_set_multi(&sets)?;
+
+        let mut track_sets: Vec<(String, f64)> = Vec::new();
+        let mut device_groups: std::collections::BTreeMap<String, Vec<(String, f64)>> =
+            std::collections::BTreeMap::new();
+        for p in &cmd.params {
+            match &p.device {
+                None => track_sets.push((p.name.clone(), p.value)),
+                Some(dev) => device_groups
+                    .entry(dev.clone())
+                    .or_default()
+                    .push((p.name.clone(), p.value)),
+            }
+        }
+
+        if !track_sets.is_empty() {
+            client.track_perform_set(&track_sets)?;
+        }
+        for (dev, sets) in device_groups {
+            let idx = resolve_device_index(client, &dev)?;
+            client.device_select(idx)?;
+            wait_cursor();
+            client.device_page_set(&sets)?;
+        }
     }
 
     // Notes path already resolved slot (incl. create); don't re-ensure without name.
@@ -614,10 +631,15 @@ fn fluent(
     session: &mut MusicSession,
     cmd: &FluentCmd,
 ) -> Result<Option<Value>, ExecuteError> {
-    let needs_cursor = cmd
-        .steps
-        .iter()
-        .any(|s| matches!(s, FluentStep::Device(_) | FluentStep::Add(_)));
+    let needs_cursor = cmd.steps.iter().any(|s| {
+        matches!(
+            s,
+            FluentStep::Device(_)
+                | FluentStep::Add(_)
+                | FluentStep::Perform(_)
+                | FluentStep::Page(_)
+        )
+    });
 
     if cmd.create {
         let at = resolve_track_at(client, -1)?;
@@ -636,7 +658,7 @@ fn fluent(
     // Fluent setup writes to **slot 0** (first clip). Multi-clip → colon `track@scene: n "…"`.
     let slot0 = session.default_slot;
 
-    for step in &cmd.steps {
+    for (i, step) in cmd.steps.iter().enumerate() {
         match step {
             FluentStep::Device(d) | FluentStep::Add(d) => {
                 // Drum module → monophonic trigger for following .beat
@@ -645,6 +667,15 @@ fn fluent(
                 }
                 log.push(json!({ "device": d.catalog_name, "result": add_device(client, &d.catalog_name)? }));
                 wait_cursor();
+                // A following .page step needs the cursor device on this insertion.
+                if cmd.steps[i + 1..]
+                    .iter()
+                    .any(|s| matches!(s, FluentStep::Page(_)))
+                {
+                    let idx = resolve_device_index(client, &d.catalog_name)?;
+                    client.device_select(idx)?;
+                    wait_cursor();
+                }
             }
             FluentStep::Beat(b) => {
                 // Write immediately so later .clip(start) sees content
@@ -738,12 +769,61 @@ fn fluent(
                     }
                 }
             }
+            FluentStep::Perform(action) => {
+                log.push(json!({
+                    "perform": execute_page_action(client, action, true)?
+                }));
+            }
+            FluentStep::Page(action) => {
+                // Optional explicit device override in page set args.
+                if let PageAction::Set(sets) = action {
+                    let devices: Vec<&String> =
+                        sets.iter().filter_map(|p| p.device.as_ref()).collect();
+                    if !devices.is_empty() {
+                        let first = devices[0];
+                        if devices.iter().any(|d| *d != first) {
+                            return Err(usage("page set cannot target multiple devices"));
+                        }
+                        let idx = resolve_device_index(client, first)?;
+                        client.device_select(idx)?;
+                        wait_cursor();
+                    }
+                }
+                log.push(json!({
+                    "page": execute_page_action(client, action, false)?
+                }));
+            }
         }
     }
 
     Ok(Some(
         json!({ "fluent": cmd.track, "create": cmd.create, "slot": slot0, "steps": log }),
     ))
+}
+
+fn execute_page_action(
+    client: &Client,
+    action: &PageAction,
+    is_track: bool,
+) -> Result<Value, ExecuteError> {
+    match action {
+        PageAction::List => {
+            if is_track {
+                Ok(client.track_perform_list()?.unwrap_or(Value::Null))
+            } else {
+                Ok(client.device_page_list()?.unwrap_or(Value::Null))
+            }
+        }
+        PageAction::Set(sets) => {
+            let pairs: Vec<(String, f64)> =
+                sets.iter().map(|p| (p.name.clone(), p.value)).collect();
+            if is_track {
+                Ok(client.track_perform_set(&pairs)?.unwrap_or(Value::Null))
+            } else {
+                Ok(client.device_page_set(&pairs)?.unwrap_or(Value::Null))
+            }
+        }
+    }
 }
 
 fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, ExecuteError> {
@@ -1252,5 +1332,129 @@ mod tests {
         // No YAML entry for "nosuchdev" → raw wire 0..1 passthrough, name as typed.
         let sets = reqs[2].get("sets").and_then(Value::as_array).unwrap();
         assert_eq!(sets, &vec![json!({ "name": "cutoff", "v": 0.5 })]);
+    }
+
+    #[test]
+    fn execute_line_fluent_perform_list_and_set() {
+        let fake = FakeExt::start(|req| match cmd_of(req) {
+            "track.select" => ok(json!({ "selected": true })),
+            "track.perform" => ok(json!({ "slots": [] })),
+            "track.perform.set" => ok(json!({ "set": [] })),
+            other => panic!("unexpected request {other}"),
+        });
+        let client = fake_client(fake.port);
+        let mut session = MusicSession::default();
+
+        let line = parse_music_line("t(bass).perform(list)").unwrap();
+        execute_line(&client, &mut session, line).unwrap();
+        let reqs = fake.drain();
+        assert_eq!(cmds(&reqs), ["track.select", "track.perform"]);
+
+        let line = parse_music_line("t(bass).perform(cutoff=0.3, resonance=0.7)").unwrap();
+        execute_line(&client, &mut session, line).unwrap();
+        let reqs = fake.drain();
+        assert_eq!(cmds(&reqs), ["track.select", "track.perform.set"]);
+        let sets = reqs[1].get("sets").and_then(Value::as_array).unwrap();
+        assert_eq!(
+            sets,
+            &vec![
+                json!({ "name": "cutoff", "v": 0.3 }),
+                json!({ "name": "resonance", "v": 0.7 }),
+            ]
+        );
+    }
+
+    #[test]
+    fn execute_line_fluent_device_page_list_and_set() {
+        let fake = FakeExt::start(|req| match cmd_of(req) {
+            "track.select" => ok(json!({ "selected": true })),
+            "device.add" => ok(json!({ "added": "Polymer" })),
+            "device.list" => ok(json!({ "devices": [
+                { "name": "Polymer", "index": 0 }
+            ]})),
+            "device.select" => ok(json!({ "selected": true })),
+            "device.page" => ok(json!({ "slots": [] })),
+            "device.page.set" => ok(json!({ "set": [] })),
+            other => panic!("unexpected request {other}"),
+        });
+        let client = fake_client(fake.port);
+        let mut session = MusicSession::default();
+
+        let line = parse_music_line("t(bass).device(Polymer).page(list)").unwrap();
+        execute_line(&client, &mut session, line).unwrap();
+        let reqs = fake.drain();
+        assert_eq!(
+            cmds(&reqs),
+            [
+                "track.select",
+                "device.add",
+                "device.list",
+                "device.select",
+                "device.page"
+            ]
+        );
+
+        let line = parse_music_line("t(bass).device(Polymer).page(cutoff=0.3)").unwrap();
+        execute_line(&client, &mut session, line).unwrap();
+        let reqs = fake.drain();
+        assert_eq!(
+            cmds(&reqs),
+            [
+                "track.select",
+                "device.add",
+                "device.list",
+                "device.select",
+                "device.page.set"
+            ]
+        );
+        let sets = reqs[4].get("sets").and_then(Value::as_array).unwrap();
+        assert_eq!(sets, &vec![json!({ "name": "cutoff", "v": 0.3 })]);
+    }
+
+    #[test]
+    fn execute_line_music_inline_params_to_perform_and_device_page() {
+        let fake = FakeExt::start(|req| match cmd_of(req) {
+            "clip.list" => ok(json!({ "clips": [{ "slot": 0, "hasContent": true }] })),
+            "clip.replace-notes" => ok(json!({ "written": true })),
+            "track.select" => ok(json!({ "selected": true })),
+            "track.perform.set" => ok(json!({ "set": [] })),
+            "device.list" => ok(json!({ "devices": [
+                { "name": "Polymer", "index": 0 }
+            ]})),
+            "device.select" => ok(json!({ "selected": true })),
+            "device.page.set" => ok(json!({ "set": [] })),
+            other => panic!("unexpected request {other}"),
+        });
+        let client = fake_client(fake.port);
+        let mut session = MusicSession::default();
+
+        // +name:value → track perform page
+        let line = parse_music_line(r#"bass: n "c e g" +cutoff:0.3"#).unwrap();
+        execute_line(&client, &mut session, line).unwrap();
+        let reqs = fake.drain();
+        let perform = reqs
+            .iter()
+            .find(|r| cmd_of(r) == "track.perform.set")
+            .unwrap();
+        assert_eq!(
+            perform.get("sets").and_then(Value::as_array).unwrap(),
+            &vec![json!({ "name": "cutoff", "v": 0.3 })]
+        );
+
+        // +device.name:value → device remote page
+        let line = parse_music_line(r#"bass: n "c e g" +Polymer.cutoff:0.3"#).unwrap();
+        execute_line(&client, &mut session, line).unwrap();
+        let reqs = fake.drain();
+        let cmds = cmds(&reqs);
+        assert!(cmds.contains(&"device.list"), "{cmds:?}");
+        assert!(cmds.contains(&"device.page.set"), "{cmds:?}");
+        let page = reqs
+            .iter()
+            .find(|r| cmd_of(r) == "device.page.set")
+            .unwrap();
+        assert_eq!(
+            page.get("sets").and_then(Value::as_array).unwrap(),
+            &vec![json!({ "name": "cutoff", "v": 0.3 })]
+        );
     }
 }

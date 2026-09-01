@@ -1,6 +1,9 @@
 use codewig_core::Client;
 use codewig_core::music::MusicSession;
-use codewig_core::music::param_catalog::{DeviceHostKind, catalog, reload_catalog};
+use codewig_core::music::{
+    DeviceHostKind,
+    param_catalog::{catalog, reload_catalog},
+};
 use std::sync::mpsc;
 use std::thread;
 
@@ -11,7 +14,7 @@ slint::include_modules!();
 /// Status probe only — short so offline Bitwig does not freeze the UI (commands keep 2s).
 const STATUS_TIMEOUT_MS: u64 = 250;
 
-/// Light list only — full param text via [`device_detail_for`] on click (keeps UI fast with big catalogs).
+/// Devices tab entries from the alias catalog (`devices/aliases.yml`).
 fn device_entries_from_catalog() -> Vec<DeviceEntry> {
     catalog()
         .devices()
@@ -26,11 +29,10 @@ fn device_entries_from_catalog() -> Vec<DeviceEntry> {
                 DeviceHostKind::Bitwig => "bitwig",
                 DeviceHostKind::Clap => "clap",
             };
-            let n = d.params.len();
-            let summary = if n == 0 {
-                format!("{kind} · help only (raw wire OK)")
+            let summary = if aliases.is_empty() {
+                format!("{kind} · no aliases")
             } else {
-                format!("{kind} · {n} params")
+                format!("{kind} · {}", aliases)
             };
             DeviceEntry {
                 name: d.bitwig_name.clone().into(),
@@ -42,49 +44,48 @@ fn device_entries_from_catalog() -> Vec<DeviceEntry> {
         .collect()
 }
 
-/// Full parameter dump for one device (called when user selects it in the Devices tab).
+/// Alias + page-model cheat sheet for the Devices tab detail box.
 fn device_detail_for(name: &str) -> String {
     let cat = catalog();
     let Some(d) = cat.resolve(name) else {
-        return format!("Unknown device: {name}\n\nDrop a devices/*.yaml and hit ↻.");
+        return format!("Unknown device: {name}\n\nAdd it to devices/aliases.yml and hit ↻.");
     };
     let kind = match d.kind {
         DeviceHostKind::Bitwig => "bitwig",
         DeviceHostKind::Clap => "clap",
     };
-    let mut detail = format!(
-        "{}\nid: {}\nkind: {}\nsource: {}\n\nParameters ({}):\n",
+    let aliases = if d.aliases.is_empty() {
+        String::from("(none)")
+    } else {
+        d.aliases.join(", ")
+    };
+    format!(
+        "{}\n\
+         id: {}\n\
+         kind: {}\n\
+         aliases: {}\n\n\
+         Insert:\n\
+           .device({})\n\
+           .device({})\n\n\
+         Device page (8 Remote Control slots):\n\
+           t(mytrack).device({}).page(list)\n\
+           t(mytrack).device({}).page(cutoff=0.3)\n\n\
+         Inline on a note line (same track, named device):\n\
+           mytrack: n \"c e g\" +{}.cutoff:0.3\n\n\
+         Track Perform page (no device):\n\
+           t(mytrack).perform(list)\n\
+           mytrack: n \"c e g\" +cutoff:0.3\n\n\
+         Use list first to see the slot names Bitwig exposes.",
         d.bitwig_name,
         d.id,
         kind,
-        d.source,
-        d.params.len()
-    );
-    if d.params.is_empty() {
-        detail.push_str(
-            "  (no param help yet)\n\
-             Raw WIGSCRIPT still works: track&device: Name(0.5)  // wire 0..1\n",
-        );
-    } else {
-        for p in &d.params {
-            let aliases = if p.aliases.is_empty() {
-                String::new()
-            } else {
-                format!(" ({})", p.aliases.join(", "))
-            };
-            let unit = if p.unit.is_empty() {
-                String::new()
-            } else {
-                format!(" {}", p.unit)
-            };
-            detail.push_str(&format!(
-                "  {}{}: {}..{}{}\n",
-                p.name, aliases, p.display.0, p.display.1, unit
-            ));
-        }
-    }
-    detail.push_str(&format!("\nWIGSCRIPT:\n  track&{}: param(50)\n", d.id));
-    detail
+        aliases,
+        d.bitwig_name,
+        d.id,
+        d.bitwig_name,
+        d.bitwig_name,
+        d.bitwig_name,
+    )
 }
 
 /// Commands from the UI thread to the worker. `Client` and `MusicSession` are
@@ -216,9 +217,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         ui.set_help_text(
             format!(
-                "Rescanned devices — {n} device(s).\n\
+                "Reloaded alias catalog — {n} device(s).\n\
                  User folder: {user_dir}\n\
-                 Drop a new YAML (bitwig|clap), click ↻ again.\n\
+                 Edit devices/aliases.yml (bitwig|clap) and click ↻ again.\n\
+                 Per-device YAMLs are no longer used; only aliases.yml is loaded.\n\
                  Env: CODEWIG_HOME / CODEWIG_DEVICES_DIR{errors}"
             )
             .into(),

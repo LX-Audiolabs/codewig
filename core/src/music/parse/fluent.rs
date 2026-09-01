@@ -70,6 +70,14 @@ pub(crate) fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
         } else if rest.starts_with("delete()") {
             steps.push(FluentStep::Delete);
             rest = &rest[8..];
+        } else if rest.starts_with("perform(") || rest.starts_with("perf(") {
+            let (action, r) = parse_page_action(rest, s)?;
+            steps.push(FluentStep::Perform(action));
+            rest = r;
+        } else if rest.starts_with("page(") || rest.starts_with("pg(") {
+            let (action, r) = parse_page_action(rest, s)?;
+            steps.push(FluentStep::Page(action));
+            rest = r;
         } else if rest.starts_with("clip(") || rest.starts_with("c(") {
             let after = rest.find('(').map(|i| &rest[i + 1..]).unwrap_or("");
             let closing = after.find(')').ok_or_else(|| {
@@ -288,6 +296,74 @@ fn parse_beat_shorthand(s: &str, full_input: &str, input: &str) -> ParseResult<B
     }
 }
 
+/// Parse `.perform(list)` / `.page(list)` or `.perform(name=value,...)` / `.page(name=value,...)`.
+fn parse_page_action<'a>(input: &'a str, full_input: &str) -> ParseResult<(PageAction, &'a str)> {
+    let after = input.find('(').map(|i| &input[i + 1..]).unwrap_or("");
+    let closing = after.find(')').ok_or_else(|| {
+        ParseError::new(
+            "expected ')' after perform/page args",
+            full_input.len() - input.len(),
+            full_input.to_string(),
+        )
+    })?;
+    let content = after[..closing].trim();
+    if content.is_empty() {
+        return Err(ParseError::new(
+            "perform/page needs 'list' or name=value[,...]",
+            full_input.len() - input.len(),
+            full_input.to_string(),
+        ));
+    }
+    if content == "list" {
+        return Ok((PageAction::List, &after[closing + 1..]));
+    }
+    let sets = parse_page_sets(content, full_input)?;
+    Ok((PageAction::Set(sets), &after[closing + 1..]))
+}
+
+/// Parse one or more `name=value` assignments separated by commas or spaces.
+fn parse_page_sets(content: &str, full_input: &str) -> ParseResult<Vec<ParamSet>> {
+    let mut sets = Vec::new();
+    for token in content
+        .split(|c: char| c == ',' || c.is_whitespace())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        let Some((body, val_str)) = token.rsplit_once('=') else {
+            return Err(ParseError::new(
+                format!("expected name=value in perform/page set, got '{token}'"),
+                0,
+                full_input.to_string(),
+            ));
+        };
+        let value: f64 = val_str.trim().parse().map_err(|_| {
+            ParseError::new(
+                format!("invalid value '{val_str}' in '{token}'"),
+                0,
+                full_input.to_string(),
+            )
+        })?;
+        let (device, name) = if let Some((d, n)) = body.rsplit_once('.') {
+            (Some(d.to_string()), n.to_string())
+        } else {
+            (None, body.to_string())
+        };
+        sets.push(ParamSet {
+            device,
+            name,
+            value,
+        });
+    }
+    if sets.is_empty() {
+        return Err(ParseError::new(
+            "perform/page set needs at least one name=value",
+            0,
+            full_input.to_string(),
+        ));
+    }
+    Ok(sets)
+}
+
 /// Extract content from `name("pattern")` — for `n("c e g")` inside fluent chain.
 fn extract_paren_quoted<'a>(input: &'a str, full_input: &str) -> ParseResult<(String, &'a str)> {
     let after = input.find('(').map(|i| &input[i + 1..]).unwrap_or("");
@@ -450,6 +526,66 @@ mod tests {
             } else {
                 panic!("expected Pattern step");
             }
+        } else {
+            panic!("expected Fluent");
+        }
+    }
+
+    #[test]
+    fn test_parse_fluent_perform_list_and_set() {
+        let line = "t(bass).perform(list)";
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Fluent(cmd) = result {
+            assert_eq!(cmd.steps, vec![FluentStep::Perform(PageAction::List)]);
+        } else {
+            panic!("expected Fluent");
+        }
+
+        let line = "t(bass).perform(cutoff=0.3, resonance=0.7)";
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Fluent(cmd) = result {
+            assert_eq!(
+                cmd.steps,
+                vec![FluentStep::Perform(PageAction::Set(vec![
+                    ParamSet {
+                        device: None,
+                        name: "cutoff".into(),
+                        value: 0.3,
+                    },
+                    ParamSet {
+                        device: None,
+                        name: "resonance".into(),
+                        value: 0.7,
+                    },
+                ]))]
+            );
+        } else {
+            panic!("expected Fluent");
+        }
+    }
+
+    #[test]
+    fn test_parse_fluent_page_list_and_set() {
+        let line = "t(bass).device(Polymer).page(list)";
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Fluent(cmd) = result {
+            assert_eq!(cmd.steps.len(), 2);
+            assert!(matches!(&cmd.steps[1], FluentStep::Page(PageAction::List)));
+        } else {
+            panic!("expected Fluent");
+        }
+
+        let line = "t(bass).device(Polymer).page(cutoff=0.3)";
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::Fluent(cmd) = result {
+            assert_eq!(
+                cmd.steps[1],
+                FluentStep::Page(PageAction::Set(vec![ParamSet {
+                    device: None,
+                    name: "cutoff".into(),
+                    value: 0.3,
+                }]))
+            );
         } else {
             panic!("expected Fluent");
         }

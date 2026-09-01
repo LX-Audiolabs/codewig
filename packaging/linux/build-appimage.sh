@@ -44,7 +44,7 @@ cp "$BIN_DIR/codewig-live" "$APPDIR/usr/bin/"
 cp "$REPO_ROOT/packaging/linux/codewig-live.desktop" "$APPDIR/usr/share/applications/"
 cp "$REPO_ROOT/assets/icon-256.png" "$APPDIR/usr/share/icons/hicolor/256x256/apps/codewig-live.png"
 cp "$REPO_ROOT/assets/icon-512.png" "$APPDIR/usr/share/icons/hicolor/512x512/apps/codewig-live.png"
-cp "$REPO_ROOT"/devices/*.yaml "$APPDIR/usr/share/codewig/devices/"
+cp "$REPO_ROOT/devices/aliases.yml" "$REPO_ROOT/devices/README.md" "$APPDIR/usr/share/codewig/devices/"
 cp "$REPO_ROOT/packaging/linux/codewig-live.desktop" "$APPDIR/"
 cp "$REPO_ROOT/assets/icon-256.png" "$APPDIR/codewig-live.png"
 # AppRun = entry point the AppImage runtime execs (missing AppRun = "execv error")

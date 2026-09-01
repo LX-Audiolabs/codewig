@@ -132,6 +132,18 @@ public final class CommandRouter {
                 case "param.set":
                     return Messages.ok(params.set(req));
 
+                case "track.perform":
+                    return Messages.ok(params.listPerform());
+
+                case "track.perform.set":
+                    return Messages.ok(params.setPerform(req));
+
+                case "device.page":
+                    return Messages.ok(params.listRemote());
+
+                case "device.page.set":
+                    return Messages.ok(params.setPage(req));
+
                 case "clip.new":
                     return Messages.ok(clips.createEmpty(
                             requireStr(req, "track"),

@@ -34,6 +34,7 @@ public final class ParamService {
     private final CursorTrack cursorTrack;
     private final CursorDevice cursorDevice;
     private final CursorRemoteControlsPage remoteControls;
+    private final CursorRemoteControlsPage trackRemoteControls;
 
     /** id → name (direct params) */
     private final Map<String, String> namesById = new ConcurrentHashMap<>();
@@ -77,6 +78,17 @@ public final class ParamService {
         remoteControls.selectedPageIndex().markInterested();
         for (int i = 0; i < REMOTE_SLOTS; i++) {
             final RemoteControl p = remoteControls.getParameter(i);
+            p.exists().markInterested();
+            p.name().markInterested();
+            p.value().markInterested();
+        }
+
+        // ── Track Perform Page (8 slots × pages) ────────────────────
+        this.trackRemoteControls = cursorTrack.createCursorRemoteControlsPage(REMOTE_SLOTS);
+        trackRemoteControls.pageCount().markInterested();
+        trackRemoteControls.selectedPageIndex().markInterested();
+        for (int i = 0; i < REMOTE_SLOTS; i++) {
+            final RemoteControl p = trackRemoteControls.getParameter(i);
             p.exists().markInterested();
             p.name().markInterested();
             p.value().markInterested();
@@ -130,21 +142,32 @@ public final class ParamService {
      * Names map to plugin params (usable with param.set by name when direct ids exist).
      */
     public JsonObject listRemote() {
-        requireDevice();
-        final int pageCount = Math.max(1, remoteControls.pageCount().get());
-        final int savedPage = remoteControls.selectedPageIndex().get();
+        return listRemoteControls(remoteControls, "remote", cursorDevice.name().get());
+    }
+
+    /**
+     * Walk all Track Perform pages and list the 8 slots per page.
+     */
+    public JsonObject listPerform() {
+        requireTrack();
+        return listRemoteControls(trackRemoteControls, "perform", cursorTrack.name().get());
+    }
+
+    private JsonObject listRemoteControls(final CursorRemoteControlsPage pageControls, final String source, final String deviceOrTrackName) {
+        final int pageCount = Math.max(1, pageControls.pageCount().get());
+        final int savedPage = pageControls.selectedPageIndex().get();
 
         final JsonArray pages = new JsonArray();
         final JsonArray flat = new JsonArray();
 
         for (int page = 0; page < pageCount; page++) {
-            remoteControls.selectedPageIndex().set(page);
+            pageControls.selectedPageIndex().set(page);
             // Same-tick read often works after markInterested; page switch is best-effort.
             final JsonObject pageObj = new JsonObject();
             pageObj.addProperty("index", page);
             final JsonArray pageParams = new JsonArray();
             for (int slot = 0; slot < REMOTE_SLOTS; slot++) {
-                final RemoteControl p = remoteControls.getParameter(slot);
+                final RemoteControl p = pageControls.getParameter(slot);
                 final boolean exists = p.exists().get();
                 final String name = p.name().get() != null ? p.name().get() : "";
                 // Always report slot so we can debug empty mappings; skip fully empty
@@ -171,7 +194,7 @@ public final class ParamService {
 
         // restore page
         if (savedPage >= 0 && savedPage < pageCount) {
-            remoteControls.selectedPageIndex().set(savedPage);
+            pageControls.selectedPageIndex().set(savedPage);
         }
 
         final JsonObject result = new JsonObject();
@@ -179,9 +202,13 @@ public final class ParamService {
         result.add("params", flat);
         result.addProperty("count", flat.size());
         result.addProperty("pageCount", pageCount);
-        result.addProperty("source", "remote");
-        result.addProperty("device", cursorDevice.name().get());
-        result.addProperty("track", cursorTrack.name().get());
+        result.addProperty("source", source);
+        if ("perform".equals(source)) {
+            result.addProperty("track", deviceOrTrackName);
+        } else {
+            result.addProperty("device", deviceOrTrackName);
+            result.addProperty("track", cursorTrack.name().get());
+        }
         return result;
     }
 
@@ -199,10 +226,10 @@ public final class ParamService {
                 if (!el.isJsonObject()) {
                     throw new IllegalArgumentException("sets entries must be objects");
                 }
-                applied.add(applyOne(el.getAsJsonObject()));
+                applied.add(applyDirect(el.getAsJsonObject()));
             }
         } else {
-            applied.add(applyOne(req));
+            applied.add(applyDirect(req));
         }
 
         final JsonObject result = new JsonObject();
@@ -215,7 +242,7 @@ public final class ParamService {
         return result;
     }
 
-    private JsonObject applyOne(final JsonObject spec) {
+    private JsonObject applyDirect(final JsonObject spec) {
         final String id = resolveId(spec);
         if (!spec.has("v")) {
             throw new IllegalArgumentException("param set requires 'v' (0..1 normalized)");
@@ -232,6 +259,109 @@ public final class ParamService {
         done.addProperty("name", namesById.getOrDefault(id, ""));
         done.addProperty("v", v);
         return done;
+    }
+
+    /**
+     * Single set on track perform page: name or slot + v in 0..1.
+     * Batch: sets array of {name|slot, v}.
+     */
+    public JsonObject setPerform(final JsonObject req) {
+        requireTrack();
+
+        final List<JsonObject> applied = new ArrayList<>();
+
+        if (req.has("sets") && req.get("sets").isJsonArray()) {
+            for (final JsonElement el : req.getAsJsonArray("sets")) {
+                if (!el.isJsonObject()) {
+                    throw new IllegalArgumentException("sets entries must be objects");
+                }
+                applied.add(applyRemoteControl(trackRemoteControls, el.getAsJsonObject()));
+            }
+        } else {
+            applied.add(applyRemoteControl(trackRemoteControls, req));
+        }
+
+        final JsonObject result = new JsonObject();
+        final JsonArray arr = new JsonArray();
+        for (final JsonObject a : applied) {
+            arr.add(a);
+        }
+        result.add("set", arr);
+        result.addProperty("track", cursorTrack.name().get());
+        return result;
+    }
+
+    /**
+     * Single set on device page: name or slot + v in 0..1.
+     * Batch: sets array of {name|slot, v}.
+     */
+    public JsonObject setPage(final JsonObject req) {
+        requireDevice();
+
+        final List<JsonObject> applied = new ArrayList<>();
+
+        if (req.has("sets") && req.get("sets").isJsonArray()) {
+            for (final JsonElement el : req.getAsJsonArray("sets")) {
+                if (!el.isJsonObject()) {
+                    throw new IllegalArgumentException("sets entries must be objects");
+                }
+                applied.add(applyRemoteControl(remoteControls, el.getAsJsonObject()));
+            }
+        } else {
+            applied.add(applyRemoteControl(remoteControls, req));
+        }
+
+        final JsonObject result = new JsonObject();
+        final JsonArray arr = new JsonArray();
+        for (final JsonObject a : applied) {
+            arr.add(a);
+        }
+        result.add("set", arr);
+        result.addProperty("device", cursorDevice.name().get());
+        return result;
+    }
+
+    private JsonObject applyRemoteControl(final CursorRemoteControlsPage pageControls, final JsonObject spec) {
+        final RemoteControl p = resolveRemoteControl(pageControls, spec);
+        if (!spec.has("v")) {
+            throw new IllegalArgumentException("param set requires 'v' (0..1 normalized)");
+        }
+        final double v = spec.get("v").getAsDouble();
+        if (v < 0.0 || v > 1.0) {
+            throw new IllegalArgumentException("v must be in 0..1, got " + v);
+        }
+        p.value().set(v);
+
+        final JsonObject done = new JsonObject();
+        done.addProperty("name", p.name().get());
+        done.addProperty("v", v);
+        return done;
+    }
+
+    private RemoteControl resolveRemoteControl(final CursorRemoteControlsPage pageControls, final JsonObject spec) {
+        if (spec.has("slot") && !spec.get("slot").isJsonNull()) {
+            final int slot = spec.get("slot").getAsInt();
+            if (slot < 0 || slot >= REMOTE_SLOTS) {
+                throw new IllegalArgumentException("slot must be 0.." + (REMOTE_SLOTS - 1) + ", got " + slot);
+            }
+            return pageControls.getParameter(slot);
+        }
+        if (spec.has("name") && !spec.get("name").isJsonNull()) {
+            final String want = spec.get("name").getAsString().trim();
+            final int pageCount = Math.max(1, pageControls.pageCount().get());
+            for (int page = 0; page < pageCount; page++) {
+                pageControls.selectedPageIndex().set(page);
+                for (int slot = 0; slot < REMOTE_SLOTS; slot++) {
+                    final RemoteControl p = pageControls.getParameter(slot);
+                    final String name = p.name().get() != null ? p.name().get() : "";
+                    if (name.equalsIgnoreCase(want)) {
+                        return p;
+                    }
+                }
+            }
+            throw new IllegalArgumentException("slot not found by name: " + want + " (try list)");
+        }
+        throw new IllegalArgumentException("param set requires 'slot' or 'name'");
     }
 
     private String resolveId(final JsonObject spec) {
@@ -274,6 +404,12 @@ public final class ParamService {
             }
         }
         return best;
+    }
+
+    private void requireTrack() {
+        if (!cursorTrack.exists().get()) {
+            throw new IllegalArgumentException("no track selected");
+        }
     }
 
     private void requireDevice() {

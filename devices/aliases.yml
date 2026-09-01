@@ -1,0 +1,66 @@
+# Codewig device aliases
+#
+# One central file. No per-device YAMLs, no parameter catalogs.
+# Params are controlled through Bitwig's Remote Control / Perform pages only.
+#
+# Add or override aliases here; the parser resolves them to the canonical
+# bitwig_name before asking Bitwig to insert the device.
+
+id: aliases
+kind: aliases
+
+devices:
+  polymer:
+    bitwig_name: "Polymer"
+    kind: bitwig
+    aliases: ["poly", "Polymer"]
+
+  extrabold:
+    bitwig_name: "ExtraBold"
+    kind: clap
+    aliases: ["ExtraBold", "extrabold", "extra bold", "extrabols", "nakst extrabold"]
+
+  v9kick:
+    bitwig_name: "v9 Kick"
+    kind: bitwig
+    aliases: ["v9 kick", "v9kick", "kick.v9", "kick v9", "kick909"]
+
+  v9snare:
+    bitwig_name: "v9 Snare"
+    kind: bitwig
+    aliases: ["v9 snare", "v9snare", "snare.v9", "snare v9"]
+
+  v9clap:
+    bitwig_name: "v9 Clap"
+    kind: bitwig
+    aliases: ["v9 clap", "v9clap", "clap.v9", "clap v9"]
+
+  v9crash:
+    bitwig_name: "v9 Crash"
+    kind: bitwig
+    aliases: ["v9 crash", "v9crash", "crash.v9", "crash v9"]
+
+  v9hatclosed:
+    bitwig_name: "v9 Hat Closed"
+    kind: bitwig
+    aliases: ["v9 hat closed", "v9hatclosed", "v9 hat", "v9hat", "hat.v9", "hat closed.v9"]
+
+  v9hatopen:
+    bitwig_name: "v9 Hat Open"
+    kind: bitwig
+    aliases: ["v9 hat open", "v9hatopen", "hat open.v9", "hatopen.v9"]
+
+  v9ride:
+    bitwig_name: "v9 Ride"
+    kind: bitwig
+    aliases: ["v9 ride", "v9ride", "ride.v9", "ride v9"]
+
+  v9rimshot:
+    bitwig_name: "v9 Rimshot"
+    kind: bitwig
+    aliases: ["v9 rimshot", "v9rimshot", "v9 rim", "v9rim", "rim.v9", "rimshot.v9"]
+
+  v9tom:
+    bitwig_name: "v9 Tom"
+    kind: bitwig
+    aliases: ["v9 tom", "v9tom", "tom.v9", "tom v9"]
