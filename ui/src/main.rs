@@ -44,6 +44,62 @@ fn device_entries_from_catalog() -> Vec<DeviceEntry> {
         .collect()
 }
 
+/// Command reference entries from `commands.yaml` (loaded at runtime).
+#[derive(Debug, serde::Deserialize)]
+struct CommandRefYaml {
+    name: String,
+    summary: String,
+    syntax: String,
+    detail: String,
+    tag: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CommandsYaml {
+    commands: Vec<CommandRefYaml>,
+}
+
+fn commands_yaml_path() -> Option<std::path::PathBuf> {
+    // 1. Next to the executable (packaged / installed builds).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let p = dir.join("commands.yaml");
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+    // 2. Current working directory.
+    let p = std::path::PathBuf::from("commands.yaml");
+    if p.exists() {
+        return Some(p);
+    }
+    // 3. Cargo manifest dir (dev builds from crate root).
+    let p = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/commands.yaml"));
+    if p.exists() {
+        return Some(p);
+    }
+    None
+}
+
+fn load_command_refs() -> Result<Vec<RefEntry>, String> {
+    let path = commands_yaml_path().ok_or("commands.yaml not found")?;
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("commands.yaml: {e}"))?;
+    let parsed: CommandsYaml =
+        serde_norway::from_str(&text).map_err(|e| format!("commands.yaml: {e}"))?;
+    Ok(parsed
+        .commands
+        .into_iter()
+        .map(|c| RefEntry {
+            name: c.name.into(),
+            summary: c.summary.into(),
+            syntax: c.syntax.into(),
+            detail: c.detail.into(),
+            tag: c.tag.into(),
+        })
+        .collect())
+}
+
 /// Alias + page-model cheat sheet for the Devices tab detail box.
 fn device_detail_for(name: &str) -> String {
     let cat = catalog();
@@ -105,10 +161,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ui = AppWindow::new()?;
     let ui_weak = ui.as_weak();
 
-    // Devices tab = scan of devices/*.yaml (not compiled-in).
+    // Devices tab = scan of devices/aliases.yml (not compiled-in).
     ui.set_devices(slint::ModelRc::new(slint::VecModel::from(
         device_entries_from_catalog(),
     )));
+
+    // Commands tab = load command reference from commands.yaml at runtime.
+    match load_command_refs() {
+        Ok(refs) => {
+            ui.set_refs(slint::ModelRc::new(slint::VecModel::from(refs)));
+        }
+        Err(e) => {
+            eprintln!("{e}");
+            ui.set_status(format!("error: {e}").into());
+        }
+    }
 
     // Non-blocking start: never wait on TCP before first frame.
     ui.set_status("checking…".into());

@@ -1,0 +1,448 @@
+commands:
+  - name: new track
+    summary: create track + device + pattern
+    syntax: new track(name).device(dev)
+    detail: |
+      Create track + device + pattern in one line.
+      Use .mute().clip(start) for beat-synced silent start.
+
+      Syntax:
+        new track(name).device(dev)...
+
+      Example:
+        new track(bass).device(Polymer).n("c e g")
+    tag: track
+
+  - name: t() / track()
+    summary: reference track by name
+    syntax: t(name)
+    detail: |
+      Reference an existing track by name.
+
+      Syntax:
+        t(name)  /  track(name)
+
+      Examples:
+        t(kick)
+        t(bass)
+    tag: track
+
+  - name: track rename / delete
+    summary: rename or delete a track
+    syntax: t(kick).rename(drums)
+    detail: |
+      Rename or delete an existing track.
+
+      Syntax:
+        t(name).rename(new name)
+        t(name).delete()
+
+      Examples:
+        t(kick).rename(drums)
+        t(bass).delete()
+
+      Legacy CLI also works:
+        track rename kick drums
+        track delete 3
+
+      Careful: delete removes the track with all clips — no undo from here.
+    tag: track
+
+  - name: mute / unmute
+    summary: mute tracks (timed optional)
+    syntax: mute(kick) 4 @bar
+    detail: |
+      Mute/unmute tracks by name or index.
+      Optional: N bars auto-invert, @bar = next bar.
+
+      Syntax:
+        mute(name1, ...)
+        mute(name) N
+        mute(name) @bar
+        mute(name) N @bar
+        unmute(...)
+
+      Examples:
+        mute(kick)           // now
+        mute(kick) 4         // mute now, unmute after 4 bars
+        mute(kick) @bar      // mute at next bar
+        mute(kick) 8 @bar    // mute next bar, hold 8 bars, unmute
+        unmute(bass) @bar
+        mute(1, 3, 5)
+    tag: track
+
+  - name: play / stop
+    summary: transport start / stop
+    syntax: play
+    detail: |
+      Start or stop Bitwig transport.
+
+      Syntax:
+        play
+        stop
+    tag: transport
+
+  - name: tempo
+    summary: set project tempo
+    syntax: tempo 128
+    detail: |
+      Set project tempo in BPM.
+
+      Syntax:
+        tempo <bpm>
+
+      Example:
+        tempo 128
+    tag: transport
+
+  - name: s() / scene / new scene
+    summary: scenes + clips (Bitwig launcher)
+    syntax: s(verse).t(lead).c(new)
+    detail: |
+      Bitwig: scene = row, track = column, clip = cell.
+
+      Scenes:
+        new scene
+        new scene(verse)
+        s(0).start | s(verse).start | .stop
+        s(verse).rename(drop) | s(0).delete()
+
+      Clips at scene×track:
+        s(verse).t(lead).c(new)
+        s(1).t(bass).c(new, intro)
+        s(verse).t(lead).c(start)
+
+      Write notes into a cell:
+        lead@verse: n "g b d"
+        lead@2: n "c e g"     // @slot id
+
+      Workflow:
+        new scene(verse)
+        s(verse).t(lead).c(new)
+        lead@verse: n "g2 b3 d"
+    tag: scene
+
+  - name: c() / clip()
+    summary: launch clip(s)
+    syntax: c(bass.0).start
+    detail: |
+      Launch one or more clips.
+
+      Syntax:
+        c(t.slot).start
+        c(t.s1, t.s2).start
+        t(name).c(N).start
+
+      Examples:
+        c(bass.0).start
+        c(bass.0, kick.1).start
+        t(bass).c(0).start
+    tag: clip
+
+  - name: .clip(start/stop)
+    summary: clip launch in fluent chain
+    syntax: .clip(start)
+    detail: |
+      In a fluent chain: launch or stop the clip.
+
+      Syntax:
+        .clip(start)
+        .clip(stop)
+
+      Example:
+        new track(b).device(P).n("c e").clip(start)
+    tag: clip
+
+  - name: clip rename / delete
+    summary: rename or delete a clip slot
+    syntax: c(bass.0).rename(intro)
+    detail: |
+      Rename or delete the clip in a slot (slot must have content).
+
+      Syntax:
+        c(track.slot).rename(name)
+        c(track.slot).delete()
+
+      Examples:
+        c(bass.0).rename(intro)
+        c(bass.1).delete()
+
+      In a fluent chain:
+        t(bass).c(0).rename(intro)
+
+      Legacy CLI also works:
+        clip rename bass 0 intro
+        clip delete bass 1
+    tag: clip
+
+  - name: n / notes
+    summary: write MIDI notes
+    syntax: 'bass: n "c e g b"'
+    detail: |
+      MIDI notes on 16th grid (Bitwig octaves).
+
+      Defaults:
+        c = Bitwig C3 (MIDI 60)
+        each space-event = 1 beat (steps 0,4,8…; dur 4)
+        ~ = empty beat
+        [c d e f] = 16ths inside one beat (steps 0-3)
+
+      Pitches: c2  c#  cis  eb4  f#
+      Degrees after k C minor: n "0 2 4"
+
+      Note expressions:
+        .vel(80 60 100)   velocity 0..127
+        .pres(50)          pressure 0..100%
+        .tim(-30 30)       timbre -100..100%
+        .pan(-50 0 50)     pan -100..100%
+        .gain(80)          gain 0..100%
+        .chnz(75)          chance 0..100%
+
+      Fluent setup (slot 0):
+        new track(lead).device(Polymer).n("c e d g").clip(start).mute()
+      Multi-clip:
+        lead@verse: n "e c g"
+    tag: notes
+
+  - name: mini-notation
+    summary: pattern operators & symbols
+    syntax: 'n "[c d e f] ~ g"'
+    detail: |
+      Operators:
+        space = next beat-event
+        ~ rest (1 beat)
+        [a b c d] subdivide one beat into 16ths
+        *N repeat   /N slow   _ elongate
+        <a b> alternate   (3,8) euclid
+
+      Steps 1-3 (16ths): use groups, e.g. n "[c d e f]"
+    tag: notes
+
+  - name: transpose
+    summary: shift notes up/down
+    syntax: 'n "c e g" ^2'
+    detail: |
+      Transpose notes by semitones or scale degrees.
+
+      Syntax:
+        ^N   semitones
+        ^^N  scale degrees
+
+      Examples:
+        n "c e g" ^2   → D F# A
+        n "0 2 4" ^^1  → 1 3 5
+    tag: notes
+
+  - name: chord
+    summary: block chords / progressions
+    syntax: 'pad: chord "C Am F G"'
+    detail: |
+      Block chords. Supports Roman numerals + scale.
+
+      Syntax:
+        track: chord "..."
+
+      Examples:
+        chord "C Am F G"
+        chord "i iv v"   (with k C minor)
+
+      Qualities: m  7  m7  maj7  dim  aug  sus4  9
+    tag: notes
+
+  - name: note expressions
+    summary: velocity, pressure, timbre, pan, gain, chance
+    syntax: 'bass: n "c e g".vel(80 60 100)'
+    detail: |
+      Per-note expressions (MPE / chance). Values are positional to the expanded note list; ~ leaves a note unchanged.
+
+      Syntax:
+        track: n "...".vel(…).pres(…).tim(…).pan(…).gain(…).chnz(…)
+
+      Units:
+        .vel()  0..127
+        .pres() 0..100%
+        .tim()  -100..100%
+        .pan()  -100..100%
+        .gain() 0..100%
+        .chnz() 0..100%
+
+      Examples:
+        bass: n "c e g".vel(80 60 100)
+        bass: n "c e g".pan(-50 0 50)
+        bass: n "c e g".pres(50).tim(-30 30)
+        bass: n "c e g".vel(80 ~ 100)
+    tag: notes
+
+  - name: arp
+    summary: arpeggiate chord or notes
+    syntax: 'bass: arp:up "Cm7"'
+    detail: |
+      Arpeggiate over one bar (session grid steps).
+      Index/slot write like n/chord.
+
+      Syntax:
+        track: arp "c e g"
+        track: arp:up|down|updown|rand "..."
+
+      Pitch source:
+        notes:  "c e g" / "0 2 4" (with key)
+        chord:  "C" "Am7" "iii"
+
+      Examples:
+        bass: arp "c e g"
+        lead: arp:down "Cm7"
+        pad: arp:updown "Cmaj7"
+        k C minor
+        bass: arp:rand "i"
+    tag: notes
+
+  - name: beat()
+    summary: create drum/percussion beat
+    syntax: beat(4_)
+    detail: |
+      Percussion on 16th grid (1 bar = 16 steps). Counts are musical 1-based.
+
+      Syntax:
+        .beat(4_)
+        .beat(off)
+        .beat:16(1,5,9,13)
+
+      4_  4-on-the-floor: 1, 5, 9, 13 — each 1 beat long
+      off off-beats:        3, 7, 11, 15 — each 1 beat long
+      2_4 / bk2:            1, 9 — half notes (2 beats)
+      beat:16(…) explicit 1-based steps ok
+    tag: drum
+
+  - name: .device() / .add()
+    summary: insert instrument or FX
+    syntax: .device(Polymer)
+    detail: |
+      Insert any resolvable Bitwig/library device (name, alias, UUID, .bwdevice).
+
+      Syntax:
+        .device(Polymer)
+        .device(v9 kick)
+        .add(Delay+)
+
+      Examples:
+        new track(b).device(Polymer).add(Delay+)
+        new track(kick).device(v9 kick).beat(4_)
+
+      Devices tab = optional HELP for devices with devices/aliases.yml — not an allowlist.
+      You can insert devices that are not listed.
+
+      Out of scope for insert:
+        Sampler  Drum Machine
+
+      Drums: one track = one mono module. Not GM multi-pad (bd/hh/sd).
+    tag: device
+
+  - name: ': params'
+    summary: snapshot device parameters
+    syntax: 'bass: +polymer.cutoff:0.3'
+    detail: |
+      Set params on a device that already exists — one snapshot (no ramps).
+
+      With devices/aliases.yml (Devices tab help):
+        track: +device.param:val  — e.g. bass: +polymer.cutoff:0.3
+
+      Without YAML (raw, like CLI):
+        track: +device.cutoff:0.7  — value is wire 0..1
+        (identifier names; spaces → use codewig-cli param set --name "…")
+
+      Devices tab = cheat sheet for sensible coding targets.
+      Complex devices / presets → Bitwig UI or codewig-cli raw.
+
+      Syntax:
+        track: +device.param:val other:val
+    tag: device
+
+  - name: device on/off/move/delete
+    summary: device lifecycle on a track
+    syntax: 'bass: +polymer: off'
+    detail: |
+      Enable/disable, move, or delete a device on a track.
+      Device ref = Bitwig name (case-insensitive) or chain index.
+
+      Syntax (WIGSCRIPT):
+        track: +device: on
+        track: +device: off
+        track: +device: delete
+        track: +device: move <to>
+
+      Examples:
+        bass: +polymer: off
+        bass: +delay: move 0
+        bass: +1: delete
+
+      Legacy CLI also works (index, selected track):
+        device list
+        device off 1 | device on 1
+        device move 2 0
+        device delete 1
+
+      No device rename — not supported.
+    tag: device
+
+  - name: .page / .perform
+    summary: remote-control device / track pages
+    syntax: t(bass).device(Polymer).page(list)
+    detail: |
+      Control Bitwig Remote Control slots without needing a full param catalog.
+
+      Device page (8 Remote Control slots on the device):
+        t(mytrack).device(Polymer).page(list)
+        t(mytrack).device(Polymer).page(cutoff=0.3)
+
+      Inline on a note line (same track, named device):
+        mytrack: n "c e g" +Polymer.cutoff:0.3
+
+      Track Perform page (8 project/track Remote Control slots, no device):
+        t(mytrack).perform(list)
+        mytrack: n "c e g" +cutoff:0.3
+
+      Use .page(list) / .perform(list) first to see the slot names Bitwig exposes.
+    tag: device
+
+  - name: k / key
+    summary: set key and scale
+    syntax: k C minor
+    detail: |
+      Set key for scale degrees.
+
+      Syntax:
+        k <root> <scale>
+
+      Examples:
+        k C minor
+        k D major
+
+      Scales:
+        major minor dorian phrygian
+        lydian mixolydian locrian pentatonic blues
+    tag: key
+
+  - name: mode
+    summary: switch REPL mode
+    syntax: mode music
+    detail: |
+      Switch REPL mode.
+
+      Syntax:
+        mode cmd
+        mode music
+    tag: other
+
+  - name: '> passthrough'
+    summary: run raw codewig-cli command
+    syntax: '> track list'
+    detail: |
+      Run a codewig-cli command from music mode.
+
+      Syntax:
+        > <codewig-cli command>
+
+      Examples:
+        > track list
+        > device add Filter
+    tag: other

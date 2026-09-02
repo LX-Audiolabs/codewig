@@ -939,7 +939,9 @@ version = "0.2.2"
 dependencies = [
  "codewig-core",
  "i-slint-common",
+ "serde",
  "serde_json",
+ "serde_norway",
  "shlex 2.0.1",
  "slint",
  "slint-build",
