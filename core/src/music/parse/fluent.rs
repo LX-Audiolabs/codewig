@@ -149,6 +149,14 @@ pub(crate) fn parse_fluent(input: &str) -> ParseResult<MusicLine> {
         }
     }
 
+    if !rest.trim().is_empty() {
+        return Err(ParseError::new(
+            format!("unexpected trailing input: '{}'", rest.trim()),
+            s.len() - rest.len(),
+            s.to_string(),
+        ));
+    }
+
     Ok(MusicLine::Fluent(FluentCmd {
         create,
         track: track_name,

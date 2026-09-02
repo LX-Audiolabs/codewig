@@ -15,9 +15,9 @@ pub enum MusicLine {
     Transport(TransportCmd),
     /// `tempo 128`
     Tempo(f64),
-    /// `t(kick).d(kick.v9): decay(280) punch(45)`
-    Param(ParamCmd),
-    /// `kick&Polymer: off` | `kick&Polymer: delete` | `kick&Polymer: move 0`
+    /// `bass: +polymer.cutoff:0.3` | `bass: +cutoff:0.3` — page/perform set, no pattern.
+    ParamSet(ParamSetCmd),
+    /// `kick: +Polymer: off` | `kick: +Polymer: delete` | `kick: +Polymer: move 0`
     DeviceOp(DeviceOpCmd),
     /// `mute(kick)` | `mute(kick, bass)` | `mute(1,3,5)`
     Mute(MuteCmd),
@@ -156,18 +156,15 @@ mod beat_tests {
     }
 }
 
-/// Param snapshot on a device.
-/// Preferred: `kick&v9kick: decay(50) pitch(40)` (display units from `devices/*.yaml`).
-/// Legacy: `t(kick).d(kick.v9): decay(50) pitch(40)`.
+/// Pattern-less param line: `bass: +polymer.cutoff:0.3` | `bass: +cutoff:0.3`.
+/// One snapshot via track Perform page or a device's Remote Control page.
 #[derive(Debug, Clone, PartialEq)]
-pub struct ParamCmd {
+pub struct ParamSetCmd {
     pub track: String,
-    pub device: DeviceSpec,
-    /// User-facing values (display range from catalog; execute maps → wire 0..1).
-    pub params: Vec<(String, f64)>,
+    pub params: Vec<ParamSet>,
 }
 
-/// Device lifecycle op on an existing device: `kick&Polymer: off`.
+/// Device lifecycle op on an existing device: `kick: +Polymer: off`.
 /// Device ref = Bitwig name (case-insensitive) or chain index.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DeviceOpCmd {

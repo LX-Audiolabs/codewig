@@ -10,23 +10,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock, RwLock};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParamValueKind {
-    Float,
-    Bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct ParamDef {
-    /// Canonical name sent to Bitwig (`param.set` name match).
-    pub name: String,
-    pub aliases: Vec<String>,
-    pub wire: (f64, f64),
-    pub display: (f64, f64),
-    pub unit: String,
-    pub kind: ParamValueKind,
-}
-
 #[derive(Debug, Clone)]
 pub struct PathHint {
     pub windows: Option<String>,
@@ -40,7 +23,6 @@ pub struct DeviceParamFile {
     pub kind: DeviceHostKind,
     pub path_hint: Option<PathHint>,
     pub aliases: Vec<String>,
-    pub params: Vec<ParamDef>,
     /// Source path of the YAML file.
     pub source: String,
 }
@@ -68,95 +50,6 @@ impl ParamCatalog {
             norm(&d.id) == n || norm(&d.bitwig_name) == n || d.aliases.iter().any(|a| norm(a) == n)
         })
     }
-
-    pub fn resolve_param<'a>(
-        &'a self,
-        dev: &'a DeviceParamFile,
-        name: &str,
-    ) -> Option<&'a ParamDef> {
-        let n = norm(name);
-        dev.params
-            .iter()
-            .find(|p| norm(&p.name) == n || p.aliases.iter().any(|a| norm(a) == n))
-    }
-
-    /// Map user display value → wire 0..1 (clamped).
-    pub fn display_to_wire(def: &ParamDef, display: f64) -> f64 {
-        match def.kind {
-            ParamValueKind::Bool => {
-                if display != 0.0 {
-                    1.0
-                } else {
-                    0.0
-                }
-            }
-            ParamValueKind::Float => {
-                let (d0, d1) = def.display;
-                let (w0, w1) = def.wire;
-                if (d1 - d0).abs() < f64::EPSILON {
-                    return w0.clamp(w0.min(w1), w0.max(w1));
-                }
-                let t = (display - d0) / (d1 - d0);
-                let v = w0 + t * (w1 - w0);
-                let lo = w0.min(w1);
-                let hi = w0.max(w1);
-                v.clamp(lo, hi)
-            }
-        }
-    }
-
-    /// Resolve param sets for execute: `(bitwig_name, wire_0..1)`.
-    ///
-    /// YAML catalog is **optional help**, not an allowlist:
-    /// - Device + param in catalog → display range → wire, aliases, full UI labels.
-    /// - Missing device / empty params / unknown param → pass through as **wire 0..1**
-    ///   (same as raw `param set` on the CLI). Values outside 0..1 error with a hint.
-    pub fn map_param_sets(
-        &self,
-        device: &str,
-        sets: &[(String, f64)],
-    ) -> Result<Vec<(String, f64)>, String> {
-        let dev = self.resolve(device);
-        let mut out = Vec::with_capacity(sets.len());
-        for (name, value) in sets {
-            if let Some(dev) = dev
-                && let Some(p) = self.resolve_param(dev, name)
-            {
-                // Help path: aliases + display→wire
-                let wire_name = bitwig_match_name(p);
-                out.push((wire_name, Self::display_to_wire(p, *value)));
-                continue;
-            }
-            // Open path: name as typed, value already wire-normalized
-            out.push(wire_passthrough(name, *value)?);
-        }
-        Ok(out)
-    }
-}
-
-/// Raw wire set when no YAML mapping applies. Value must already be 0..1.
-fn wire_passthrough(name: &str, v: f64) -> Result<(String, f64), String> {
-    if (0.0..=1.0).contains(&v) {
-        Ok((name.to_string(), v))
-    } else {
-        Err(format!(
-            "param '{name}': value {v} is outside wire 0..1. \
-             Without a devices/*.yaml entry, use raw 0..1 (CLI style). \
-             Add YAML for display ranges (e.g. 0..100) and aliases."
-        ))
-    }
-}
-
-// ── YAML ───────────────────────────────────────────────────────────
-
-/// Name sent to Bitwig `param.set` — full UI label when available via alias.
-fn bitwig_match_name(p: &ParamDef) -> String {
-    p.aliases
-        .iter()
-        .filter(|a| a.contains(' '))
-        .max_by_key(|a| a.len())
-        .cloned()
-        .unwrap_or_else(|| p.name.clone())
 }
 
 // ── Load ───────────────────────────────────────────────────────────
@@ -219,7 +112,6 @@ fn load_aliases(dir: &Path, into: &mut HashMap<String, DeviceParamFile>, errors:
                         kind: alias.kind,
                         path_hint: None,
                         aliases: alias.aliases.clone(),
-                        params: vec![],
                         source: src.clone(),
                     },
                 );
@@ -345,43 +237,10 @@ mod tests {
         for &(id, bitwig) in expected {
             let d = cat.resolve(id).unwrap_or_else(|| panic!("missing {id}"));
             assert_eq!(d.bitwig_name, bitwig);
-            // params now live in Bitwig pages, not the catalog
-            assert!(
-                d.params.is_empty(),
-                "{id} must have no params in alias model"
-            );
         }
         // aliases resolve too
         assert!(cat.resolve("poly").is_some());
         assert!(cat.resolve("kick909").is_some());
-    }
-
-    #[test]
-    fn alias_model_wire_passthrough() {
-        let cat = catalog_from_repo_devices();
-        let d = cat.resolve("poly").expect("polymer");
-        assert!(d.params.is_empty());
-        // without param catalog, value must already be wire 0..1
-        let sets = cat
-            .map_param_sets("Polymer", &[("cutoff".into(), 0.3)])
-            .unwrap();
-        assert_eq!(sets[0].0, "cutoff");
-        assert!((sets[0].1 - 0.3).abs() < 1e-9);
-        // display-style 50 without YAML → error (must be wire)
-        let err = cat
-            .map_param_sets("Polymer", &[("cutoff".into(), 50.0)])
-            .unwrap_err();
-        assert!(err.contains("0..1"), "{err}");
-    }
-
-    #[test]
-    fn unknown_device_wire_passthrough() {
-        let cat = catalog_from_repo_devices();
-        let sets = cat
-            .map_param_sets("SomeClap", &[("Filter Cutoff".into(), 0.7)])
-            .unwrap();
-        assert_eq!(sets[0].0, "Filter Cutoff");
-        assert!((sets[0].1 - 0.7).abs() < 1e-9);
     }
 
     #[test]

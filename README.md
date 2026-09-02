@@ -261,6 +261,15 @@ bass: n "c e g" +cutoff:0.3              # track Perform page
 bass: n "c e g" +Polymer.cutoff:0.3     # Polymer device page
 ```
 
+Pattern-less — same page set without touching notes/clip. First token needs
+`+`; later tokens in the same run may drop it and inherit the device:
+
+```wigscript
+bass: +cutoff:0.3                       # track Perform page
+bass: +polymer.cutoff:0.3               # Polymer device page
+bass: +polymer.cutoff:0.3 res:0.5       # res inherits "polymer"
+```
+
 | Syntax | Target |
 |--------|--------|
 | `+name:value` | track Perform page |
@@ -271,13 +280,13 @@ bass: n "c e g" +Polymer.cutoff:0.3     # Polymer device page
 Values are wire-normalized **0..1**; Bitwig maps them to the parameter's real range.
 Use `.list` first to see exact slot names.
 
-Device lifecycle ops still use `&` addressing:
+Device lifecycle ops use the same `+device:` prefix, followed by a bare op keyword:
 
 ```wigscript
-kick&Polymer: on
-kick&Polymer: off
-kick&Polymer: delete
-kick&Polymer: move 0      # chain position (0-based)
+kick: +Polymer: on
+kick: +Polymer: off
+kick: +Polymer: delete
+kick: +Polymer: move 0      # chain position (0-based)
 ```
 
 ### Misc
@@ -337,10 +346,9 @@ WIGSCRIPT is **functional but still in development** — expect grammar tweaks.
 | Device insert | ✅ open Bitwig resolve (UUID / library file); no closed name list |
 | Devices UI list | ✅ alias cheat sheet from `devices/aliases.yml` |
 | **Performance** | |
-| Track Perform page | ✅ `.perform(list)` / `.perform(name=value)` / `+name:value` |
-| Device page | ✅ `.page(list)` / `.page(name=value)` / `+device.name:value` |
-| Legacy param (`track&device:`) | 🚧 still parses; maps to direct params, prefer page model |
-| Device ops | ✅ `on` / `off` / `delete` / `move N` |
+| Track Perform page | ✅ `.perform(list)` / `.perform(name=value)` / `+name:value` (inline or pattern-less) |
+| Device page | ✅ `.page(list)` / `.page(name=value)` / `+device.name:value` (inline or pattern-less) |
+| Device ops | ✅ `+device: on` / `off` / `delete` / `move N` |
 | Live triggers | ✅ play/stop, tempo, mute (incl. timed + `@bar`), scene/clip launch |
 | Scenes / clips | ✅ create/rename/delete; scene × track clip cells |
 | **Open / not supported** | Sequences/ramps/automation 🚧 · Expander edge cases 🚧 · Per-device param YAMLs removed · Sampler / Drum Machine insert, `d "bd hh"`, kit `:909`, bare Tidal, VST3/LV2 param catalog |

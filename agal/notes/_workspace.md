@@ -8,9 +8,9 @@
 ```text
 [ATOM] type=decision | detail=Product is live-coding Bitwig via WIGSCRIPT, not an audio plugin host/format stack
 [ATOM] type=constraint | detail=UI (codewig-live) and CLI both use codewig-core::Client TCP :9470; UI must not spawn CLI
-[ATOM] type=constraint | detail=WIGSCRIPT four layers — fluent=structure, colon=notes, param=track&device snapshots, performance=play/mute/scene/clip; do not mix jobs
+[ATOM] type=constraint | detail=WIGSCRIPT four layers — fluent=structure, colon=notes, param=track: +device.param snapshots, performance=play/mute/scene/clip; do not mix jobs
 [ATOM] type=constraint | detail=No bare Tidal lines (c e g); mini-notation only inside quotes; no d "bd hh"; no Drum Machine/Sampler insert as kit map
-[ATOM] type=decision | detail=Param form is track&device: key(val) with & not @; YAML under devices/ optional (display ranges); without YAML wire 0..1 + Bitwig name
+[ATOM] type=decision | detail=Param form is track: +device.param:val (+ not &/@) via Bitwig page model; +device: on|off|delete|move N for lifecycle; values are wire 0..1
 [ATOM] type=decision | detail=Device insert is open Bitwig resolve (name/alias/UUID); devices/*.yaml is help catalog for UI tab only
 [ATOM] type=constraint | detail=Java extension is thin bridge — Rust owns language; keep allowlist/device catalog in sync only when changing insert surface
 [ATOM] type=decision | detail=Legacy CLI flat tokens still work via cli; WIGSCRIPT eval is primary path for agents and UI

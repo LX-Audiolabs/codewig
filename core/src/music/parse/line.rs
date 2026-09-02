@@ -1,8 +1,8 @@
 //! WIGSCRIPT line dispatch: `target: cmd "pattern" +params`, transport,
-//! mute/unmute, scenes/clips, `track&device:` param lines.
+//! mute/unmute, scenes/clips, `target: +device.param:val` / `+device: op` lines.
 
 use super::super::ast::*;
-use super::fluent::{parse_device_in_paren, parse_fluent, parse_paren_arg};
+use super::fluent::parse_fluent;
 use super::{ParseError, ParseResult};
 
 /// Parse a single REPL line into a [`MusicLine`].
@@ -55,17 +55,6 @@ pub fn parse_music_line(input: &str) -> ParseResult<MusicLine> {
     // Passthrough: `> command`
     if let Some(rest) = s.strip_prefix('>') {
         return Ok(MusicLine::PassThrough(rest.trim().to_string()));
-    }
-
-    // Param: `track&device: decay(50)...`  (@ is scene/slot — & is track×device)
-    if s.contains('&') && s.contains(':') && !s.starts_with("new ") {
-        return parse_amp_param_cmd(s);
-    }
-
-    // Param legacy: `t(kick).d(kick.v9): decay(50)...`  — check BEFORE fluent (has `):`)
-    // Long/short: t|track, d|device
-    if (s.starts_with("t(") || s.starts_with("track(")) && s.contains("):") {
-        return parse_param_cmd(s);
     }
 
     // Fluent: long/short head forms (all equivalent AST)
@@ -167,6 +156,11 @@ fn parse_music_cmd(input: &str) -> ParseResult<MusicLine> {
 
     // Parse target for track, @clip, :kit
     let target = parse_target(target_str)?;
+
+    // Pattern-less line: `bass: +polymer.cutoff:0.3` | `bass: +cutoff:0.3` | `bass: +polymer: off`
+    if rest.starts_with('+') {
+        return parse_plus_line(target.track, rest, s);
+    }
 
     // Parse the action + pattern + optional note expression modifiers + params from rest
     let (action, pattern, rest2) = parse_action_pattern(rest, s)?;
@@ -401,59 +395,23 @@ fn parse_params<'a>(mut rest: &'a str, full_input: &str) -> ParseResult<ParamsOu
     let mut params = Vec::new();
     let mut transpose: Option<i32> = None;
     let mut scale_transpose: Option<i32> = None;
+    let mut current_device: Option<String> = None;
 
     rest = rest.trim_start();
 
     while !rest.is_empty() {
-        if rest.starts_with('+') {
-            // +name:value or +device.name:value — single snapshot only
-            // Find the end of this param token (next whitespace or + or ^ or end)
-            let end = rest[1..]
-                .find(|c: char| c.is_whitespace())
-                .map(|p| p + 1)
-                .unwrap_or(rest.len());
-            let token = &rest[..end];
-
-            if let Some((body, val_str)) = token[1..].rsplit_once(':') {
-                if body.contains(':') {
-                    return Err(ParseError::new(
-                        format!(
-                            "param '{body}': sequences unsupported — snapshot only (+name:value or +device.name:value)"
-                        ),
-                        full_input.len() - rest.len(),
-                        full_input.to_string(),
-                    ));
-                }
-                let (device, name) = if let Some((d, n)) = body.rsplit_once('.') {
-                    (Some(d.to_string()), n.to_string())
-                } else {
-                    (None, body.to_string())
-                };
-                match val_str.trim().parse::<f64>() {
-                    Ok(value) => {
-                        params.push(ParamSet {
-                            device,
-                            name,
-                            value,
-                        });
-                        rest = rest[end..].trim_start();
-                        continue;
-                    }
-                    Err(_) => {
-                        return Err(ParseError::new(
-                            format!("invalid param value for '{body}'"),
-                            full_input.len() - rest.len(),
-                            full_input.to_string(),
-                        ));
-                    }
-                }
-            } else {
-                return Err(ParseError::new(
-                    "param format: +name:value or +device.name:value",
-                    full_input.len() - rest.len(),
-                    full_input.to_string(),
-                ));
-            }
+        let token_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        let token = &rest[..token_end];
+        let is_param_token = token.starts_with('+') || (!params.is_empty() && token.contains(':'));
+        if is_param_token {
+            let pos = full_input.len() - rest.len();
+            params.push(parse_param_token(
+                token,
+                &mut current_device,
+                full_input,
+                pos,
+            )?);
+            rest = rest[token_end..].trim_start();
         } else if rest.starts_with("^^") {
             if let Some(num_str) = rest[2..].split_whitespace().next() {
                 let n: i32 = num_str.parse().map_err(|_| {
@@ -609,156 +567,151 @@ fn parse_paren_values<'a>(
     Ok((values, after))
 }
 
-/// Parse `kick&v9kick: decay(50) pitch(40)` or `kick&v9kick: +decay(50) +pitch(40)`.
-fn parse_amp_param_cmd(input: &str) -> ParseResult<MusicLine> {
-    let s = input;
-    let amp = s
-        .find('&')
-        .ok_or_else(|| ParseError::new("expected 'track&device:'", 0, s.to_string()))?;
-    let track = s[..amp].trim().to_string();
-    if track.is_empty() {
-        return Err(ParseError::new("empty track before '&'", 0, s.to_string()));
+/// Pattern-less `+` line after `target:` — device lifecycle op or param snapshot.
+/// `bass: +polymer: off` | `bass: +polymer.cutoff:0.3` | `bass: +cutoff:0.3 res:0.7`
+fn parse_plus_line(track: String, rest: &str, full_input: &str) -> ParseResult<MusicLine> {
+    if let Some((device, op)) = try_parse_device_op(rest, full_input)? {
+        return Ok(MusicLine::DeviceOp(DeviceOpCmd {
+            track,
+            device: DeviceSpec {
+                catalog_name: device,
+            },
+            op,
+        }));
     }
-    let rest = &s[amp + 1..];
-    let colon = rest.find(':').ok_or_else(|| {
-        ParseError::new(
-            "expected 'track&device: params' (colon after device)",
-            amp + 1,
-            s.to_string(),
-        )
-    })?;
-    let device_name = rest[..colon].trim().to_string();
-    if device_name.is_empty() {
-        return Err(ParseError::new(
-            "empty device after '&'",
-            amp + 1,
-            s.to_string(),
-        ));
-    }
-    // Scene/slot uses `@` — reject accidental `track@scene&...` confusion later if needed.
-    let content = rest[colon + 1..].trim();
-    let device = DeviceSpec {
-        catalog_name: device_name,
-    };
-    // Bare device ops (params always have parens, so no ambiguity):
-    // `kick&Polymer: on|off|delete|move N`
-    let op = match content {
-        "on" => Some(DeviceOp::On),
-        "off" => Some(DeviceOp::Off),
-        "delete" => Some(DeviceOp::Delete),
-        _ => content.strip_prefix("move").and_then(|m| {
-            m.trim()
-                .parse::<i32>()
-                .ok()
-                .filter(|_| !m.trim().is_empty())
-                .map(DeviceOp::Move)
-        }),
-    };
-    if let Some(op) = op {
-        return Ok(MusicLine::DeviceOp(DeviceOpCmd { track, device, op }));
-    }
-    if content == "move" || content.starts_with("move ") {
-        return Err(ParseError::new(
-            "move needs a target index: track&device: move 0",
-            amp + 1,
-            s.to_string(),
-        ));
-    }
-    let params = parse_param_assignments(content, s)?;
-    Ok(MusicLine::Param(ParamCmd {
-        track,
-        device,
-        params,
-    }))
-}
 
-/// Parse `t(kick).d(kick.v9): decay(50) pitch(40)` (legacy).
-fn parse_param_cmd(input: &str) -> ParseResult<MusicLine> {
-    let s = input;
-    let rest = s
-        .strip_prefix("t(")
-        .or_else(|| s.strip_prefix("track("))
-        .ok_or_else(|| ParseError::new("expected 't(' or 'track('", 0, s.to_string()))?;
-
-    let (track_name, rest) = parse_paren_arg(rest, s, 0)?;
-
-    let rest = rest
-        .strip_prefix(".d(")
-        .or_else(|| rest.strip_prefix(".device("))
-        .ok_or_else(|| {
-            ParseError::new(
-                "expected '.d(' or '.device('",
-                s.len() - rest.len(),
-                s.to_string(),
-            )
-        })?;
-
-    let (dev, rest) = parse_device_in_paren(rest, s)?;
-
-    let rest = rest
-        .strip_prefix(":")
-        .or_else(|| rest.strip_prefix(": "))
-        .ok_or_else(|| {
-            ParseError::new(
-                "expected ': params...' after device",
-                s.len() - rest.len(),
-                s.to_string(),
-            )
-        })?;
-
-    let params = parse_param_assignments(rest, s)?;
-    Ok(MusicLine::Param(ParamCmd {
-        track: track_name,
-        device: dev,
-        params,
-    }))
-}
-
-/// `decay(50) pitch(40)` or `+decay(50) +pitch(40)` — space-separated, no dots between.
-fn parse_param_assignments(rest: &str, full: &str) -> ParseResult<Vec<(String, f64)>> {
-    let mut params = Vec::new();
-    let mut remaining = rest.trim_start();
-    while !remaining.is_empty() {
-        if remaining.starts_with('+') {
-            remaining = remaining[1..].trim_start();
-        }
-        if let Some((name, after)) = remaining.split_once('(') {
-            let name = name.trim();
-            if name.is_empty() || name.contains(char::is_whitespace) {
-                return Err(ParseError::new(
-                    "param name before '('",
-                    full.len().saturating_sub(remaining.len()),
-                    full.to_string(),
-                ));
-            }
-            let (val_str, after_paren) = after.split_once(')').ok_or_else(|| {
-                ParseError::new(
-                    "expected ')' after param value",
-                    full.len().saturating_sub(remaining.len()),
-                    full.to_string(),
-                )
-            })?;
-            let val: f64 = val_str.trim().parse().map_err(|_| {
-                ParseError::new(
-                    format!("invalid param value: '{val_str}'"),
-                    full.len().saturating_sub(remaining.len()),
-                    full.to_string(),
-                )
-            })?;
-            params.push((name.to_string(), val));
-            remaining = after_paren.trim_start();
-        } else {
-            break;
-        }
-    }
+    let (params, tail) = parse_plus_params_only(rest, full_input)?;
+    reject_trailing(tail, full_input)?;
     if params.is_empty() {
         return Err(ParseError::new(
-            "expected at least one param name(value)",
-            full.len().saturating_sub(rest.len()),
-            full.to_string(),
+            "param format: +name:value or +device.name:value",
+            0,
+            full_input.to_string(),
         ));
     }
-    Ok(params)
+    Ok(MusicLine::ParamSet(ParamSetCmd { track, params }))
+}
+
+/// Try `+device: on|off|delete|move <i32>` — `None` when the shape doesn't match
+/// (falls through to param-token parsing), `Err` when it matches but is malformed
+/// (e.g. `move` with no index).
+fn try_parse_device_op(rest: &str, full_input: &str) -> ParseResult<Option<(String, DeviceOp)>> {
+    let Some(body) = rest.strip_prefix('+') else {
+        return Ok(None);
+    };
+    let Some((name_part, op_part)) = body.split_once(':') else {
+        return Ok(None);
+    };
+    let name = name_part.trim();
+    // A dot means device-param path (`+polymer.cutoff:0.3`), not a device ref.
+    if name.is_empty() || name.contains('.') {
+        return Ok(None);
+    }
+    let op_str = op_part.trim();
+    let op = match op_str {
+        "on" => DeviceOp::On,
+        "off" => DeviceOp::Off,
+        "delete" => DeviceOp::Delete,
+        "move" => {
+            return Err(ParseError::new(
+                format!("move needs a target index: {name}: move 0"),
+                0,
+                full_input.to_string(),
+            ));
+        }
+        _ => match op_str.strip_prefix("move") {
+            Some(idx) if !idx.trim().is_empty() => match idx.trim().parse::<i32>() {
+                Ok(i) => DeviceOp::Move(i),
+                Err(_) => {
+                    return Err(ParseError::new(
+                        format!("invalid move index: '{}'", idx.trim()),
+                        0,
+                        full_input.to_string(),
+                    ));
+                }
+            },
+            _ => return Ok(None),
+        },
+    };
+    Ok(Some((name.to_string(), op)))
+}
+
+/// One `+name:value` / `+device.name:value` token, or a bare `name:value`
+/// continuation that inherits `current_device` from the previous token in the run.
+fn parse_param_token(
+    token: &str,
+    current_device: &mut Option<String>,
+    full_input: &str,
+    pos: usize,
+) -> ParseResult<ParamSet> {
+    let body_with_val = token.strip_prefix('+').unwrap_or(token);
+    let Some((body, val_str)) = body_with_val.rsplit_once(':') else {
+        return Err(ParseError::new(
+            "param format: +name:value or +device.name:value",
+            pos,
+            full_input.to_string(),
+        ));
+    };
+    if body.contains(':') {
+        return Err(ParseError::new(
+            format!(
+                "param '{body}': sequences unsupported — snapshot only (+name:value or +device.name:value)"
+            ),
+            pos,
+            full_input.to_string(),
+        ));
+    }
+    let (device, name) = if let Some((d, n)) = body.rsplit_once('.') {
+        (Some(d.to_string()), n.to_string())
+    } else {
+        (current_device.clone(), body.to_string())
+    };
+    if let Some(d) = &device {
+        *current_device = Some(d.clone());
+    }
+    let value = val_str.trim().parse::<f64>().map_err(|_| {
+        ParseError::new(
+            format!("invalid param value for '{body}'"),
+            pos,
+            full_input.to_string(),
+        )
+    })?;
+    Ok(ParamSet {
+        device,
+        name,
+        value,
+    })
+}
+
+/// A run of `+`-params with no pattern/transpose around them: the whole rest of
+/// the line after `target:` is param tokens (first needs `+`, later ones may be
+/// bare `name:value` inheriting the previous token's device).
+fn parse_plus_params_only<'a>(
+    rest: &'a str,
+    full_input: &str,
+) -> ParseResult<(Vec<ParamSet>, &'a str)> {
+    let mut params = Vec::new();
+    let mut current_device: Option<String> = None;
+    let mut rest = rest.trim_start();
+
+    while !rest.is_empty() {
+        let token_end = rest.find(char::is_whitespace).unwrap_or(rest.len());
+        let token = &rest[..token_end];
+        let is_param_token = token.starts_with('+') || (!params.is_empty() && token.contains(':'));
+        if !is_param_token {
+            break;
+        }
+        let pos = full_input.len() - rest.len();
+        params.push(parse_param_token(
+            token,
+            &mut current_device,
+            full_input,
+            pos,
+        )?);
+        rest = rest[token_end..].trim_start();
+    }
+
+    Ok((params, rest))
 }
 
 /// Parse `mute(kick)` / `mute(kick) 4` / `mute(kick) @bar` / `mute(kick) 4 @bar`
@@ -1351,10 +1304,6 @@ mod tests {
                 r#"scene(verse).track(lead).clip(start)"#,
                 r#"s(verse).t(lead).c(start)"#,
             ),
-            (
-                r#"track(kick).device(v9kick): decay(50)"#,
-                r#"t(kick).d(v9kick): decay(50)"#,
-            ),
         ];
         for (long, short) in pairs {
             let a = parse_music_line(long).unwrap_or_else(|e| panic!("long failed: {long}\n{e}"));
@@ -1384,44 +1333,45 @@ mod tests {
         }
     }
     #[test]
-    fn test_parse_param_cmd_legacy() {
-        let line = "t(kick).d(kick.v9): decay(50) pitch(40)";
+    fn test_parse_plus_param_set_device() {
+        let line = "bass: +polymer.cutoff:0.3";
         let result = parse_music_line(line).unwrap();
-        if let MusicLine::Param(cmd) = result {
-            assert_eq!(cmd.track, "kick");
-            assert_eq!(cmd.device.catalog_name, "kick.v9");
+        if let MusicLine::ParamSet(cmd) = result {
+            assert_eq!(cmd.track, "bass");
+            assert_eq!(cmd.params.len(), 1);
+            assert_eq!(cmd.params[0].device.as_deref(), Some("polymer"));
+            assert_eq!(cmd.params[0].name, "cutoff");
+            assert_eq!(cmd.params[0].value, 0.3);
+        } else {
+            panic!("expected ParamSet, got {:?}", result);
+        }
+    }
+
+    #[test]
+    fn test_parse_plus_param_set_continuation_inherits_device() {
+        let line = "bass: +polymer.cutoff:0.3 res:0.5";
+        let result = parse_music_line(line).unwrap();
+        if let MusicLine::ParamSet(cmd) = result {
             assert_eq!(cmd.params.len(), 2);
-            assert_eq!(cmd.params[0], ("decay".to_string(), 50.0));
-            assert_eq!(cmd.params[1], ("pitch".to_string(), 40.0));
+            assert_eq!(cmd.params[0].device.as_deref(), Some("polymer"));
+            assert_eq!(cmd.params[1].device.as_deref(), Some("polymer"));
+            assert_eq!(cmd.params[1].name, "res");
+            assert_eq!(cmd.params[1].value, 0.5);
         } else {
-            panic!("expected Param, got {:?}", result);
+            panic!("expected ParamSet, got {:?}", result);
         }
     }
 
     #[test]
-    fn test_parse_amp_param_cmd() {
-        let line = "kick&v9kick: decay(50) pitch(40)";
+    fn test_parse_plus_param_set_no_device() {
+        let line = "bass: +cutoff:0.3";
         let result = parse_music_line(line).unwrap();
-        if let MusicLine::Param(cmd) = result {
-            assert_eq!(cmd.track, "kick");
-            assert_eq!(cmd.device.catalog_name, "v9kick");
-            assert_eq!(cmd.params[0], ("decay".to_string(), 50.0));
-            assert_eq!(cmd.params[1], ("pitch".to_string(), 40.0));
+        if let MusicLine::ParamSet(cmd) = result {
+            assert_eq!(cmd.params.len(), 1);
+            assert_eq!(cmd.params[0].device, None);
+            assert_eq!(cmd.params[0].name, "cutoff");
         } else {
-            panic!("expected Param, got {:?}", result);
-        }
-    }
-
-    #[test]
-    fn test_parse_amp_param_plus() {
-        let line = r#"lead&v9 kick: +decay(75)"#;
-        let result = parse_music_line(line).unwrap();
-        if let MusicLine::Param(cmd) = result {
-            assert_eq!(cmd.track, "lead");
-            assert_eq!(cmd.device.catalog_name, "v9 kick");
-            assert_eq!(cmd.params[0], ("decay".to_string(), 75.0));
-        } else {
-            panic!("expected Param");
+            panic!("expected ParamSet, got {:?}", result);
         }
     }
 
@@ -1639,7 +1589,7 @@ mod tests {
 
     #[test]
     fn test_parse_device_ops() {
-        let result = parse_music_line("kick&Polymer: off").unwrap();
+        let result = parse_music_line("kick: +Polymer: off").unwrap();
         assert_eq!(
             result,
             MusicLine::DeviceOp(DeviceOpCmd {
@@ -1652,10 +1602,10 @@ mod tests {
         );
 
         for (line, op) in [
-            ("kick&Polymer: on", DeviceOp::On),
-            ("kick&Polymer: delete", DeviceOp::Delete),
-            ("bass&Delay+: move 0", DeviceOp::Move(0)),
-            ("kick&1: delete", DeviceOp::Delete),
+            ("kick: +Polymer: on", DeviceOp::On),
+            ("kick: +Polymer: delete", DeviceOp::Delete),
+            ("bass: +Delay+: move 0", DeviceOp::Move(0)),
+            ("kick: +1: delete", DeviceOp::Delete),
         ] {
             let result = parse_music_line(line).unwrap();
             match result {
@@ -1665,11 +1615,18 @@ mod tests {
         }
 
         // move without index → error, params unchanged
-        assert!(parse_music_line("kick&Polymer: move").is_err());
+        assert!(parse_music_line("kick: +Polymer: move").is_err());
         assert!(matches!(
-            parse_music_line("kick&v9kick: decay(50)").unwrap(),
-            MusicLine::Param(_)
+            parse_music_line("kick: +v9kick.decay:0.5").unwrap(),
+            MusicLine::ParamSet(_)
         ));
+    }
+
+    #[test]
+    fn test_legacy_amp_and_dot_param_forms_removed() {
+        assert!(parse_music_line("kick&Polymer: off").is_err());
+        assert!(parse_music_line("kick&v9kick: decay(50)").is_err());
+        assert!(parse_music_line("t(kick).d(kick.v9): decay(50)").is_err());
     }
 
     #[test]
@@ -1704,10 +1661,6 @@ mod tests {
             ("clip(bass.0).start", "c(bass.0).start"),
             ("clip(bass.0).rename(intro)", "c(bass.0).rename(intro)"),
             ("clip(bass.0).delete()", "c(bass.0).delete()"),
-            (
-                "track(kick).device(P): decay(50)",
-                "t(kick).d(P): decay(50)",
-            ),
             ("new scene(verse)", "new s(verse)"),
         ];
         for (long, short) in pairs {

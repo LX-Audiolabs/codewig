@@ -25,9 +25,6 @@ pub enum ExecuteError {
     /// Transport / protocol / extension error from the bridge client.
     #[error(transparent)]
     Client(#[from] Error),
-    /// YAML param catalog mapping failed (e.g. display value outside wire 0..1).
-    #[error("{0}")]
-    Catalog(String),
     /// User-input / semantic error (missing track, unknown scene, passthrough in core, …).
     #[error("{0}")]
     Usage(String),
@@ -95,7 +92,7 @@ pub fn execute_line(
         MusicLine::NewScene { name } => scene_new(client, name.as_deref()),
         MusicLine::SceneTrackClip(cmd) => scene_track_clip(client, session, &cmd),
         MusicLine::ClipCtrl(cmd) => clip_ctrl(client, &cmd),
-        MusicLine::Param(cmd) => param(client, &cmd),
+        MusicLine::ParamSet(cmd) => param_set(client, &cmd),
         MusicLine::DeviceOp(cmd) => device_op(client, &cmd),
         MusicLine::Chain(cmd) => chain(client, session, &cmd),
         MusicLine::Fluent(cmd) => fluent(client, session, &cmd),
@@ -474,33 +471,7 @@ fn music(
     apply_note_mods(&mut notes, &cmd.note_mods);
 
     // +params: None → track perform page; Some(dev) → that device's remote page
-    if !cmd.params.is_empty() {
-        client.track_select(&track)?;
-        wait_cursor();
-
-        let mut track_sets: Vec<(String, f64)> = Vec::new();
-        let mut device_groups: std::collections::BTreeMap<String, Vec<(String, f64)>> =
-            std::collections::BTreeMap::new();
-        for p in &cmd.params {
-            match &p.device {
-                None => track_sets.push((p.name.clone(), p.value)),
-                Some(dev) => device_groups
-                    .entry(dev.clone())
-                    .or_default()
-                    .push((p.name.clone(), p.value)),
-            }
-        }
-
-        if !track_sets.is_empty() {
-            client.track_perform_set(&track_sets)?;
-        }
-        for (dev, sets) in device_groups {
-            let idx = resolve_device_index(client, &dev)?;
-            client.device_select(idx)?;
-            wait_cursor();
-            client.device_page_set(&sets)?;
-        }
-    }
+    apply_params(client, &track, &cmd.params)?;
 
     // Notes path already resolved slot (incl. create); don't re-ensure without name.
     let playable: Vec<NoteSpec> = notes.iter().filter(|n| n.vel > 0).cloned().collect();
@@ -826,44 +797,55 @@ fn execute_page_action(
     }
 }
 
-fn param(client: &Client, cmd: &ParamCmd) -> Result<Option<Value>, ExecuteError> {
-    // YAML optional: display→wire when documented; else raw wire 0..1 passthrough.
-    let cat = super::param_catalog::catalog();
-    let sets = cat
-        .map_param_sets(&cmd.device.catalog_name, &cmd.params)
-        .map_err(ExecuteError::Catalog)?;
-
-    client.track_select(&cmd.track)?;
+/// Apply `+params` (from an inline pattern line or a pattern-less [`ParamSetCmd`]):
+/// `device: None` → track Perform page; `device: Some(dev)` → that device's Remote
+/// Control page. Groups by device so each gets one `device.page.set` call.
+fn apply_params(client: &Client, track: &str, params: &[ParamSet]) -> Result<(), ExecuteError> {
+    if params.is_empty() {
+        return Ok(());
+    }
+    client.track_select(track)?;
     wait_cursor();
 
-    // Focus device by name if possible
-    if let Ok(Some(list)) = client.device_list()
-        && let Some(arr) = list.get("devices").and_then(Value::as_array)
-    {
-        let want = catalog_to_bitwig(&cmd.device.catalog_name)
-            .or_else(|| {
-                cat.resolve(&cmd.device.catalog_name)
-                    .map(|d| d.bitwig_name.clone())
-            })
-            .unwrap_or_else(|| cmd.device.catalog_name.clone());
-        let want_l = want.to_lowercase();
-        if let Some(dev) = arr.iter().find(|d| {
-            d.get("name")
-                .and_then(Value::as_str)
-                .map(|n| n.to_lowercase() == want_l || n.to_lowercase().contains(&want_l))
-                .unwrap_or(false)
-        }) && let Some(idx) = dev.get("index").and_then(Value::as_i64)
-        {
-            // best-effort: param.set matches by name even without cursor focus
-            let _ = client.device_select(idx as i32);
-            wait_cursor();
+    let mut track_sets: Vec<(String, f64)> = Vec::new();
+    let mut device_groups: std::collections::BTreeMap<String, Vec<(String, f64)>> =
+        std::collections::BTreeMap::new();
+    for p in params {
+        match &p.device {
+            None => track_sets.push((p.name.clone(), p.value)),
+            Some(dev) => device_groups
+                .entry(dev.clone())
+                .or_default()
+                .push((p.name.clone(), p.value)),
         }
     }
 
-    Ok(client.param_set_multi(&sets)?)
+    if !track_sets.is_empty() {
+        client.track_perform_set(&track_sets)?;
+    }
+    for (dev, sets) in device_groups {
+        let idx = resolve_device_index(client, &dev)?;
+        client.device_select(idx)?;
+        wait_cursor();
+        client.device_page_set(&sets)?;
+    }
+    Ok(())
 }
 
-/// `kick&Polymer: on|off|delete|move N` — device ref = name (case-insensitive) or chain index.
+/// `bass: +polymer.cutoff:0.3` | `bass: +cutoff:0.3` — pattern-less param snapshot.
+fn param_set(client: &Client, cmd: &ParamSetCmd) -> Result<Option<Value>, ExecuteError> {
+    if cmd.track.is_empty() {
+        return Err(usage(
+            "param line needs a track name, e.g. bass: +cutoff:0.3",
+        ));
+    }
+    apply_params(client, &cmd.track, &cmd.params)?;
+    Ok(Some(
+        json!({ "track": cmd.track, "params": cmd.params.len() }),
+    ))
+}
+
+/// `kick: +Polymer: on|off|delete|move N` — device ref = name (case-insensitive) or chain index.
 fn device_op(client: &Client, cmd: &DeviceOpCmd) -> Result<Option<Value>, ExecuteError> {
     client.track_select(&cmd.track)?;
     wait_cursor();
@@ -1314,24 +1296,58 @@ mod tests {
     }
 
     #[test]
-    fn execute_line_param_unknown_device_passthrough() {
+    fn execute_line_param_set_track_perform() {
         let fake = FakeExt::start(|req| match cmd_of(req) {
             "track.select" => ok(json!({ "selected": true })),
-            "device.list" => ok(json!({ "devices": [] })),
-            "param.set" => ok(json!({ "set": true })),
+            "track.perform.set" => ok(json!({ "set": [] })),
             other => panic!("unexpected request {other}"),
         });
         let client = fake_client(fake.port);
         let mut session = MusicSession::default();
-        let line = parse_music_line("bass&nosuchdev: cutoff(0.5)").unwrap();
+        let line = parse_music_line("bass: +cutoff:0.3").unwrap();
         execute_line(&client, &mut session, line).unwrap();
 
         let reqs = fake.drain();
-        assert_eq!(cmds(&reqs), ["track.select", "device.list", "param.set"]);
+        assert_eq!(cmds(&reqs), ["track.select", "track.perform.set"]);
         assert_eq!(reqs[0].get("ref").and_then(Value::as_str), Some("bass"));
-        // No YAML entry for "nosuchdev" → raw wire 0..1 passthrough, name as typed.
-        let sets = reqs[2].get("sets").and_then(Value::as_array).unwrap();
-        assert_eq!(sets, &vec![json!({ "name": "cutoff", "v": 0.5 })]);
+        let sets = reqs[1].get("sets").and_then(Value::as_array).unwrap();
+        assert_eq!(sets, &vec![json!({ "name": "cutoff", "v": 0.3 })]);
+    }
+
+    #[test]
+    fn execute_line_param_set_device_page() {
+        let fake = FakeExt::start(|req| match cmd_of(req) {
+            "track.select" => ok(json!({ "selected": true })),
+            "device.list" => ok(json!({ "devices": [
+                { "name": "Polymer", "index": 0 }
+            ]})),
+            "device.select" => ok(json!({ "selected": true })),
+            "device.page.set" => ok(json!({ "set": [] })),
+            other => panic!("unexpected request {other}"),
+        });
+        let client = fake_client(fake.port);
+        let mut session = MusicSession::default();
+        let line = parse_music_line("bass: +Polymer.cutoff:0.3 res:0.5").unwrap();
+        execute_line(&client, &mut session, line).unwrap();
+
+        let reqs = fake.drain();
+        assert_eq!(
+            cmds(&reqs),
+            [
+                "track.select",
+                "device.list",
+                "device.select",
+                "device.page.set"
+            ]
+        );
+        let sets = reqs[3].get("sets").and_then(Value::as_array).unwrap();
+        assert_eq!(
+            sets,
+            &vec![
+                json!({ "name": "cutoff", "v": 0.3 }),
+                json!({ "name": "res", "v": 0.5 }),
+            ]
+        );
     }
 
     #[test]

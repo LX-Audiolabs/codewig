@@ -491,11 +491,9 @@ pub fn device_params(name: &str) -> Option<&'static [&'static str]> {
     None
 }
 
-/// Param names from MD catalog when available; else static table.
+/// Param names from the static table (device/perform params live in Bitwig
+/// Remote Control / Perform pages now, not a curated catalog).
 pub fn device_param_names(name: &str) -> Vec<String> {
-    if let Some(dev) = super::param_catalog::catalog().resolve(name) {
-        return dev.params.iter().map(|p| p.name.clone()).collect();
-    }
     device_params(name)
         .map(|s| s.iter().map(|x| (*x).to_string()).collect())
         .unwrap_or_default()

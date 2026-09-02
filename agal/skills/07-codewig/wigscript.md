@@ -3,7 +3,7 @@ id: wigscript
 group: codewig
 summary: WIGSCRIPT layers, parse/expand/execute path, invalid patterns, device/param rules for CODEWIG.
 triggers: wigscript, fluent, colon notes, music parse, mute, scene, clip, device param, mini-notation, codewig-core
-verify: four layers not mixed; quotes on note patterns; & for params; TCP via core Client; no bare Tidal
+verify: four layers not mixed; quotes on note patterns; + for params; TCP via core Client; no bare Tidal
 adapted: true
 ---
 
@@ -39,7 +39,7 @@ line string
 |-------|------|--------|
 | **Fluent** | Create structure | `new track(name).device(…).n("…").clip(start)` |
 | **Colon** | Write into existing cell | `track: n "…"` · `track@scene: n "…"` |
-| **Param** | Snapshot device params | `track&device: decay(50)` |
+| **Param** | Snapshot device/perform params | `track: +device.param:val` |
 | **Performance** | Transport / launch / mute | `play` · `s(verse).start` · `mute(kick) 4` |
 
 Long ≡ short: `track`/`t`, `clip`/`c`, `scene`/`s`, `device`/`d`, `notes`/`n`.
@@ -57,7 +57,7 @@ Long ≡ short: `track`/`t`, `clip`/`c`, `scene`/`s`, `device`/`d`, `notes`/`n`.
 - Bare `c e g` or Tidal full lines
 - `d "bd hh"` hit-maps / Drum Machine kit syntax
 - `drums:909:` style kits
-- Param keys on note lines without documented `+param:` / `&device` forms
+- Param keys on note lines without documented `+param:` / `+device.param:` forms
 - Assuming UI shells out to CLI
 
 ## Devices
@@ -73,7 +73,7 @@ Long ≡ short: `track`/`t`, `clip`/`c`, `scene`/`s`, `device`/`d`, `notes`/`n`.
 
 1. Which layer is this line? (one job)
 2. Does it need quotes around mini-notation?
-3. Params → `&` between track and device?
+3. Params → `+device.param:val` on a target line (`+device:` for lifecycle)?
 4. Change parse? Keep UI + CLI on same `parse_music_line` path.
 5. Bridge only via `Client` — no second protocol.
 

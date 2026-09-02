@@ -15,8 +15,8 @@ pub mod scale;
 pub use alias_catalog::{DeviceAlias, DeviceHostKind};
 pub use ast::{
     ArpStyle, BeatSpec, ClipAction, ClipCtrlCmd, ClipCtrlRef, ClipRef, DeviceSpec, FluentCmd,
-    FluentStep, LaunchAction, MusicAction, MusicCmd, MusicLine, MuteCmd, MuteQuantize, ParamCmd,
-    ParamSet, SceneClipAction, SceneCmd, SceneRef, SceneTrackClipCmd, Target, TrackRef,
+    FluentStep, LaunchAction, MusicAction, MusicCmd, MusicLine, MuteCmd, MuteQuantize, ParamSet,
+    ParamSetCmd, SceneClipAction, SceneCmd, SceneRef, SceneTrackClipCmd, Target, TrackRef,
 };
 pub use device::{
     DRUM_DEVICES, Device, DeviceKind, INSERTABLE, MONO_DRUM_NOTE, catalog_to_bitwig,
@@ -24,8 +24,6 @@ pub use device::{
 };
 pub use execute::{ExecuteError, MusicSession, execute_line, resolve_track_at, run_chain};
 pub use expand::{ExpandError, expand_arp, expand_beat, expand_chord, expand_music_line};
-pub use param_catalog::{
-    DeviceParamFile, ParamCatalog, ParamDef, catalog as param_catalog, reload_catalog,
-};
+pub use param_catalog::{DeviceParamFile, ParamCatalog, catalog as param_catalog, reload_catalog};
 pub use parse::{ParseError, parse_mini_pattern, parse_music_line};
 pub use scale::{SCALES, Scale, ScaleError, ScaleKind, key_to_midi, note_to_midi};

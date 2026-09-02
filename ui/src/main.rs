@@ -61,12 +61,12 @@ struct CommandsYaml {
 
 fn commands_yaml_path() -> Option<std::path::PathBuf> {
     // 1. Next to the executable (packaged / installed builds).
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            let p = dir.join("commands.yaml");
-            if p.exists() {
-                return Some(p);
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(dir) = exe.parent()
+    {
+        let p = dir.join("commands.yaml");
+        if p.exists() {
+            return Some(p);
         }
     }
     // 2. Current working directory.
