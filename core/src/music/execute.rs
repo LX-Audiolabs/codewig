@@ -508,11 +508,6 @@ fn chain(
     wait_cursor();
 
     let mut added = Vec::new();
-    // Drum kit shell: insert Instrument Layer when kit requested and no devices
-    if cmd.drum_kit.is_some() && cmd.devices.is_empty() {
-        added.push(add_device(client, "layer")?);
-        wait_cursor();
-    }
     for d in &cmd.devices {
         added.push(add_device(client, d)?);
         wait_cursor();
@@ -527,7 +522,7 @@ fn chain(
     );
 
     Ok(Some(json!({
-        "chain": { "name": cmd.name, "kind": cmd.kind, "drum_kit": cmd.drum_kit },
+        "chain": { "name": cmd.name, "kind": cmd.kind },
         "created": created,
         "devices": added,
     })))
@@ -663,7 +658,6 @@ fn fluent(
                     target: Target {
                         track: cmd.track.clone(),
                         clip: None, // slot 0 via write_notes/ensure
-                        drum_kit: None,
                     },
                     action: MusicAction::Notes,
                     pattern: pattern.clone(),

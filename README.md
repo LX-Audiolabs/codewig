@@ -101,11 +101,11 @@ t(bass).rename(low)
 > **Important:** `.n` and `.beat` write **slot 0 only**. For multiple clips per
 > track use colon notation `track@scene: n "…"`.
 
-Chain shorthand (no `new track`): `!name [kind:kit] device1 device2 …`
+Chain shorthand (no `new track`): `!name[:kind] device1 device2 …`
 
 ```wigscript
 !bass Polymer Filter Delay-2        # instrument track, devices in order
-!drums:909 layer                    # drum-kit shell
+!fx:audio Delay+                    # audio track, kind override
 ```
 
 ### Authoring — beat DSL (rhythm)
@@ -195,7 +195,7 @@ lead: arp:up "Cm7"           # arp: up|down|updown|rand
 Colon addressing: `track:`, `track@scene:`, `track@0:` (scene name must exist
 first via `new scene(name)`; index 0 is primary). No `@` → slot 0.
 
-**Invalid:** bare `c e g` · `d "bd hh"` · `drums:909: …` · params glued onto note lines.
+**Invalid:** bare `c e g` · `d "bd hh"` · params glued onto note lines.
 
 ### Performance
 
@@ -351,7 +351,7 @@ WIGSCRIPT is **functional but still in development** — expect grammar tweaks.
 | Device ops | ✅ `+device: on` / `off` / `delete` / `move N` |
 | Live triggers | ✅ play/stop, tempo, mute (incl. timed + `@bar`), scene/clip launch |
 | Scenes / clips | ✅ create/rename/delete; scene × track clip cells |
-| **Open / not supported** | Sequences/ramps/automation 🚧 · Expander edge cases 🚧 · Per-device param YAMLs removed · Sampler / Drum Machine insert, `d "bd hh"`, kit `:909`, bare Tidal, VST3/LV2 param catalog |
+| **Open / not supported** | Sequences/ramps/automation 🚧 · Expander edge cases 🚧 · Per-device param YAMLs removed · Sampler / Drum Machine insert, `d "bd hh"`, bare Tidal, VST3/LV2 param catalog |
 
 ---
 

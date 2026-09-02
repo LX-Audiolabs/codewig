@@ -253,7 +253,6 @@ pub enum ArpStyle {
 pub struct Target {
     pub track: String,
     pub clip: Option<ClipRef>,
-    pub drum_kit: Option<String>, // "808", "909", "retro"
 }
 
 /// Clip / scene-row address on a track (Bitwig: column=track, row=scene slot).
@@ -297,7 +296,6 @@ pub struct ParamSet {
 pub struct ChainCmd {
     pub name: String,
     pub kind: String, // "instrument" default
-    pub drum_kit: Option<String>,
     pub devices: Vec<String>,
 }
 

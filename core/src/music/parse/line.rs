@@ -114,25 +114,16 @@ fn parse_chain(rest: &str, full_input: &str) -> ParseResult<MusicLine> {
     let name_kind = parts.remove(0);
     let mut name = name_kind.to_string();
     let mut kind = "instrument".to_string();
-    let mut drum_kit: Option<String> = None;
 
-    // Check for `name:kit` suffix
-    if let Some((n, kit)) = name_kind.split_once(':') {
+    // Check for `name:kind` suffix, e.g. `!bass:audio`
+    if let Some((n, k)) = name_kind.split_once(':') {
         name = n.to_string();
-        let kit_lower = kit.to_lowercase();
-        match kit_lower.as_str() {
-            "808" | "909" | "retro" | "default" => drum_kit = Some(kit_lower),
-            _ => {
-                // Could be a track kind
-                kind = kit_lower;
-            }
-        }
+        kind = k.to_lowercase();
     }
 
     Ok(MusicLine::Chain(ChainCmd {
         name,
         kind,
-        drum_kit,
         devices: parts.iter().map(|s| s.to_string()).collect(),
     }))
 }
@@ -142,8 +133,7 @@ fn parse_music_cmd(input: &str) -> ParseResult<MusicLine> {
 
     // Find track target: everything before the first unquoted space after `:`
     // Format: `target: cmd "pattern" +params`
-    // or: `d:808 "pattern"`  (shorthand)
-    // or: `d "pattern"`      (focused drum track)
+    // or: `d "pattern"` / `d:x "pattern"` — rejected, see parse_action_name
 
     // First, try to split on `: ` or just find the command
     let (target_str, rest) = if let Some(pos) = find_colon_sep(s) {
@@ -206,13 +196,11 @@ fn parse_target(s: &str) -> ParseResult<Target> {
         return Ok(Target {
             track: String::new(),
             clip: None,
-            drum_kit: None,
         });
     }
 
     let mut track = s.to_string();
     let mut clip: Option<ClipRef> = None;
-    let mut drum_kit: Option<String> = None;
 
     // Bitwig address: track@slot or track@sceneName (row = scene)
     if let Some(at_pos) = track.find('@') {
@@ -231,24 +219,11 @@ fn parse_target(s: &str) -> ParseResult<Target> {
         });
     }
 
-    // Check for :kit suffix on track
-    if let Some((t, kit)) = track.split_once(':') {
-        let kit_lower = kit.to_lowercase();
-        if matches!(kit_lower.as_str(), "808" | "909" | "retro" | "default") {
-            track = t.to_string();
-            drum_kit = Some(kit_lower);
-        }
-    }
-
-    Ok(Target {
-        track,
-        clip,
-        drum_kit,
-    })
+    Ok(Target { track, clip })
 }
 
 fn parse_shorthand(input: &str) -> ParseResult<MusicLine> {
-    // `d "pattern"` or `d:808 "pattern"`
+    // `d "pattern"`
     let s = input;
     let bytes = s.as_bytes();
 
@@ -257,7 +232,7 @@ fn parse_shorthand(input: &str) -> ParseResult<MusicLine> {
     let cmd = &s[..cmd_end];
     let rest = s[cmd_end..].trim_start();
 
-    let (action, drum_kit) = parse_action_name(cmd)?;
+    let action = parse_action_name(cmd)?;
 
     // Find quoted pattern + optional note expression modifiers
     let (pattern, rest2) = extract_quoted(rest, s)?;
@@ -269,7 +244,6 @@ fn parse_shorthand(input: &str) -> ParseResult<MusicLine> {
         target: Target {
             track: String::new(),
             clip: None,
-            drum_kit,
         },
         action,
         pattern,
@@ -280,9 +254,9 @@ fn parse_shorthand(input: &str) -> ParseResult<MusicLine> {
     }))
 }
 
-fn parse_action_name(cmd: &str) -> ParseResult<(MusicAction, Option<String>)> {
+fn parse_action_name(cmd: &str) -> ParseResult<MusicAction> {
     if cmd == "n" {
-        Ok((MusicAction::Notes, None))
+        Ok(MusicAction::Notes)
     } else if cmd == "d" || cmd.starts_with("d:") {
         // Hit markers (bd/hh/sd) are Drum Machine / Strudel — not mono Bitwig modules.
         Err(ParseError::new(
@@ -291,11 +265,11 @@ fn parse_action_name(cmd: &str) -> ParseResult<(MusicAction, Option<String>)> {
             cmd.to_string(),
         ))
     } else if cmd == "chord" {
-        Ok((MusicAction::Chord, None))
+        Ok(MusicAction::Chord)
     } else if cmd == "arp" {
-        Ok((MusicAction::Arp(ArpStyle::Up), None))
+        Ok(MusicAction::Arp(ArpStyle::Up))
     } else if let Some(style) = cmd.strip_prefix("arp:") {
-        Ok((MusicAction::Arp(parse_arp_style(style)?), None))
+        Ok(MusicAction::Arp(parse_arp_style(style)?))
     } else {
         Err(ParseError::new(
             format!(
@@ -335,7 +309,7 @@ fn parse_action_pattern<'a>(
         )
     })?;
 
-    let (action, _drum_kit) = parse_action_name(action_name)?;
+    let action = parse_action_name(action_name)?;
 
     let (pattern, rest2) = extract_quoted(rest1, full_input)?;
 
@@ -1176,12 +1150,12 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_chain_with_kit() {
-        let line = "!drums:808";
+    fn test_parse_chain_with_kind() {
+        let line = "!drums:audio";
         let result = parse_music_line(line).unwrap();
         if let MusicLine::Chain(cmd) = result {
             assert_eq!(cmd.name, "drums");
-            assert_eq!(cmd.drum_kit, Some("808".to_string()));
+            assert_eq!(cmd.kind, "audio");
         } else {
             panic!("expected Chain");
         }

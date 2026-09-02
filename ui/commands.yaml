@@ -13,6 +13,21 @@ commands:
         new track(bass).device(Polymer).n("c e g")
     tag: track
 
+  - name: '!chain'
+    summary: create track + device chain (shorthand)
+    syntax: '!bass Polymer Filter Delay-2'
+    detail: |
+      Quick track + multi-device chain, no fluent dots. Devices insert in order.
+
+      Syntax:
+        !name dev1 dev2 dev3...
+        !name:kind dev1 dev2...   — kind = track type (e.g. instrument, audio)
+
+      Examples:
+        !bass Polymer Filter Delay-2
+        !drums:audio
+    tag: track
+
   - name: t() / track()
     summary: reference track by name
     syntax: t(name)
@@ -256,9 +271,19 @@ commands:
       Operators:
         space = next beat-event
         ~ rest (1 beat)
+        , superpose — extra layer, e.g. n "c e, g a"
         [a b c d] subdivide one beat into 16ths
-        *N repeat   /N slow   _ elongate
-        <a b> alternate   (3,8) euclid
+        <a b> alternate (cycle through, one per bar)
+        {a b} polymetric — independent per-cycle length groups
+        {a b c}%N subdivide group into N steps
+        [a | b] random choice inside a group
+
+      Per-event suffixes:
+        *N repeat   /N slow   !N replicate
+        _ elongate   @N elongate by N
+        ? / ?0.3 random drop (default/given probability)
+        :N octave shift
+        (3,8) euclid   (3,8,1) euclid with offset
 
       Steps 1-3 (16ths): use groups, e.g. n "[c d e f]"
     tag: notes
@@ -429,25 +454,40 @@ commands:
       No device rename — not supported.
     tag: device
 
-  - name: .page / .perform
-    summary: remote-control device / track pages
+  - name: .page
+    summary: remote-control device page
     syntax: t(bass).device(Polymer).page(list)
     detail: |
-      Control Bitwig Remote Control slots without needing a full param catalog.
+      Control the 8 Remote Control slots on a device, without needing a full
+      param catalog.
 
-      Device page (8 Remote Control slots on the device):
+      Syntax:
         t(mytrack).device(Polymer).page(list)
         t(mytrack).device(Polymer).page(cutoff=0.3)
 
       Inline on a note line (same track, named device):
         mytrack: n "c e g" +Polymer.cutoff:0.3
 
-      Track Perform page (8 project/track Remote Control slots, no device):
-        t(mytrack).perform(list)
-        mytrack: n "c e g" +cutoff:0.3
-
-      Use .page(list) / .perform(list) first to see the slot names Bitwig exposes.
+      Use .page(list) first to see the slot names Bitwig exposes.
     tag: device
+
+  - name: .perform
+    summary: remote-control track page
+    syntax: t(bass).perform(list)
+    detail: |
+      Control the 8 project/track Remote Control slots (Perform page) —
+      no device involved.
+
+      Syntax:
+        t(mytrack).perform(list)
+        t(mytrack).perform(cutoff=0.3)
+
+      Inline on a note line, snapshot only (no device prefix → track page):
+        mytrack: n "c e g" +cutoff:0.3
+        mytrack: +cutoff:0.3
+
+      Use .perform(list) first to see the slot names Bitwig exposes.
+    tag: track
 
   - name: k / key
     summary: set key and scale

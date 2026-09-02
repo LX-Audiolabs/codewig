@@ -56,7 +56,6 @@ Long ≡ short: `track`/`t`, `clip`/`c`, `scene`/`s`, `device`/`d`, `notes`/`n`.
 
 - Bare `c e g` or Tidal full lines
 - `d "bd hh"` hit-maps / Drum Machine kit syntax
-- `drums:909:` style kits
 - Param keys on note lines without documented `+param:` / `+device.param:` forms
 - Assuming UI shells out to CLI
 
