@@ -95,19 +95,64 @@ commands:
         tempo 128
     tag: transport
 
-  - name: s() / scene / new scene
-    summary: scenes + clips (Bitwig launcher)
+  - name: new scene
+    summary: create a scene row
+    syntax: new scene(verse)
+    detail: |
+      Bitwig: scene = row, track = column, clip = cell.
+
+      Syntax:
+        new scene
+        new scene(verse)
+
+      Examples:
+        new scene
+        new scene(verse)
+    tag: scene
+
+  - name: s() / scene()
+    summary: launch or stop a scene row
+    syntax: s(verse).start
+    detail: |
+      Reference an existing scene by index or name.
+
+      Syntax:
+        s(index|name).start  /  scene(index|name).start
+        s(index|name).stop
+
+      Examples:
+        s(0).start
+        s(verse).start
+        s(verse).stop
+    tag: scene
+
+  - name: scene rename / delete
+    summary: rename or delete a scene row
+    syntax: s(verse).rename(drop)
+    detail: |
+      Rename or delete an existing scene.
+
+      Syntax:
+        s(scene).rename(new name)
+        s(scene).delete()
+
+      Examples:
+        s(verse).rename(drop)
+        s(0).delete()
+    tag: scene
+
+  - name: s().t().c()
+    summary: clip at scene×track intersection
     syntax: s(verse).t(lead).c(new)
     detail: |
       Bitwig: scene = row, track = column, clip = cell.
 
-      Scenes:
-        new scene
-        new scene(verse)
-        s(0).start | s(verse).start | .stop
-        s(verse).rename(drop) | s(0).delete()
+      Syntax:
+        s(scene).t(track).c(new)
+        s(scene).t(track).c(new, name)
+        s(scene).t(track).c(start)
 
-      Clips at scene×track:
+      Examples:
         s(verse).t(lead).c(new)
         s(1).t(bass).c(new, intro)
         s(verse).t(lead).c(start)
@@ -311,7 +356,7 @@ commands:
       off off-beats:        3, 7, 11, 15 — each 1 beat long
       2_4 / bk2:            1, 9 — half notes (2 beats)
       beat:16(…) explicit 1-based steps ok
-    tag: drum
+    tag: notes
 
   - name: .device() / .add()
     summary: insert instrument or FX

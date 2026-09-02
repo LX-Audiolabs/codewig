@@ -264,17 +264,17 @@ export component AppWindow inherits Window {
                             ta4 := TouchArea { clicked => { if root.ref-tag == "clip" { root.ref-tag = ""; } else { root.ref-tag = "clip"; } } }
                             Text { x: 6px; y: 4px; text: "clip"; font-size: 11px; color: root.ref-tag == "clip" ? text : muted; }
                         }
+                        tag-device := Rectangle {
+                            height: 24px; width: 50px;
+                            background: root.ref-tag == "device" ? tag-active : tag-bg; border-radius: 4px;
+                            ta5 := TouchArea { clicked => { if root.ref-tag == "device" { root.ref-tag = ""; } else { root.ref-tag = "device"; } } }
+                            Text { x: 5px; y: 4px; text: "device"; font-size: 11px; color: root.ref-tag == "device" ? text : muted; }
+                        }
                         tag-notes := Rectangle {
                             height: 24px; width: 42px;
                             background: root.ref-tag == "notes" ? tag-active : tag-bg; border-radius: 4px;
-                            ta5 := TouchArea { clicked => { if root.ref-tag == "notes" { root.ref-tag = ""; } else { root.ref-tag = "notes"; } } }
+                            ta6 := TouchArea { clicked => { if root.ref-tag == "notes" { root.ref-tag = ""; } else { root.ref-tag = "notes"; } } }
                             Text { x: 5px; y: 4px; text: "notes"; font-size: 11px; color: root.ref-tag == "notes" ? text : muted; }
-                        }
-                        tag-drum := Rectangle {
-                            height: 24px; width: 40px;
-                            background: root.ref-tag == "drum" ? tag-active : tag-bg; border-radius: 4px;
-                            ta6 := TouchArea { clicked => { if root.ref-tag == "drum" { root.ref-tag = ""; } else { root.ref-tag = "drum"; } } }
-                            Text { x: 5px; y: 4px; text: "drum"; font-size: 11px; color: root.ref-tag == "drum" ? text : muted; }
                         }
                     }
 
